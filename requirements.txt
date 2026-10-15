@@ -1,0 +1,3 @@
+# HTTP client and native OS credential-store integration used by the demo.
+httpx>=0.27,<1
+keyring>=25,<26

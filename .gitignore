@@ -1,0 +1,3 @@
+# Python bytecode and local environment files are machine-specific and may hold secrets.
+__pycache__
+.env
