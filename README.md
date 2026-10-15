@@ -38,6 +38,8 @@ and the before/after inventory check. Edit the prompts in `main()` to change the
 you can set `$env:AGS_TOKEN = 'sess_...'`; the script validates and securely saves
 it. Tokens are never printed or written to a plaintext file.
 
+# IMPORTANT! When services are down, no calls to right-hand-man.space routes will work. Let Brandon know if they are down.
+
 ## Exact flow for each teammate
 
 ### Once, when joining
