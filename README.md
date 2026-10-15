@@ -38,61 +38,6 @@ and the before/after inventory check. Edit the prompts in `main()` to change the
 you can set `$env:AGS_TOKEN = 'sess_...'`; the script validates and securely saves
 it. Tokens are never printed or written to a plaintext file.
 
-## Exact flow for you as administrator
-
-### 1. Create two separate invitations
-
-1. Open [the RHM app](https://app.right-hand-man.space) and sign in with your
-   **administrator account**.
-2. Open **Settings → Users → Invites**. The Users panel appears only for an
-   authenticated administrator.
-3. Set **Valid for days**, for example `7`, and choose **Create invite**.
-4. **Copy** the displayed `invtok_...` credential before dismissing it, switching
-   sections, or creating another invitation. It is shown once.
-5. Choose **Create invite** again and copy the second credential separately.
-6. Privately send a different invitation to each teammate. Also give them the
-   app address, this examples directory, and the OpenRouter team key through
-   your chosen secret-sharing channel.
-
-One invitation enrolls one account. It is single-use and expires after the
-chosen 1–90 days. The pending list shows metadata, not the original secret.
-Use **Revoke** for an unused invitation, and create a replacement if necessary.
-
-The UI calls `POST /api/v1/admin/users/invites` with `{"days":7}` on the app
-gateway. That gateway checks your administrator session and calls the private
-identity `POST /api/v1/auth/invites`. AGS service/master tokens do not authenticate
-you as an identity administrator. The example public identity ingress excludes
-the direct invitation-administration route, so use the app UI.
-
-### 2. Wait for both teammates to enroll
-
-They redeem their invitations and register their own passkeys using the flow
-in the next section. Their usernames then appear under **Settings → Users**.
-An invitation does not automatically grant agent execution.
-
-### 3. Grant agent execution to each teammate
-
-Open **Settings → Users → Users**, find a teammate, and choose **Edit access**.
-Alternatively, use **Access → Grant access** for a pending request. Configure:
-
-| Field | Example that supports this demo |
-|---|---|
-| Enabled | Checked |
-| Expires at | A future UTC ISO timestamp, for example `2026-11-15T00:00:00Z` |
-| Maximum agents | At least 2 unused slots; choose more if they also keep other agents |
-| Maximum budget USD | At least `0.10` |
-| Maximum ticks | At least `4` |
-| Maximum model requests per tick | At least `4` |
-| Maximum tick wall clock seconds | At least `120` |
-| Playground operator | Unchecked |
-| Hosted orchestration | Unchecked |
-
-Choose **Save access**, then repeat for the other teammate. The editor defaults
-to a **zero budget**, which blocks execution; choose a positive allowance.
-The gateway calls `PUT /api/v1/admin/users/access/{user_id}`, forwarding an
-expiring `HostedAccessGrant` to AGS. You can edit an enrolled user's access
-without waiting for an access request.
-
 ## Exact flow for each teammate
 
 ### Once, when joining
