@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "One bounded maintenance decision",
+  "oneOf": [
+    {
+      "type": "object", "additionalProperties": false,
+      "required": ["action", "mapping"],
+      "properties": {
+        "action": {"const": "replace_mapping"},
+        "mapping": {"$ref": "mapping.schema.json"}
+      }
+    },
+    {
+      "type": "object", "additionalProperties": false,
+      "required": ["action", "reason_code"],
+      "properties": {
+        "action": {"const": "fail"},
+        "reason_code": {"enum": ["unsupported_schema", "insufficient_evidence"]}
+      }
+    }
+  ]
+}

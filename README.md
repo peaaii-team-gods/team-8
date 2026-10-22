@@ -1,297 +1,182 @@
-<!-- This document is the operational guide for running and safely cleaning up the AGS demo. -->
-# Two agent AGS demo and teammate setup
+# Two-role data pipeline pilot
 
-Each teammate gets their own AGS account. Everyone can use the same OpenRouter
-team key to fund model calls. The demo securely reuses a saved session, creates
-a Planner and Reviewer, relays their work between them, prints a combined
-result, then removes its active agents and temporary provider-key registration.
+Builder and Validator/Maintainer collaborate through two sequential RHM public
+workflow/run submissions. Builder selects a strictly bounded field mapping. Fixed
+local Python ingests a tiny CSV, doubles its readings, and validates every output.
+A second fixture renames `reading` to `value`, causing a real contract failure.
+Maintainer receives Builder's actual mapping/output and the failure evidence,
+proposes at most one mapping repair, and local code reruns independent validation.
 
-**Cleanup boundary:** active agent IDs and registered key IDs must match their
-pre-run inventories before the script reports success. AGS `DELETE /agents`
-archives agents; run history, messages, audit/billing records and provider charges
-remain. The saved login is an intentional persistent change. The current AGS API
-cannot make the entire system literally identical before and after execution.
+**Execution boundary:** model decisions run on the backend's configured local
+model. CSV ingestion, transformation and acceptance run in this Python client.
+This pilot does **not** demonstrate hosted sandbox execution. It executes no
+model-generated code and registers no provider keys or persistent agents.
 
-No invitations are created by these scripts or these instructions. The steps
-below describe the current source UI and API; the installed deployment must
-include those features and be reachable.
+**Frontend:** the agent canvas demo lives in [`frontend/`](frontend/README.md) (visual agent/data-lake canvas consuming this public API; simulated by default).
 
-## Run the demo
+## Run
 
-Requires Python 3.10+, the three Python files in this directory, and its
-dependencies. From the repository root, run in PowerShell:
-
-```powershell
-python -m pip install -r examples/requirements.txt
-$env:OPENROUTER_API_KEY = '<the OpenRouter team API key>'
-python two_agents.py
-```
-
-On the first run, the browser opens for passkey authorization. Later runs reuse
-the saved session while it remains valid. The Planner proposes a pipeline for
-readings `[2, 4, 6]`; the Reviewer checks it; the Planner incorporates the feedback.
-The expected calculation is doubling to `[4, 8, 12]` and summing to `24`.
-Every handoff and the combined result appear in the console, followed by cleanup
-and the before/after inventory check. Edit the prompts in `main()` to change the work.
-
-`AGS_KEY_ID` is no longer an input. If you already have a full AGS user session,
-you can set `$env:AGS_TOKEN = 'sess_...'`; the script validates and securely saves
-it. Tokens are never printed or written to a plaintext file.
-
-# IMPORTANT! When services are down, no calls to right-hand-man.space routes will work. Let Brandon know if they are down.
-
-## Exact flow for each teammate
-
-### Once, when joining
-
-1. Receive their own invitation, the app address, the shared OpenRouter key,
-   and this examples directory (`two_agents.py`, `login.py`,
-   `resources.py`, and `requirements.txt`).
-2. Open [the RHM app](https://app.right-hand-man.space).
-3. On the passkey sign-in screen, expand **Enroll or recover an account**.
-   Select **Invitation**, enter a unique username and their `invtok_...`, and
-   give the passkey a name.
-4. Choose **Register passkey** and complete the browser/device passkey prompt.
-   The app then performs passkey sign-in. This creates their account and their
-   personal sign-in credential; it does not share your administrator account.
-5. Tell you enrollment is complete. They can request agent-service access if
-   the app presents that action; you can also edit their grant directly.
-6. Wait for you to enable their grant with enough capacity for the demo.
-7. Install Python 3.10+ and run `python -m pip install -r examples/requirements.txt`
-   once from the repository root. For a standalone copy of this folder, use
-   `python -m pip install -r requirements.txt`.
-
-On an older password-enabled deployment, the equivalent enrollment choice is
-**Redeem invite**, and they must save the issued personal credentials. The
-automatic browser helper in this example targets the current passkey/native
-authorization API. An older installation without that flow needs an existing
-full user session supplied through `AGS_TOKEN` instead.
-
-### Each terminal session
-
-Set the shared provider key in that terminal:
+Requires Python 3.10+ and an operator-provisioned personal Identity account.
+The operator must have launched the API and configured its local model; the CLI
+checks capabilities before submitting work. From this repository:
 
 ```powershell
-$env:OPENROUTER_API_KEY = '<the OpenRouter team API key>'
+python -m pip install -r requirements.txt
+python two_agents.py --username teammate --source fixtures/readings.csv --drift-source fixtures/readings-drift.csv --state-dir .pilot-state --output pilot-result.json
 ```
 
-This environment setting is inherited by Python and lasts for that shell
-session. It does not sign the teammate into AGS. They need not register the key
-manually or copy an AGS key ID.
+Enter your password at the hidden prompt. For a new personal account, obtain your
+own invitation from the operator and add `--enroll`:
 
-### Every demo run
+```powershell
+python two_agents.py --enroll --username teammate --state-dir .pilot-state --output pilot-result.json
+```
 
-1. Run `python two_agents.py` from the repository root. If they
-   received only the examples folder, keep its files together and run
-   `python two_agents.py` from that folder.
-2. Python loads the session from the native OS credential store and checks it
-   with identity `GET /api/v1/auth/me`. A valid saved session is reused without
-   a browser prompt. A network/server error stops the run without discarding it.
-3. If no session exists, or the cached one receives 401, the browser opens.
-   Choose **Verify passkey and authorize**. The generic authorization screen
-   currently labels this request **RHM Windows client**. A one-time code returns
-   to Python's temporary loopback listener; Python exchanges it for its own
-   session and saves it in the OS credential store.
-4. Before new work, Python recovers any pending cleanup journal for this
-   account/deployment. It then checks the current user's grant and two available
-   hosted-agent slots. Missing access fails before registering a provider key.
-5. Python snapshots active agent IDs and registered key IDs, writes a recovery
-   journal, and registers a uniquely labeled temporary copy of the OpenRouter
-   key. Neither the provider secret nor session token goes into the journal.
-6. Python creates **Planner** and **Reviewer** using that saved-key reference.
-7. **Planner → Reviewer:** Planner proposes the small pipeline. Python prints
-   that actual answer and sends it to Reviewer.
-8. **Reviewer → Planner:** Reviewer checks the proposal. Python prints that
-   actual feedback and sends it back to Planner, using Planner's existing
-   conversation for the revision.
-9. Planner incorporates the feedback. Python prints the revised answer and
-   one combined JSON object containing the proposal, review and final plan.
-10. In cleanup, Python cancels any remaining work on its own two agents,
-    archives them through DELETE, and deletes its temporary provider-key entry.
-    It verifies that active agent IDs and registered key IDs equal the snapshot,
-    then removes the pending recovery journal. The saved login remains.
+Enrollment prompts privately for a new password, confirmation and invitation.
+The invitation is single-use; an uncertain enrollment response should be followed
+by ordinary password login first. The client never prints or saves credentials.
+Password policy is enforced by Identity. Each teammate has a separate account.
 
-This is an explicit **Python-mediated conversation**. These core-only hosted
-agents do not autonomously open a direct peer connection: Python delivers one
-agent's real output to the other's inbox. There are two agents and three work
-submissions, with a real dependency between the turns rather than independent
-parallel tasks.
+Defaults are `https://api.right-hand-man.space` and
+`https://identity.right-hand-man.space`. Authentication sends the explicit trusted
+Origin `https://api.right-hand-man.space`. Override via `--api-base`,
+`--identity-base`, and `--client-origin` only for your own trusted deployment.
+Equivalent environment settings are `RHM_API_BASE`, `RHM_IDENTITY_BASE`,
+`RHM_CLIENT_ORIGIN`, `RHM_USERNAME` and `RHM_MODEL`. There is no password/key/token
+environment variable. The CLI selects a model automatically when capabilities
+lists exactly one; otherwise pass `--model` with an advertised model, for example
+`--model qwen3.5-9b` on the intended local deployment.
 
-All these AGS calls act as that teammate. Their agents and saved keys are
-owner-scoped. Sharing the provider key shares its provider spending pool; it
-does not merge AGS accounts, agent histories or AGS access grants.
+The only runtime dependency is `httpx`. No shared model/provider key is needed.
+The workflow requests a zero-dollar admission estimate, two ticks, 512 generated
+tokens per tick and 2,048 total tokens per run. These are backend guardrails, not
+a promise that an unknown cost is zero or a replacement for local-only deployment
+configuration. No paid inference fallback is configured by this client.
 
-## Exact API sequence under the hood
+## Inspect the result
 
-| Order | Caller and request | Result |
-|---|---|---|
-| Enrollment | App → `POST /api/v1/auth/passkeys/enroll` | Redeems that teammate's invitation for a short-lived enrollment token. |
-| Enrollment | App → `/passkeys/register/options`, `/register/verify` | Registers their passkey; the enrollment token does not grant general API access. |
-| Enrollment | App → `/passkeys/authenticate/options`, `/authenticate/verify` | Authenticates the teammate; the app gateway keeps its own browser session custody. |
-| Every start | Python → identity `GET /api/v1/auth/me` for an available token | Validates a saved/provided session without creating a new one. |
-| Sign-in only | Python → identity `POST /api/v1/auth/native/start` | Creates a PKCE S256 request with a random state and loopback callback. Returns `request_id` and `authorization_url`. |
-| Browser | App → passkey authentication, then `POST /api/v1/auth/native/authorize` | Verifies the teammate and authorizes this native request. Redirects a one-time code to Python. |
-| Script | Python → identity `POST /api/v1/auth/native/exchange` | Exchanges request ID, code, callback URI and secret verifier for Python's own `session_token`. |
-| Before work | Python → AGS `GET /v1/access`, `GET /v1/public/monitors`, `GET /v1/keys` | Checks grant/capacity and snapshots the active inventory. |
-| Script | Python → AGS `POST /v1/keys` | Registers a uniquely labeled temporary provider secret under this user; returns `key_id`. |
-| Twice | Python → AGS `POST /v1/user-agents` | Creates a hosted agent using `model.llm_key_ref=key_id`. Returns `agent_id`. |
-| Three turns | Python → AGS `POST /v1/agents/{agent_id}/messages` | Submits the proposal, peer review, then revision using the preceding agent's output. |
-| Per message | Python → AGS `GET /v1/agents/{agent_id}/messages/{message_id}?wait_s=25` | Long-polls until completed, parked/failed, or the local deadline. |
-| Cleanup | Python → AGS `POST /v1/agents/{agent_id}:cancel`, then `DELETE /v1/agents/{agent_id}` | Cancels and archives only agents owned by this demo run. |
-| Cleanup | Python → AGS `GET /v1/billing/requests`, then `DELETE /v1/keys/{key_id}` | Preserves the temporary credential if unresolved demo billing needs reconciliation; otherwise deletes it. |
-| Verify | Python → AGS `GET /v1/public/monitors`, `GET /v1/keys` | Checks the active IDs against the pre-run snapshot before reporting success. |
+A successful command exits 0 and writes `pilot-result.json` containing:
 
-Paths abbreviated as `/passkeys/...` in the enrollment rows all start with
-`/api/v1/auth`. Python's AGS calls send `Authorization: Bearer <session_token>`.
-The identity browser gateway handles its own session/cookie and request guards;
-Python does not extract its stored credential.
+- Two backend run/workflow receipts, each preserving its `completion_basis`.
+- Builder's validated mapping and actual baseline records.
+- `injected_failure.code: "missing_column"`, the missing field, observed headers,
+  source SHA-256 and mapping SHA-256.
+- Exactly one maintenance attempt and the repaired mapping.
+- The actual final rows, independent validation receipts and content hashes.
+- `execution_boundary.pipeline: "local_deterministic"` and
+  `hosted_sandbox_execution: false`.
 
-## Why AGS uses a key ID
+The expected final rows are `north: 2 → 4`, `south: 4 → 8`, and `west: 6 → 12`;
+`row_count` is 3 and `total` is 24. The acceptance oracle checks all identifiers,
+original values, doubled values and aggregates. A model's `succeeded` /
+`agent_reported` result is a proposal; it is never a pipeline pass by itself.
 
-| Value | Purpose |
+Malformed/extra model fields, Markdown instead of JSON, duplicate JSON keys,
+unsupported source shapes, invalid values, truncated responses, a rejected repair
+or a wrong rerun produce a clear failure. Contract failures write a failed receipt
+and exit 1. Transport failures preserve the submission journal and stop; they do
+not fabricate a completed receipt. Network access is used only for the configured
+Identity/API. All data fixtures are bundled synthetic data.
+
+## Contracts and bounds
+
+Machine-readable contracts live in [`contracts/`](contracts). The runtime uses
+standard-library checks so the pilot needs no schema-validator dependency.
+
+| Stage | Contract |
 |---|---|
-| AGS user session (`AGS_TOKEN`, optional input) | Identifies which teammate is calling AGS. |
-| `OPENROUTER_API_KEY` | Provider secret that funds model calls. |
-| AGS `key_id` / `llm_key_ref` | Reference to AGS's encrypted saved copy of the provider secret. |
+| Source | UTF-8 CSV ≤4,096 bytes, exactly two distinct known columns, 1–16 rows, no missing/extra fields. Identifier must be unique and match `[a-z][a-z0-9_-]{0,31}`; readings are canonical nonnegative integers ≤999,999. |
+| Builder | Exactly `schema_version: mapping.v1`, `id_column: sensor_id`, `reading_column: reading` or `value`. No commands, code, paths, URLs, expressions or new transforms. |
+| Transform | Fixed implementation: normalize to `sensor_id`, `reading`, `doubled`; double each reading and sum the doubled values. |
+| Maintainer | Exactly one `replace_mapping` decision with that same mapping schema, or `fail` with an enumerated reason. |
+| Acceptance | Output schema plus a separate fixed-fixture oracle; exactly three expected records and total 24. |
 
-`POST /v1/keys` accepts `provider`, `label` and `secret`; its response contains
-`key_id`. `GET /v1/keys` lists visible key metadata. The previous example made
-the teammate register a key and pass its ID as `AGS_KEY_ID`. This version does
-both automatically.
+The drift check verifies that the fixtures differ only by the intended column
+rename. Both model replies are limited to 4,096 characters and must parse as one
+complete strict JSON value. The actual Builder artifact and local failure are
+passed to Maintainer in a bounded, escaped `untrusted_artefact` enclosure carrying
+the source run ID. Neither role receives tools, repository authority, service
+tokens or a direct peer channel. Read/write authority stays with the backend;
+the local adapter performs only the fixed data operations authorized by this CLI.
 
-Separate accounts can save the same provider secret, but each registration has
-its own owner-scoped AGS key ID. Giving one person's key ID to another account
-does not authorize access to that person's saved key.
+## Restart, cancellation and retained state
 
-## Where the session is saved and how long it lasts
+Rerun the same command/state directory to inspect the same experiment. Successful
+stages fetch their existing outputs and rerun deterministic checks without new
+model submissions. Use a **new** state directory (for example `.pilot-state-2`)
+for a deliberate new experiment. Changing a stage's inputs while reusing its
+journal is rejected.
 
-The [`keyring` package](https://keyring.readthedocs.io/en/latest/) accesses the
-native credential store: Windows Credential Locker, macOS Keychain, or a
-supported Linux Secret Service/KWallet backend. The demo explicitly rejects
-plaintext, null and unknown backends; it does not silently save credentials in
-a JSON file. A usable native credential store must be available/unlocked.
+The atomic `.pilot-state/journal.json` stores only account/deployment/model
+binding, workflow/run/workspace IDs, hashes, idempotency keys, timestamps and
+states. It contains no passwords, access/refresh tokens, prompts, data rows or
+model response content. A local OS file lock excludes overlapping processes using
+the same directory. This is single-machine coordination, not distributed exactly-once.
 
-The cache is bound to both the configured AGS origin and identity origin. The
-current OS profile keeps one saved login per origin pair. The current issuer
-gives full sessions **30 days** of validity; caching cannot extend
-that server lifetime. Expiration/revocation triggers another browser sign-in.
-An explicitly supplied invalid `AGS_TOKEN` fails rather than silently choosing
-another identity. Access grants can expire sooner than the session.
+Run creation is journaled before dispatch. A lost run receipt may be replayed
+only with the original key/body and within the server-advertised retention
+window, measured conservatively from local submission time. `outcome_unknown`,
+paused/failed runs and expired windows never create replacement runs. Workflow
+creation has **no** idempotency, list or deletion API: a lost workflow receipt
+stops as `workflow_create_uncertain` and is never blindly recreated. No run was
+submitted in that stage; the server may retain an unreachable immutable workflow.
 
-To revoke/remove the cached demo session explicitly:
-
-```powershell
-python two_agents.py --logout
-```
-
-If cleanup is pending, complete it before logout so the saved session remains
-available to authorize cleanup. The provider key remains in the environment
-where you supplied it; the example does not save a local copy of that secret.
-
-## What cleanup restores and what it cannot erase
-
-| State | After a successfully verified run |
-|---|---|
-| Active agent IDs visible to this account | Exactly the same set as before the run. |
-| Registered AGS model-key IDs visible to this account | Exactly the same set as before the run. |
-| Pre-existing agents and model keys | Not modified or deleted by the demo. |
-| Pending local recovery journal | Removed after verified cleanup. |
-| Saved AGS login | Intentionally retained in the native credential store. |
-| Local state directory and lock file | Retained for cleanup recovery and exclusion of overlapping local demo runs. |
-| Archived demo agents, messages, run/session history, accounting, events | Retained by AGS. DELETE archives rather than permanently purging these records. |
-| Identity sessions, authentication audit/last-seen metadata | Retained/updated by sign-in and authenticated requests. |
-| OpenRouter usage and charges | Retained by the provider; cannot be undone by cleanup. |
-
-The script therefore verifies **active-resource inventory restoration**, not
-bit-for-bit database rollback. It cannot honestly promise that every system
-record is identical before and after real agent execution. There is no public
-per-agent permanent-history purge operation in the current AGS contract.
-
-Cleanup runs through a context manager on success, exceptions and Ctrl+C.
-The demo cancels before archiving, but an already-started provider request can
-still finish or incur a charge. It checks each agent's public monitor as well
-as the bounded owner billing list. An unresolved demo bill retains the temporary
-key and journal, and an agent whose monitor still reports unresolved requests
-stays available for reconciliation. This is reported as incomplete cleanup,
-not a successful reset.
-
-The non-secret journal records unique resource labels and IDs before/after
-creation. It can discover resources whose creation response was lost, and the
-next run attempts recovery before creating anything else. If the process is
-killed or the network is unavailable, cleanup cannot be instantaneous. Once
-connectivity/access is restored, use the same account and run:
+Exceptions/Ctrl+C attempt cancellation of this journal's known active runs.
+After an interruption or uncertain cancellation, sign in again and run:
 
 ```powershell
-python two_agents.py --cleanup-only
+python two_agents.py --username teammate --state-dir .pilot-state --cancel-only
 ```
 
-This command does not need `OPENROUTER_API_KEY` and does not start new model
-work. For unresolved billing, first use the owner billing/receipt workflow in
-the [API guide](../docs/AGENT_API_GUIDE.md), then retry cleanup.
+This mode can reconcile a lost run receipt by its unique workspace, then cancel
+it; it never POSTs a new run and works without model-provider readiness. It checks
+the workflow/workspace binding before cancellation. Unconfirmed cancellation
+keeps the journal for another explicit attempt. A local polling limit defaults
+to 180 seconds per run (`--deadline-seconds 1..600`); requests are bounded to 15
+seconds and cancellation polling to 10 seconds. An in-flight HTTP/authentication
+request may finish after a polling deadline; cancellation cannot recall model
+work already in flight.
 
-Journal location is `%LOCALAPPDATA%\RHM\ags-demo` on Windows, or
-`~/.local/state/rhm-ags-demo` elsewhere. `AGS_DEMO_STATE_DIR` can override it.
-The journal contains no session/provider secrets. A per-account/deployment OS
-file lock prevents overlapping local demo processes; separate computers or
-other apps can still change the same account's inventory. Such changes cause
-the equality check to fail, and the script preserves unrelated resources rather
-than deleting them to force equality.
+Each process signs in afresh, rotates refresh cookies in memory as needed, and
+attempts logout on exit. A lost refresh response is not blindly replayed. Identity
+cookies are held in a separate HTTP client and never sent to the backend. A
+logout warning means revocation was not confirmed; local credentials are cleared
+regardless. Workflows, run history and logical workspaces remain on the server.
+This pilot does not promise database rollback or delete other work to force an
+inventory equality claim.
 
-## Remaining limits
-
-- Account enrollment and an administrator execution grant remain separate.
-- There are **three per-message allowances** across the three collaboration
-  turns; the requested $0.10 is not a total team/provider cap. Configure
-  provider-side spending controls for the shared OpenRouter key.
-- The example relays agent messages explicitly through Python. It is not an
-  autonomous peer messaging network or a firm/work-queue implementation.
-- A timed-out/parked turn stops the workflow and attempts cleanup. There is no
-  automatic approval, allowance increase, or resubmission of the business task.
-- The recovery journal resumes cleanup, not the collaboration itself. A normal
-  subsequent run starts a new conversation after any old resources are cleaned.
-- The output is displayed as returned; a production pipeline must validate its
-  own required output schema. A final long poll can exceed the local five-minute
-  deadline by one request timeout.
-- The app, independent identity issuer, native authorization API, AGS and model
-  must be operational. The helper starts a temporary loopback callback listener,
-  not a local agent service.
-
-## Recovery belongs to each individual
-
-Recovery is for regaining an account, not ordinary team login. Legacy recovery
-rotates that account's password and recovery key and revokes its sessions.
-Passkey recovery codes are single-use and revoke that account's previous
-sessions and passkeys. Each teammate should keep their own recovery material.
-Invitations add accounts without resetting existing users.
-
-## Troubleshooting and configuration
-
-Default origins are `https://ags.right-hand-man.space` and
-`https://id.right-hand-man.space`. Override with `AGS_BASE` and
-`AGS_IDENTITY_BASE` when using another trusted deployment.
-
-The public API health check returned Cloudflare 530 / 1033 when the API guide
-was prepared on October 15, 2026. If that persists, restore the tunnel/origin
-before testing authentication. A 403 during agent creation can mean an inactive
-grant, insufficient limits, missing capacity or the wrong caller credential.
-This simplified demo uses hosted user accounts, rather than private service
-provisioning.
-
-See the [full API guide](../docs/AGENT_API_GUIDE.md) for all service capabilities.
-
-Verification: `test_workflow.py` checks real peer-output handoffs, original
-inventory preservation, partial failure/lost receipts, cleanup recovery,
-unresolved billing, session reuse/revocation and rejection of plaintext credential
-backends against simulated HTTP/credential-store services. The browser helper
-was also checked against a temporary local identity store with real ES256
-passkey verification and native PKCE exchange, including an incorrect callback
-state. No live hosted credentials or live model execution were used.
-
-Run the behavioral checks from the repository root with:
+## Verify locally
 
 ```powershell
-python -m pytest -n 0 examples/test_workflow.py
+python -m pip install -r requirements-dev.txt
+New-Item -ItemType Directory -Path work -Force | Out-Null
+python -m pytest -q test_workflow.py --basetemp=work/pytest
 ```
 
-`pytest` and `pytest-xdist` are developer test dependencies, not needed to run
-the demo itself.
+Tests simulate Identity/API HTTP and execute the real deterministic ingestion,
+transformation and oracle. They cover actual handoffs, one repair, malicious
+mapping refusal, output tampering, truncated replies, lost receipts, replay
+expiry, cancellation, local exclusion, account binding, enrollment and refresh
+cookie separation. These tests are not evidence of a live model or deployment.
+
+## Live acceptance — 2026-10-22
+
+The pilot passed against the public HTTPS API and Identity with the real
+`qwen3.5-9b` local model, backend revision `46d9064` and Agent revision `d70fd07`.
+Builder run `run_d8de769198954d6998237696` selected the initial mapping; Maintainer
+run `run_08cb22bbb8c6459782f7941f` received the actual local artifacts/failure and
+selected the renamed `value` field. Both backend completions were
+`agent_reported`; separate local checks verified baseline and repaired output
+with three rows and total 24. The injected `missing_column` failure and hashes
+are recorded in the [sanitized live receipt](examples/public-pilot-acceptance.json).
+
+Running the pilot again with the same journal returned the same backend receipts
+and data, with **zero additional runs** and unchanged run inventory. Logout was
+confirmed. No mock inference or paid provider key was used. This proves the
+public model-decision path plus the fixed local pipeline; it does not prove
+hosted sandbox execution. The temporary acceptance accounts are operator-managed
+and are not teammate credentials or a reusable public demo login. The local
+behavioral suite passed 45 tests after token-scheme compatibility checks.
+
+See [`API.md`](API.md) for the public request sequence and
+[`rough-plan.md`](rough-plan.md) for the future mini-orchestrator boundary.

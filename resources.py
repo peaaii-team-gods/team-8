@@ -1,244 +1,224 @@
-"""Owned temporary AGS resources, cleanup recovery, and inventory verification.
-
-The journal contains IDs and before/after inventory metadata, never credentials.
-DELETE /agents archives; it does not erase retained run/billing history.
-"""
-
+"""Bounded public API calls and a credential/content-free submission journal."""
 import hashlib
 import json
 import os
-import sys
-import uuid
 from pathlib import Path
+import time
+import uuid
+
+import httpx
+
+from login import origin
+
+TERMINAL = {"succeeded", "failed", "halted_by_agent", "cancelled", "outcome_unknown",
+            "halted_emergency", "context_limit_exceeded"}
+PAUSED = {"halted_pending_approval", "suspended_oscillation"}
+CANCELLATION_FINISHED = TERMINAL | {"suspended_oscillation"}
 
 
-# Keep all HTTP error handling in one small wrapper so cleanup paths fail loudly
-# instead of accidentally treating an unsuccessful response as an empty result.
-def api(client, method, path, **kwargs):
-    response = client.request(method, path, **kwargs)
-    response.raise_for_status()
-    return None if response.status_code == 204 else response.json()
+class PilotError(RuntimeError):
+    pass
 
 
-def inventory(client):
-    # Walk every monitor page so cleanup compares complete inventories, not just
-    # the first page returned by the service.
-    agents = {}
-    cursor = None
-    seen = set()
-    while True:
-        page = api(
-            client, "GET", "/v1/public/monitors", params={"cursor": cursor} if cursor else {}
-        )
-        agents.update((item["agent_id"], item) for item in page["items"])
-        cursor = page.get("next_cursor")
-        if not cursor:
-            break
-        if cursor in seen:
-            raise RuntimeError("Repeated inventory cursor; cannot verify cleanup.")
-        seen.add(cursor)
-    keys = {item["key_id"]: item for item in api(client, "GET", "/v1/keys")}
-    # Return keyed maps so callers can compare, identify, and protect resources.
-    return agents, keys
+def canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+                      allow_nan=False)
 
 
-class TemporaryRun:
-    def __init__(self, client, user_id):
-        # Derive a stable per-account journal/lock name without storing secrets.
-        self.client, self.user_id = client, user_id
-        bound = str(client.base_url) + "\n" + user_id
-        name = hashlib.sha256(bound.encode()).hexdigest()[:24]
-        root = Path(
-            os.getenv("AGS_DEMO_STATE_DIR")
-            or (
-                str(Path(os.environ["LOCALAPPDATA"]) / "RHM" / "ags-demo")
-                if os.name == "nt"
-                else str(Path.home() / ".local" / "state" / "rhm-ags-demo")
-            )
-        )
-        root.mkdir(parents=True, exist_ok=True)
-        self.path = root / f"{name}.json"
-        self.lock_path = root / f"{name}.lock"
-        self.state = None
+def digest(value):
+    return hashlib.sha256(canonical(value).encode()).hexdigest()
+
+
+class Journal:
+    def __init__(self, directory, *, api_base, issuer, user_id, model):
+        self.root = Path(directory)
+        self.binding = {"api_base": origin(api_base), "issuer": origin(issuer),
+                        "user_id": user_id, "model": model}
+        self.path = self.root / "journal.json"
 
     def __enter__(self):
-        # Acquire an inter-process lock before reading or changing recovery state.
-        # Kernel locks release even if the process dies. Keep the lock file so
-        # another process never locks a replacement inode during cleanup.
-        self.lock = self.lock_path.open("a+b")
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.lock = (self.root / "pilot.lock").open("a+b")
         try:
             if self.lock.tell() == 0:
-                self.lock.write(b"\0")
+                self.lock.write(b"0")
                 self.lock.flush()
             self.lock.seek(0)
             if os.name == "nt":
                 import msvcrt
-
                 msvcrt.locking(self.lock.fileno(), msvcrt.LK_NBLCK, 1)
             else:
                 import fcntl
-
                 fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            self.path.with_suffix(".tmp").unlink(missing_ok=True)
             if self.path.exists():
-                # A leftover journal means an earlier process may have lost a
-                # response; finish that cleanup before starting another run.
-                print("Recovering cleanup from the previous interrupted run...", flush=True)
-                self.state = json.loads(self.path.read_text(encoding="utf-8"))
-                if self.state["user_id"] != self.user_id:
-                    raise RuntimeError("Cleanup journal belongs to another account.")
-                self.cleanup()
+                if self.path.stat().st_size > 65536:
+                    raise PilotError("Journal exceeds its size limit.")
+                self.data = json.loads(self.path.read_text(encoding="utf-8"))
+                if self.data.get("binding") != self.binding or self.data.get("version") != 1:
+                    raise PilotError("Journal account, deployment, model or version differs.")
+            else:
+                self.data = {"version": 1, "binding": self.binding,
+                             "pilot_id": uuid.uuid4().hex, "stages": {}}
+                self.save()
             return self
         except BaseException:
             self.lock.close()
             raise
 
     def save(self):
-        # Write atomically with restrictive permissions so a crash cannot leave a
-        # half-written journal and the journal never contains provider secrets.
         temp = self.path.with_suffix(".tmp")
-        descriptor = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            json.dump(self.state, stream)
+        with temp.open("w", encoding="utf-8") as stream:
+            json.dump(self.data, stream, indent=2)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temp, self.path)
 
-    def start(self, provider_secret):
-        # Snapshot existing resources before registering anything owned by this run.
-        agents, keys = inventory(self.client)
-        self.state = {
-            "user_id": self.user_id,
-            "tag": "ags-demo-" + uuid.uuid4().hex,
-            "before_agents": sorted(agents),
-            "before_keys": sorted(keys),
-            "agents": [],
-            "key_id": None,
-        }
-        self.save()  # Save the unique label BEFORE making any server mutation.
-        # Register the provider secret by a temporary label; only its returned ID
-        # is persisted in the journal.
-        key = api(
-            self.client,
-            "POST",
-            "/v1/keys",
-            json={
-                "provider": "openrouter",
-                "label": self.state["tag"],
-                "secret": provider_secret,
-            },
-        )
-        self.state["key_id"] = key["key_id"]
-        self.save()
+    def __exit__(self, *_):
+        self.lock.close()
 
-    def create_agent(self, name):
-        # Create an owner-scoped hosted agent with bounded execution allowances.
-        agent = api(
-            self.client,
-            "POST",
-            "/v1/user-agents",
-            json={
-                "display_name": self.state["tag"] + " " + name,
-                "objective": f"You are {name}. Collaborate through supplied peer messages. Finish with summary and result.",
-                "model": {"mode": "tier", "tier": "free", "llm_key_ref": self.state["key_id"]},
-                "run_policy": {
-                    "mode": "task",
-                    "caps_scope": "message",
-                    "budget_usd": 0.10,
-                    "max_ticks": 4,
-                    "max_model_requests_per_tick": 4,
-                    "tick_wall_clock_s": 120,
-                },
-            },
-            headers={"Idempotency-Key": self.state["tag"] + ":" + name},
-        )
-        self.state["agents"].append(agent["agent_id"])
-        self.save()
-        print(f"Created {name}: {agent['agent_id']}", flush=True)
-        return agent["agent_id"]
 
-    def cleanup(self):
-        # Discover resources from both the journal and server labels, covering
-        # lost receipts and process interruption.
-        if self.state is None:
-            return
-        state = self.state
-        agents, keys = inventory(self.client)
-        targets = set(state["agents"])
-        # Labels recover creation receipts lost in a timeout/process crash.
-        for aid in set(agents) - set(state["before_agents"]):
-            agent = api(self.client, "GET", f"/v1/agents/{aid}")
-            if agent["display_name"].startswith(state["tag"] + " "):
-                targets.add(aid)
-        key_ids = {kid for kid, key in keys.items() if key["label"] == state["tag"]}
-        if state["key_id"]:
-            key_ids.add(state["key_id"])
-        state["agents"] = sorted(targets)
-        self.save()
-        errors = []
-        waiting_billing = False
-        # Cancel and archive only agents proven to belong to this demo run.
-        for aid in sorted(targets & set(agents)):
-            try:
-                agent = api(self.client, "GET", f"/v1/agents/{aid}")
-                if (
-                    aid in state["before_agents"]
-                    or agent["owner"]["user_id"] != self.user_id
-                    or not agent["display_name"].startswith(state["tag"] + " ")
-                ):
-                    raise RuntimeError(f"Refusing to clean up an unrelated agent: {aid}")
-                api(self.client, "POST", f"/v1/agents/{aid}:cancel")
-                monitor = api(self.client, "GET", f"/v1/agents/{aid}/public-monitor")
-                if monitor.get("unresolved_requests", 0):
-                    waiting_billing = True
-                    print(f"Keeping {aid} and its key until billing is reconciled.", flush=True)
+class PublicAPI:
+    def __init__(self, base, session, *, transport=None):
+        self.session = session
+        self.http = httpx.Client(base_url=origin(base), timeout=15, trust_env=False,
+                                 follow_redirects=False, transport=transport)
+
+    def call(self, method, path, *, timeout=15, **kwargs):
+        request_headers = kwargs.pop("headers", {})
+        for attempt in range(2):
+            with self.http.stream(method, path, timeout=max(0.1, min(timeout, 15)),
+                                  headers={"Authorization": "Bearer " + self.session.bearer(),
+                                           **request_headers}, **kwargs) as response:
+                if response.status_code == 401 and attempt == 0:
+                    self.session.refresh()
                     continue
-                api(self.client, "DELETE", f"/v1/agents/{aid}")
-                print(f"Archived demo agent: {aid}", flush=True)
-            except Exception as exc:
-                errors.append(str(exc))
-        requests = api(self.client, "GET", "/v1/billing/requests")["requests"]
-        # Keep temporary resources when billing is unresolved so receipts remain
-        # available for reconciliation instead of being deleted prematurely.
-        if waiting_billing or any(item.get("agent_id") in targets for item in requests):
-            raise RuntimeError(
-                "Demo billing is unresolved; temporary key and journal retained for receipt verification. "
-                "Resolve the billing requests, then run --cleanup-only."
-            )
-        for kid in sorted(key_ids & set(keys)):
-            # Delete only newly registered keys with this run's exact label.
-            try:
-                if keys[kid]["label"] != state["tag"] or kid in state["before_keys"]:
-                    raise RuntimeError("Refusing to delete a pre-existing/unrelated model key.")
-                api(self.client, "DELETE", f"/v1/keys/{kid}")
-                print(f"Deleted temporary provider-key registration: {kid}", flush=True)
-            except Exception as exc:
-                errors.append(str(exc))
-        after_agents, after_keys = inventory(self.client)
-        # Verify both cleanup and restoration of the original active inventories.
-        if targets & set(after_agents) or key_ids & set(after_keys):
-            raise RuntimeError("Cleanup incomplete; journal retained. " + "; ".join(errors))
-        self.path.unlink(missing_ok=True)
-        self.state = None
-        if set(after_agents) != set(state["before_agents"]) or set(after_keys) != set(
-            state["before_keys"]
-        ):
-            raise RuntimeError(
-                "Demo resources removed, but inventories changed elsewhere; before/after equality failed."
-            )
-        print(
-            "Verified: active agent IDs and registered key IDs match the pre-run inventories.",
-            flush=True,
-        )
+                if not 200 <= response.status_code < 300:
+                    raise PilotError(f"Public API {method} {path} failed (HTTP {response.status_code}).")
+                chunks, size = [], 0
+                for chunk in response.iter_bytes():
+                    size += len(chunk)
+                    if size > 1048576:
+                        raise PilotError("Public API response exceeded the size limit.")
+                    chunks.append(chunk)
+                try:
+                    return json.loads(b"".join(chunks))
+                except (ValueError, UnicodeError, RecursionError):
+                    raise PilotError("Public API returned malformed JSON.") from None
+        raise PilotError("Public API authentication failed.")
 
-    def __exit__(self, kind, value, traceback):
-        # Always attempt cleanup, while preserving the original exception and lock
-        # state when cleanup itself cannot complete.
-        try:
-            self.cleanup()
-        except Exception as exc:
-            if kind is None:
-                raise
-            print(f"CLEANUP FAILED: {exc}. Run again with --cleanup-only.", file=sys.stderr)
-        finally:
-            self.lock.close()
+    def capabilities(self, model=None):
+        cap = self.call("GET", "/v1/capabilities")
+        if cap.get("capabilities", {}).get("run_execution", {}).get("status") != "available":
+            raise PilotError("Backend model execution is unavailable; no work submitted.")
+        models = cap.get("models", {}).get("models", [])
+        selected = model or (models[0] if len(models) == 1 else None)
+        if not selected or selected not in models:
+            raise PilotError("Select --model from the deployment's capabilities allowlist.")
+        retention = cap.get("limits", {}).get("run_idempotency_retention_seconds")
+        if type(retention) is not int or retention < 60:
+            raise PilotError("Deployment supplies no usable run idempotency retention guarantee.")
+        return selected, retention
+
+    def run(self, journal, stage_name, workflow, *, retention, deadline_s=180, poll_s=0.5):
+        stages = journal.data["stages"]
+        expected_hash = digest(workflow)
+        stage = stages.get(stage_name)
+        if stage is None:
+            stage = {"workflow_hash": expected_hash, "workspace_id": workflow["workspace_id"],
+                     "idempotency_key": journal.data["pilot_id"] + ":" + stage_name,
+                     "state": "planned"}
+            stages[stage_name] = stage
+            journal.save()
+        if stage["workflow_hash"] != expected_hash:
+            raise PilotError("Stage inputs changed; use a new state directory for a new experiment.")
+        if "workflow_id" not in stage:
+            if stage["state"] != "planned":
+                raise PilotError("Workflow creation outcome is uncertain. Never replay it; use a new "
+                                 "state directory after reviewing this journal. No run was submitted.")
+            validation = self.call("POST", "/v1/workflows/validate", json={"workflow": workflow})
+            if not validation.get("valid") or any(validation.get(layer, {}).get("status") != "ok"
+                for layer in ("structural", "supported", "authorized", "executable")):
+                raise PilotError("Workflow validation did not pass every layer.")
+            stage["state"] = "workflow_create_uncertain"
+            journal.save()
+            response = self.call("POST", "/v1/workflows", json={"workflow": workflow})
+            stage["workflow_id"] = response["workflow_id"]
+            stage["state"] = "workflow_created"
+            journal.save()
+        if "run_id" not in stage:
+            if "first_submitted_at" not in stage:
+                stage["first_submitted_at"] = time.time()
+                stage["replay_until"] = stage["first_submitted_at"] + retention - 5
+            if time.time() >= stage["replay_until"]:
+                raise PilotError("Run receipt is uncertain and its safe replay window expired. "
+                                 "Reconcile the saved workspace/run history; no new run submitted.")
+            stage["state"] = "run_create_uncertain"
+            journal.save()
+            run = self.call("POST", "/v1/runs", json={"workflow_id": stage["workflow_id"]},
+                            headers={"Idempotency-Key": stage["idempotency_key"]})
+            stage["run_id"], stage["state"] = run["run_id"], run["status"]
+            journal.save()
+        end = time.monotonic() + deadline_s
+        while time.monotonic() < end:
+            run = self.call("GET", f"/v1/runs/{stage['run_id']}", timeout=end-time.monotonic())
+            if run.get("workflow_id") != stage["workflow_id"] or run.get("workspace_id") != stage["workspace_id"]:
+                raise PilotError("Run receipt does not match this journal's workflow/workspace.")
+            stage["state"] = run["status"]
+            journal.save()
+            if run["status"] not in TERMINAL | PAUSED | {"queued", "running"}:
+                raise PilotError("Backend returned an unknown run state; no replacement submitted.")
+            if run["status"] in TERMINAL | PAUSED:
+                break
+            time.sleep(min(poll_s, max(0, end-time.monotonic())))
+        else:
+            raise PilotError("Local polling deadline reached; run cancellation will be attempted.")
+        if run["status"] != "succeeded":
+            raise PilotError(f"Stage {stage_name} stopped with {run['status']}; no replacement submitted.")
+        outputs = self.call("GET", f"/v1/runs/{stage['run_id']}/outputs").get("outputs", [])
+        if len(outputs) != 1 or outputs[0].get("truncated") or outputs[0].get("kind") != "text":
+            raise PilotError("Expected exactly one complete text output.")
+        text = outputs[0].get("content")
+        if not isinstance(text, str) or len(text) > 4096:
+            raise PilotError("Model output is missing or exceeds the 4096-character bound.")
+        return text, {"role": stage_name, "workflow_id": stage["workflow_id"],
+                      "run_id": stage["run_id"], "status": run["status"],
+                      "completion_basis": run.get("completion_basis"),
+                      "model_output_sha256": hashlib.sha256(text.encode()).hexdigest()}
+
+    def cancel_owned(self, journal, *, deadline_s=10):
+        """Cancel only this journal's runs; never submit work to discover a receipt."""
+        end, unresolved = time.monotonic() + deadline_s, []
+        for stage in journal.data["stages"].values():
+            if time.monotonic() >= end:
+                unresolved.append("cancellation deadline")
+                break
+            if "run_id" not in stage:
+                if stage.get("state") == "run_create_uncertain":
+                    page = self.call("GET", "/v1/runs", timeout=end-time.monotonic(),
+                                     params={"workspace_id": stage["workspace_id"], "limit": 100})
+                    found = [r for r in page.get("runs", []) if r["workflow_id"] == stage["workflow_id"]]
+                    if len(found) == 1 and not page.get("next_cursor"):
+                        stage["run_id"] = found[0]["run_id"]
+                        journal.save()
+                    else:
+                        unresolved.append("uncertain run submission")
+                if "run_id" not in stage:
+                    continue
+            path = f"/v1/runs/{stage['run_id']}"
+            run = self.call("GET", path, timeout=max(0.1, end-time.monotonic()))
+            if run.get("workflow_id") != stage["workflow_id"] or run.get("workspace_id") != stage["workspace_id"]:
+                raise PilotError("Refusing to cancel a run outside this journal's binding.")
+            if run["status"] not in CANCELLATION_FINISHED:
+                run = self.call("POST", path + "/cancel", timeout=max(0.1, end-time.monotonic()))["run"]
+                while run["status"] not in CANCELLATION_FINISHED and time.monotonic() < end:
+                    time.sleep(0.1)
+                    run = self.call("GET", path, timeout=max(0.1, end-time.monotonic()))
+            stage["state"] = run["status"]
+            journal.save()
+            if run["status"] not in CANCELLATION_FINISHED:
+                unresolved.append(stage["run_id"])
+        if unresolved:
+            raise PilotError("Cancellation remains unconfirmed; journal retained for --cancel-only.")
+
+    def close(self):
+        self.http.close()

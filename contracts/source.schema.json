@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Parsed CSV source envelope",
+  "type": "object", "additionalProperties": false,
+  "required": ["sha256", "headers", "rows"],
+  "properties": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "headers": {
+      "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true,
+      "items": {"enum": ["sensor_id", "reading", "value"]}
+    },
+    "rows": {
+      "type": "array", "minItems": 1, "maxItems": 16,
+      "items": {
+        "type": "object", "minProperties": 2, "maxProperties": 2,
+        "propertyNames": {"enum": ["sensor_id", "reading", "value"]},
+        "additionalProperties": {"type": "string", "maxLength": 4096}
+      }
+    }
+  }
+}

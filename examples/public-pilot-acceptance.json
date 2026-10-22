@@ -1,0 +1,127 @@
+{
+  "pilot_schema": "pilot.v1",
+  "pilot_id": "062264665e5f4068b0968f0c2c479369",
+  "status": "verified",
+  "execution_boundary": {
+    "model_decisions": "backend_public_runs",
+    "pipeline": "local_deterministic",
+    "hosted_sandbox_execution": false
+  },
+  "model_runs": [
+    {
+      "role": "Builder",
+      "workflow_id": "wf_8fbfa7782d701dbfa0be01af7245836d",
+      "run_id": "run_d8de769198954d6998237696",
+      "status": "succeeded",
+      "completion_basis": "agent_reported",
+      "model_output_sha256": "9f3612f24823ea41a46ff3440d0b349399157b9a50cbc4300c46ec17b4ec44b3"
+    },
+    {
+      "role": "Maintainer",
+      "workflow_id": "wf_8fb95e55260f28604524a89a1ef52a28",
+      "run_id": "run_08cb22bbb8c6459782f7941f",
+      "status": "succeeded",
+      "completion_basis": "agent_reported",
+      "model_output_sha256": "216f8a114e8485034967c1a9e3fa47dfa4930bd0eb63c003a02cc8e7d8e73ed1"
+    }
+  ],
+  "repair_attempts": 1,
+  "builder_mapping": {
+    "schema_version": "mapping.v1",
+    "id_column": "sensor_id",
+    "reading_column": "reading"
+  },
+  "baseline_validation": {
+    "executor": "local_deterministic",
+    "validator": "fixed_fixture_oracle.v1",
+    "source_sha256": "832ae1385587f65d67281794c6fe748521b176addb1613b8c53d472633cfaa89",
+    "output_sha256": "310ccf802cba53db64c44aceb536cb67e6b5878e9e30144ef960f5606254b981",
+    "row_count": 3,
+    "total": 24,
+    "valid": true
+  },
+  "baseline_output": {
+    "schema_version": "output.v1",
+    "rows": [
+      {
+        "sensor_id": "north",
+        "reading": 2,
+        "doubled": 4
+      },
+      {
+        "sensor_id": "south",
+        "reading": 4,
+        "doubled": 8
+      },
+      {
+        "sensor_id": "west",
+        "reading": 6,
+        "doubled": 12
+      }
+    ],
+    "row_count": 3,
+    "total": 24
+  },
+  "injected_failure": {
+    "code": "missing_column",
+    "missing": [
+      "reading"
+    ],
+    "actual_headers": [
+      "sensor_id",
+      "value"
+    ],
+    "source_sha256": "61a00a25621dd04e6a523f82f1847f98895544e4d0fcf780734e52eb5b07b6ed",
+    "mapping_sha256": "c7e8f2f10f55f2eed2a9abd083e8e0689b1bfc54352bf8da29a9f59079239315"
+  },
+  "repaired_mapping": {
+    "schema_version": "mapping.v1",
+    "id_column": "sensor_id",
+    "reading_column": "value"
+  },
+  "repaired_validation": {
+    "executor": "local_deterministic",
+    "validator": "fixed_fixture_oracle.v1",
+    "source_sha256": "61a00a25621dd04e6a523f82f1847f98895544e4d0fcf780734e52eb5b07b6ed",
+    "output_sha256": "310ccf802cba53db64c44aceb536cb67e6b5878e9e30144ef960f5606254b981",
+    "row_count": 3,
+    "total": 24,
+    "valid": true
+  },
+  "output": {
+    "schema_version": "output.v1",
+    "rows": [
+      {
+        "sensor_id": "north",
+        "reading": 2,
+        "doubled": 4
+      },
+      {
+        "sensor_id": "south",
+        "reading": 4,
+        "doubled": 8
+      },
+      {
+        "sensor_id": "west",
+        "reading": 6,
+        "doubled": 12
+      }
+    ],
+    "row_count": 3,
+    "total": 24
+  },
+  "verification": "live_public_https",
+  "verified_at": "2026-10-22T08:45:31.763241+00:00",
+  "model": "qwen3.5-9b",
+  "same_journal_rerun": {
+    "status": "verified",
+    "same_run_receipts": true,
+    "new_run_count": 0,
+    "same_result": true,
+    "run_inventory_unchanged": true
+  },
+  "first_execution_new_run_count": 2,
+  "all_acceptance_checks_passed": true,
+  "logout_confirmed": true,
+  "logout_status": "confirmed"
+}

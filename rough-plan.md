@@ -1,54 +1,45 @@
-<!-- Working notes describing the intended multi-agent data-pipeline demonstration. -->
-# Multi-Agent Data Pipeline
+# From this pilot to a mini-orchestrator
 
-Goal: A multi-agent system that can discover, construct, validate, and maintain a data pipeline for a difficult to access or poorly structured dataset.
+This pilot proves a deliberately small slice: two logical model roles, a real
+bounded artifact handoff, fixed deterministic data execution, explicit stage
+contracts, one injected schema drift, and one repair or clear failure. It uses
+synthetic sensor readings rather than large live hospital-price datasets.
 
-Instead of using AI just to analyze data or generate a script, the agent would actually perform the whole workflow of finding data, building and executing ingestion scripts, validating the results, and detecting or recovering from failures.
+The public backend owns identity-based authorization, immutable workflow/run
+records, bounded model loops, cancellation and policy. This client coordinates
+two sequential submissions and owns its sample-data acceptance rules. It does
+not recreate service registries, persistent agents, provider keys, tool policy,
+task/lease authority, private credentials or a second backend orchestrator.
 
-A key part of the system is explicit data contracts between pipeline stages. Each stage should have a defined input and output schema, documented assumptions, and clear expectations about how its data is represented and handled. Agents can help discover these contracts, identify inconsistencies, and propose corrections when schemas or source data change.
+The `pipeline.Executor` protocol is the execution seam. A future hosted adapter
+must return physical results and provenance at least as explicit as the local
+receipt, with execution isolation independently proven. It must never turn a model
+reply or an approved-but-unexecuted action into a successful execution receipt.
+The current code supplies only `LocalExecutor`.
 
-# Core demo:
+Before hosted arbitrary code or project execution: register the execution scope
+through Identity's owner-approved policy; prove gateway/shell/sandbox workspace
+identity, owner forwarding and physical shared files; enforce per-job network and
+filesystem isolation; protect acceptance checks; record post-clone base/SHA and
+shell-modified outputs; prove teardown ownership and cleanup. Those are service
+prerequisites, not features a public client can grant itself. Third-party packages
+would additionally need pinned dependency preparation and an offline build path.
+No such readiness or live proof is claimed here.
 
-- Define a data goal. Give the system a target dataset or describe the information we want to produce.
+After that prerequisite slice, grow one step at a time:
 
-- Discover the source. Have the agent identify an appropriate data source and determine how to access it.
+1. Add a second bounded input fixture and version the adapter/contracts. Keep
+   deterministic ingestion, schema checks and data-quality acceptance authoritative.
+2. Introduce durable application job IDs and explicit user-approved retries. Keep
+   immutable inputs, actual producer run IDs and bounded artifact lineage.
+3. Add a reviewed hosted executor adapter with honest capability discovery, then
+   prove timeout, outcome-unknown, cancellation and cleanup end to end.
+4. Add a small work queue and richer approved task types when a real consumer
+   needs them. Parallel work must respect backend policy and workspace leases.
+5. Consider source discovery and realistic datasets only after limits, provenance
+   and deterministic acceptance are established; a discovery model does not grant
+   network or storage authority.
 
-- Construct the pipeline. Generate the ingestion and transformation workflow using defined, inspectable operations.
-
-- Establish data contracts. Define or infer the expected schemas at each stage, including required fields, types, and relevant data-quality constraints.
-
-- Execute and validate. Run the pipeline, produce a usable structured output, and verify that each stage satisfies its contract.
-
-- Demonstrate failure and recovery. Introduce a realistic problem, such as a changed source schema or malformed records. Show the system detect the issue, trace its impact, and attempt a bounded repair or clearly report the failure.
-
-- Rerun and verify. Demonstrate that the corrected pipeline produces valid output and that its contracts remain enforceable.
-
-# Potential use case
-
-Hospital price-transparency data (MRFs), which can be large, inconsistent, and difficult to turn into usable structured data. Because we have encountered these challenges before, this domain could provide a realistic demonstration of source discovery, data normalization, schema validation, and pipeline maintenance.
-
-To keep the project achievable, we should initially target *one manageable dataset* (doesn't necessarily have to be hospital data). 
-
-# Agent responsibilities (may change over time)
-We can divide the system into a small number of focused responsibilities:
-
-Discovery agent: Identifies relevant sources and determines how to access the required data.
-
-Pipeline construction agent: Plans the ingestion and transformation workflow.
-
-Contract analysis agent: Defines or infers stage-level schemas, identifies incompatible assumptions, and proposes explicit contracts.
-
-Validation and maintenance agent: Checks outputs, detects contract violations, diagnoses failures, and attempts permitted recovery.
-
-These can be logical roles implemented within a shared orchestration system; they do not necessarily need to be separate models or independently running agents.
-
-**Deterministic tools should perform actual ingestion, transformation, and validation wherever possible. Agent-generated plans and repairs should be checked before execution.```
-
-# What we hope to see when done
-
-- One data source and a small number of transformation stages.
-- Explicit input and output contracts between stages.
-- Agent-driven pipeline construction and execution.
-- Deterministic schema and data-quality validation.
-- One reproducible failure scenario, with demonstrated diagnosis and recovery or a clear failure report.
-- An inspectable execution log and usable structured output.
+Scheduling, unattended monitoring, arbitrary script generation, large datasets,
+cloud-provider funding and Tier-3 merge/spend actions are outside this pilot.
+Changing these boundaries is an explicit next project, not a prompt tweak.

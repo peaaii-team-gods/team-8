@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Bounded field mapping",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id_column", "reading_column"],
+  "properties": {
+    "schema_version": {"const": "mapping.v1"},
+    "id_column": {"const": "sensor_id"},
+    "reading_column": {"enum": ["reading", "value"]}
+  }
+}

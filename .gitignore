@@ -1,3 +1,8 @@
 # Python bytecode and local environment files are machine-specific and may hold secrets.
 __pycache__
 .env
+.venv/
+.pytest_cache/
+.pilot-state*/
+pilot-result*.json
+work/
