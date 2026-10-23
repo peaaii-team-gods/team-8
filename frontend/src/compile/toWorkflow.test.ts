@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { compileAgent, compileGraph, hostedAllowedTools, selectBinding, type WorkspaceBinding } from "./toWorkflow";
+import { defaultSchemaText } from "../registry/schemas";
 import { SERVICE_FEATURES } from "../registry/services.manifest";
 import type { CanvasNode } from "../state/store";
 
@@ -120,6 +121,18 @@ describe("B10 binding: emission requires available AND a real binding", () => {
     expect(selectBinding([{ ...binding, status: "discarded" }])).toBeNull();
     expect(selectBinding([binding, other], "ws_other")).toEqual(other);
     expect(selectBinding([binding], "ws_missing")).toBeNull();
+  });
+});
+
+describe("output schema input", () => {
+  it("sends a valid hand-edited schema and ignores invalid JSON", () => {
+    const withSchema = { ...agent, data: { ...agent.data, schemaText: defaultSchemaText("builder") } };
+    const wf = compileAgent(withSchema, [], [withSchema], "n");
+    expect(wf.inputs.output_schema).toContain("mapping.v1");
+    expect(wf.task_guidance.join(" ")).toContain("inputs.output_schema");
+    const broken = { ...agent, data: { ...agent.data, schemaText: "{not json" } };
+    expect(compileAgent(broken, [], [broken], "n").inputs.output_schema).toBeUndefined();
+    expect(compileAgent(agent, [], [agent], "n").inputs.output_schema).toBeUndefined();
   });
 });
 

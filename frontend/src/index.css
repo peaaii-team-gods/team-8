@@ -1,3 +1,33 @@
 @import "tailwindcss";
 html, body, #root { height: 100%; margin: 0; background: #070312; color: #f3efff; font-family: Inter, system-ui, sans-serif; }
 .glass { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.16); backdrop-filter: blur(14px); border-radius: 18px; }
+.packet-chip {
+  background: rgba(12, 6, 24, 0.92);
+  border: 1px solid rgba(232, 121, 249, 0.55);
+  color: #f5d0fe;
+  font-size: 10px;
+  line-height: 1.35;
+  padding: 5px 8px;
+  border-radius: 12px;
+  max-width: 168px;
+  box-shadow: 0 0 18px rgba(168, 85, 247, 0.35);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  pointer-events: none;
+}
+.packet-chip-live {
+  animation: packet-pulse 1.2s ease-in-out infinite;
+}
+@keyframes packet-pulse {
+  0%, 100% { opacity: 0.88; box-shadow: 0 0 12px rgba(168, 85, 247, 0.3); }
+  50% { opacity: 1; box-shadow: 0 0 22px rgba(232, 121, 249, 0.7); }
+}
+.agent-live {
+  animation: agent-glow 1.1s ease-in-out infinite;
+}
+@keyframes agent-glow {
+  0%, 100% { filter: drop-shadow(0 0 0 transparent); }
+  50% { filter: drop-shadow(0 0 10px #e879f9); }
+}

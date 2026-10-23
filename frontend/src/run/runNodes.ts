@@ -1,6 +1,9 @@
 import type { RhmAdapter, RunHandle, RunOutcome } from "../adapters/RhmAdapter";
 import type { WorkflowV1 } from "../compile/toWorkflow";
+import type { CanvasEdge, CanvasNode } from "../state/store";
 import type { CanvasNodeData } from "../registry/types";
+import { addUsage, emptyUsage, hasUsage, mergeChanges, preferLatest, type ParsedTelemetry, type UsageMetrics, type WorkspaceChange } from "./telemetry";
+import { agentRunOrder, incomingAgentIds, outgoingAgentEdges, withHandoff } from "./handoff";
 
 export const POLL_INTERVAL_MS = 1_000;
 export const POLL_TIMEOUT_MS = 120_000;
@@ -10,6 +13,7 @@ export interface PollOptions {
   timeoutMs?: number;
   sleep?: (ms: number) => Promise<void>;
   shouldStop?: () => boolean;
+  onEvents?: (handle: RunHandle, telemetry: ParsedTelemetry) => void;
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -21,11 +25,26 @@ export async function pollUntilTerminal(adapter: RhmAdapter, handle: RunHandle, 
   const timeoutMs = opts.timeoutMs ?? POLL_TIMEOUT_MS;
   const sleep = opts.sleep ?? defaultSleep;
   let waited = 0;
+  let afterSeq = 0;
+  let snapshot = emptyUsage("estimated");
+  let eventUsage = emptyUsage("estimated");
+  let workspace: WorkspaceChange[] = [];
   for (;;) {
     const out = await adapter.poll(handle);
-    if ((TERMINAL as readonly string[]).includes(out.status)) return out;
-    if (opts.shouldStop?.()) return { ...out, status: "cancelled" };
-    if (waited >= timeoutMs) return { ...out, status: "unknown", state: out.state ?? "poll-timeout" };
+    snapshot = preferLatest(snapshot, out.usage);
+    if (out.workspace?.length) workspace = mergeChanges(workspace, out.workspace);
+    if (adapter.events) {
+      const ev = await adapter.events(handle, afterSeq);
+      afterSeq = Math.max(afterSeq, ev.nextAfterSeq);
+      if (hasUsage(ev.usage)) eventUsage = addUsage(eventUsage, ev.usage);
+      workspace = mergeChanges(workspace, ev.workspace);
+      opts.onEvents?.(handle, ev);
+    }
+    const usage = hasUsage(snapshot) ? snapshot : hasUsage(eventUsage) ? eventUsage : out.usage;
+    const merged: RunOutcome = { ...out, usage, workspace: workspace.length ? workspace : out.workspace };
+    if ((TERMINAL as readonly string[]).includes(out.status)) return merged;
+    if (opts.shouldStop?.()) return { ...merged, status: "cancelled" };
+    if (waited >= timeoutMs) return { ...merged, status: "unknown", state: out.state ?? "poll-timeout" };
     await sleep(intervalMs);
     waited += intervalMs;
   }
@@ -37,6 +56,10 @@ export interface RunNodesHooks {
   onStatus: (nodeId: string, status: CanvasNodeData["status"], output?: string) => void;
   onHandle?: (handle: RunHandle) => void;
   shouldStop?: () => boolean;
+  onTelemetry?: (nodeId: string, usage: UsageMetrics, workspace: WorkspaceChange[]) => void;
+  onUtterance?: (fromId: string, text: string, toIds: string[]) => void;
+  onEdgeActive?: (edgeIds: string[], active: boolean) => void;
+  graph?: { nodes: CanvasNode[]; edges: CanvasEdge[] };
 }
 
 /** Outputs are model proposals (agent_reported), never verification. */
@@ -47,6 +70,7 @@ export const proposalLabel = (out: RunOutcome): string =>
  * Run each compiled agent workflow through the selected adapter.
  * Node status follows the real run state: queued -> processing -> done/error.
  * Only handles created here are reported via onHandle (cancel scope).
+ * When graph edges exist, upstream agent outputs are handed to downstream workflows.
  */
 export async function runNodes(
   adapter: RhmAdapter,
@@ -55,19 +79,71 @@ export async function runNodes(
   pollOpts: PollOptions = {},
 ): Promise<RunHandle[]> {
   const handles: RunHandle[] = [];
-  for (const { nodeId, workflow } of compiled) {
+  const byId = new Map(compiled.map((c) => [c.nodeId, c]));
+  const nodes = hooks.graph?.nodes ?? compiled.map((c) => ({ id: c.nodeId, type: "agent", position: { x: 0, y: 0 }, data: { kind: "agent" as const, presetId: "", title: c.nodeId, description: "", color: "" } }));
+  const edges = hooks.graph?.edges ?? [];
+  const order = agentRunOrder(nodes, edges).filter((id) => byId.has(id));
+  const leftover = compiled.map((c) => c.nodeId).filter((id) => !order.includes(id));
+  const outputs = new Map<string, { title: string; output: string }>();
+
+  for (const nodeId of [...order, ...leftover]) {
     if (hooks.shouldStop?.()) break;
+    const compiledNode = byId.get(nodeId);
+    if (!compiledNode) continue;
+    const node = nodes.find((n) => n.id === nodeId);
+    const title = node?.data.title ?? nodeId;
+    const incoming = incomingAgentIds(nodeId, edges, nodes)
+      .map((id) => outputs.get(id))
+      .filter((x): x is { title: string; output: string } => !!x);
+    const workflow = withHandoff(compiledNode.workflow, incoming);
+    const feedEdges = edges.filter((e) => e.target === nodeId).map((e) => e.id);
     hooks.onStatus(nodeId, "queued");
     try {
       hooks.onStatus(nodeId, "processing");
+      if (feedEdges.length) hooks.onEdgeActive?.(feedEdges, true);
       const handle = await adapter.run(nodeId, workflow);
       handles.push(handle);
       hooks.onHandle?.(handle);
-      const out = await pollUntilTerminal(adapter, handle, { ...pollOpts, shouldStop: hooks.shouldStop });
-      if (hooks.shouldStop?.() && out.status === "cancelled") break;
-      hooks.onStatus(nodeId, out.status === "succeeded" ? "done" : "error", proposalLabel(out));
+      const spoken: string[] = [];
+      const downTargets = () => outgoingAgentEdges(nodeId, edges, nodes).map((e) => e.target);
+      const say = (text: string) => {
+        const trimmed = text.trim();
+        if (!trimmed || spoken.includes(trimmed)) return;
+        spoken.push(trimmed);
+        hooks.onUtterance?.(nodeId, trimmed, downTargets());
+      };
+      let rolling = emptyUsage(adapter.mode === "live" ? "live" : "estimated");
+      let files: WorkspaceChange[] = [];
+      const out = await pollUntilTerminal(adapter, handle, {
+        ...pollOpts,
+        shouldStop: hooks.shouldStop,
+        onEvents: (h, ev) => {
+          pollOpts.onEvents?.(h, ev);
+          if (hasUsage(ev.usage)) rolling = addUsage(rolling, ev.usage);
+          if (ev.workspace.length) files = mergeChanges(files, ev.workspace);
+          if (hasUsage(rolling) || files.length) hooks.onTelemetry?.(nodeId, rolling, files);
+          for (const m of ev.messages) say(m);
+        },
+      });
+      if (hooks.shouldStop?.() && out.status === "cancelled") {
+        if (feedEdges.length) hooks.onEdgeActive?.(feedEdges, false);
+        break;
+      }
+      const labelled = proposalLabel(out);
+      hooks.onStatus(nodeId, out.status === "succeeded" ? "done" : "error", labelled);
+      if (out.usage || out.workspace?.length) hooks.onTelemetry?.(nodeId, out.usage ?? emptyUsage(adapter.mode), out.workspace ?? []);
+      if (adapter.workspaceChanges && workflow.workspace_id) {
+        const extra = await adapter.workspaceChanges(workflow.workspace_id, nodeId).catch(() => []);
+        if (extra.length) hooks.onTelemetry?.(nodeId, out.usage ?? emptyUsage(adapter.mode), extra);
+      }
+      outputs.set(nodeId, { title, output: out.output ?? labelled });
+      say(out.output || spoken.at(-1) || "");
+      const down = outgoingAgentEdges(nodeId, edges, nodes);
+      if (down.length) hooks.onEdgeActive?.(down.map((e) => e.id), true);
+      if (feedEdges.length) hooks.onEdgeActive?.(feedEdges, false);
     } catch (err) {
       hooks.onStatus(nodeId, "error", err instanceof Error ? err.message : String(err));
+      if (feedEdges.length) hooks.onEdgeActive?.(feedEdges, false);
     }
   }
   return handles;

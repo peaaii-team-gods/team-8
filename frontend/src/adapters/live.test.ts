@@ -6,6 +6,24 @@ import { pollUntilTerminal, runNodes } from "../run/runNodes";
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 const adapter = () => new LiveAdapter("http://api", new IdentitySession("http://id", "http://api"));
 
+/** URL-routed fetch so the events poll cannot consume the run/outputs responses. */
+function installFetch(script: { polls: Record<string, unknown>[]; outputs?: unknown; events?: unknown; workflowId?: string; runId?: string }) {
+  let pollN = 0;
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/v1/workflows")) return json({ workflow_id: script.workflowId ?? "w1" });
+    if (url.endsWith("/v1/runs")) return json({ run_id: script.runId ?? "r1" });
+    if (url.includes("/events")) return json(script.events ?? { events: [], next_after_seq: 0 });
+    if (url.endsWith("/outputs")) return json(script.outputs ?? { outputs: [] });
+    if (url.includes("/files") || url.includes("/changes")) return json({ files: [] });
+    const body = script.polls[Math.min(pollN, script.polls.length - 1)];
+    pollN += 1;
+    return json(body);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
 afterEach(() => vi.unstubAllGlobals());
 
 describe("LiveAdapter poll mapping", () => {
@@ -18,13 +36,13 @@ describe("LiveAdapter poll mapping", () => {
   });
 
   it("running -> succeeded via run + pollUntilTerminal, basis passthrough", async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(json({ workflow_id: "w1" }))
-      .mockResolvedValueOnce(json({ run_id: "r1" }))
-      .mockResolvedValueOnce(json({ status: "running", completion_basis: "agent_reported" }))
-      .mockResolvedValueOnce(json({ status: "succeeded", completion_basis: "agent_reported" }))
-      .mockResolvedValueOnce(json({ outputs: [{ content: "ok" }] }));
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = installFetch({
+      polls: [
+        { status: "running", completion_basis: "agent_reported" },
+        { status: "succeeded", completion_basis: "agent_reported" },
+      ],
+      outputs: { outputs: [{ content: "ok" }] },
+    });
     const a = adapter();
     const handle = await a.run("a1", { schema_version: "workflow.v1" } as never);
     // backend create contract: POST /v1/workflows with {workflow} wrapper
@@ -32,20 +50,48 @@ describe("LiveAdapter poll mapping", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ workflow: { schema_version: "workflow.v1" } });
     expect(handle).toEqual({ nodeId: "a1", runId: "r1" });
     const out = await pollUntilTerminal(a, handle, { sleep: async () => undefined, intervalMs: 0 });
-    expect(fetchMock.mock.calls[4][0]).toBe("http://api/v1/runs/r1/outputs");
+    expect(fetchMock.mock.calls.map((c) => String(c[0]))).toContain("http://api/v1/runs/r1/outputs");
     expect(out.status).toBe("succeeded");
     expect(out.basis).toBe("agent_reported");
     expect(out.output).toContain("ok");
   });
 
+  it("keeps run-body token cost and event files without letting events steal the poll", async () => {
+    const said: string[] = [];
+    installFetch({
+      polls: [
+        { status: "running" },
+        { status: "succeeded", completion_basis: "agent_reported", usage: { prompt_tokens: 11, completion_tokens: 7, cost_usd: 0.02 } },
+      ],
+      outputs: { outputs: [{ content: "ok" }] },
+      events: {
+        next_after_seq: 2,
+        events: [
+          { seq: 1, type: "assistant_message", content: "hello from tick" },
+          { seq: 2, type: "workspace_file", payload: { path: "work/a.ts", kind: "added", summary: "new file" } },
+        ],
+      },
+    });
+    const out = await pollUntilTerminal(adapter(), { nodeId: "a1", runId: "r9" }, {
+      sleep: async () => undefined,
+      intervalMs: 0,
+      onEvents: (_h, ev) => said.push(...ev.messages),
+    });
+    expect(out.status).toBe("succeeded");
+    expect(out.usage).toMatchObject({ promptTokens: 11, completionTokens: 7, totalTokens: 18, costUsd: 0.02, source: "live" });
+    expect(out.workspace).toEqual([expect.objectContaining({ path: "work/a.ts", kind: "added", agentId: "a1" })]);
+    expect(said).toContain("hello from tick");
+  });
+
   it("runNodes maps a live run to queued -> processing -> done, labelled as proposal", async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(json({ workflow_id: "w1" }))
-      .mockResolvedValueOnce(json({ run_id: "r2" }))
-      .mockResolvedValueOnce(json({ status: "running" }))
-      .mockResolvedValueOnce(json({ status: "succeeded", completion_basis: "agent_reported" }))
-      .mockResolvedValueOnce(json({ outputs: [{ content: "done" }] }));
-    vi.stubGlobal("fetch", fetchMock);
+    installFetch({
+      runId: "r2",
+      polls: [
+        { status: "running" },
+        { status: "succeeded", completion_basis: "agent_reported" },
+      ],
+      outputs: { outputs: [{ content: "done" }] },
+    });
     const statuses: string[] = [];
     const handles: string[] = [];
     await runNodes(adapter(), [{ nodeId: "a1", workflow: {} as never }], {

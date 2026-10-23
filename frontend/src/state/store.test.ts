@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { canLink } from "../registry/linkRules";
 import { compileGraph } from "../compile/toWorkflow";
-import type { CanvasNode } from "./store";
+import { emptyUsage } from "../run/telemetry";
+import { useStore, type CanvasNode } from "./store";
 
 describe("link rules", () => {
   it("allows lake->agent, forbids agent->lake", () => {
@@ -21,5 +22,25 @@ describe("compiler", () => {
     expect(out[0].workflow.loop_limits).toEqual({ max_ticks: 2, max_tokens_per_tick: 512, max_tokens_total: 2048 });
     expect(out[0].workflow.workspace_id).toBe("canvas_test01_builder");
     expect(JSON.stringify(out[0].workflow.inputs)).toContain("syn-001");
+  });
+});
+
+describe("agent tracking", () => {
+  it("records an agent the moment it is spawned, before a run", () => {
+    useStore.setState({
+      nodes: [], edges: [], uiState: { kind: "void" },
+      tracks: [], messages: [], workspace: [], totals: emptyUsage(),
+    });
+    useStore.getState().spawn({
+      id: "a1", type: "agent", position: { x: 0, y: 0 },
+      data: { kind: "agent", presetId: "builder", title: "Builder", description: "", color: "emerald" },
+    });
+    useStore.getState().spawn({
+      id: "l1", type: "dataLake", position: { x: 0, y: 0 },
+      data: { kind: "dataLake", presetId: "supabase-primary", title: "Lake", description: "", color: "blue" },
+    });
+    const tracks = useStore.getState().tracks;
+    expect(tracks).toHaveLength(1);
+    expect(tracks[0]).toMatchObject({ title: "Builder", presetId: "builder", metrics: emptyUsage() });
   });
 });

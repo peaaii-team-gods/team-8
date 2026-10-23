@@ -1,6 +1,7 @@
 import type { RhmAdapter, RunHandle, RunOutcome } from "./RhmAdapter";
 import type { IdentitySession } from "./identity";
 import type { WorkflowV1, WorkspaceBinding } from "../compile/toWorkflow";
+import { parseEvents, parseWorkspaceList, usageFromUnknown, type ParsedTelemetry, type WorkspaceChange } from "../run/telemetry";
 // Live mode targets a local loopback stack with operator-allowlisted origins. No proxy, no credential logging.
 // Backend contract (integrate-backend app/main.py:327-401, public_models.py):
 // workflows are created as {workflow}, runs as {workflow_id}; RunResponse
@@ -35,8 +36,8 @@ export class LiveAdapter implements RhmAdapter {
   async poll(h: RunHandle): Promise<RunOutcome> {
     const r = await fetch(`${this.apiBase}/v1/runs/${h.runId}`, { headers: this.headers() });
     if (!r.ok) return { nodeId: h.nodeId, status: "unknown", state: `http-${r.status}` };
-    const j = (await r.json()) as { status?: string; completion_basis?: string };
-    const state = (j.status ?? "unknown").toLowerCase();
+    const j = await r.json() as Record<string, unknown>;
+    const state = String(j.status ?? "unknown").toLowerCase();
     const done = TERMINAL.includes(state);
     let output: string | undefined;
     if (done && state === "succeeded") {
@@ -51,7 +52,33 @@ export class LiveAdapter implements RhmAdapter {
     // Non-terminal states stay "unknown" with the raw state passed through;
     // basis is passed through untouched — never a verification claim.
     const status = done && ["succeeded", "failed", "cancelled"].includes(state) ? (state as RunOutcome["status"]) : done ? "failed" : "unknown";
-    return { nodeId: h.nodeId, status, state, basis: j.completion_basis ?? "agent_reported", output };
+    const usage = usageFromUnknown(j, "live");
+    const workspace = parseWorkspaceList(j.workspace ?? j.files, h.nodeId);
+    return { nodeId: h.nodeId, status, state, basis: String(j.completion_basis ?? "agent_reported"), output, usage, workspace };
+  }
+  async events(h: RunHandle, afterSeq: number): Promise<ParsedTelemetry> {
+    try {
+      const r = await fetch(`${this.apiBase}/v1/runs/${h.runId}/events?after_seq=${afterSeq}`, { headers: this.headers() });
+      if (!r.ok) return parseEvents({ events: [] }, h.nodeId);
+      return parseEvents(await r.json(), h.nodeId);
+    } catch {
+      return parseEvents({ events: [] }, h.nodeId);
+    }
+  }
+  async workspaceChanges(workspaceId: string, agentId: string): Promise<WorkspaceChange[]> {
+    const paths = [
+      `${this.apiBase}/v1/workspaces/${encodeURIComponent(workspaceId)}/files`,
+      `${this.apiBase}/v1/workspaces/${encodeURIComponent(workspaceId)}/changes`,
+    ];
+    for (const url of paths) {
+      try {
+        const r = await fetch(url, { headers: this.headers() });
+        if (!r.ok) continue;
+        const list = parseWorkspaceList(await r.json(), agentId);
+        if (list.length) return list;
+      } catch { /* optional surface */ }
+    }
+    return [];
   }
   async cancel(h: RunHandle) { await fetch(`${this.apiBase}/v1/runs/${h.runId}/cancel`, { method: "POST", headers: this.headers() }); }
 }

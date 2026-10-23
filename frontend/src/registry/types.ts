@@ -6,7 +6,8 @@ export type UiState =
   | { kind: "idle" }
   | { kind: "menu"; nodeId: string }
   | { kind: "linking"; sourceId: string }
-  | { kind: "running" };
+  | { kind: "running" }
+  | { kind: "schema"; nodeId: string };
 
 export interface NodeKind {
   id: NodeKindId;
@@ -28,4 +29,6 @@ export interface ServiceFeature { id: string; service: string; feature: string; 
 export type CanvasNodeData = {
   kind: NodeKindId; presetId: string; title: string; description: string;
   color: string; status?: "queued" | "processing" | "done" | "error"; output?: string;
+  /** Pretty JSON Schema text. Presets start from a predefined contract; programmers may replace it. */
+  schemaText?: string;
 };

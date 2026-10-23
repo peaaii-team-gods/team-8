@@ -1,6 +1,15 @@
 import type { WorkflowV1, WorkspaceBinding } from "../compile/toWorkflow";
+import type { ParsedTelemetry, UsageMetrics, WorkspaceChange } from "../run/telemetry";
 export interface RunHandle { nodeId: string; runId: string }
-export interface RunOutcome { nodeId: string; status: "succeeded" | "failed" | "cancelled" | "unknown"; output?: string; basis?: string; state?: string }
+export interface RunOutcome {
+  nodeId: string;
+  status: "succeeded" | "failed" | "cancelled" | "unknown";
+  output?: string;
+  basis?: string;
+  state?: string;
+  usage?: UsageMetrics;
+  workspace?: WorkspaceChange[];
+}
 export interface RhmAdapter {
   mode: "simulated" | "live";
   capabilities(): Promise<Record<string, unknown> | null>;
@@ -8,5 +17,8 @@ export interface RhmAdapter {
   workspaces?(): Promise<WorkspaceBinding[]>;
   run(nodeId: string, workflow: WorkflowV1): Promise<RunHandle>;
   poll(handle: RunHandle): Promise<RunOutcome>;
+  /** Public run event stream; optional — live only, best-effort. */
+  events?(handle: RunHandle, afterSeq: number): Promise<ParsedTelemetry>;
+  workspaceChanges?(workspaceId: string, agentId: string): Promise<WorkspaceChange[]>;
   cancel(handle: RunHandle): Promise<void>;
 }

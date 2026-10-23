@@ -5,10 +5,15 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Play, Square } from "lucide-react";
 import VoidBackground from "./ui/VoidBackground";
 import SessionPanel from "./ui/SessionPanel";
+import MetricsPanel from "./ui/MetricsPanel";
+import ConversationPanel from "./ui/ConversationPanel";
+import WorkspacePanel from "./ui/WorkspacePanel";
+import SchemaWindow from "./ui/SchemaWindow";
 import { AgentNode, DataLakeNode } from "./canvas/nodes";
 import PacketEdge from "./canvas/PacketEdge";
 import { useStore, nextId, type CanvasNode } from "./state/store";
 import { AGENT_PRESETS } from "./registry/agentPresets";
+import { defaultSchemaText } from "./registry/schemas";
 import { DATA_LAKE_PRESETS } from "./registry/dataLakePresets";
 import { compileGraph, selectBinding } from "./compile/toWorkflow";
 import { SimulatedAdapter } from "./adapters/simulated";
@@ -21,7 +26,10 @@ const nodeTypes: NodeTypes = { agent: AgentNode, dataLake: DataLakeNode };
 const edgeTypes: EdgeTypes = { packet: PacketEdge };
 
 export default function App() {
-  const { nodes, edges, uiState, openHub, spawn, setUiState, completeLink, cancelLink, setNodeStatus, resetRun } = useStore();
+  const {
+    nodes, edges, uiState, tracks, openHub, spawn, setUiState, completeLink, cancelLink,
+    setNodeStatus, resetRun, onNodesChange, setEdgeActive, recordHandle, recordTelemetry, recordUtterance,
+  } = useStore();
   const [liveAdapter, setLiveAdapter] = useState<LiveAdapter | null>(null);
   const [running, setRunning] = useState(false);
   const handlesRef = useRef<RunHandle[]>([]);
@@ -37,7 +45,11 @@ export default function App() {
 
   const spawnPreset = (kind: "agent" | "dataLake", presetId: string) => {
     const p = kind === "agent" ? AGENT_PRESETS.find((x) => x.id === presetId)! : DATA_LAKE_PRESETS.find((x) => x.id === presetId)!;
-    const node: CanvasNode = { id: nextId(kind), type: kind, position: { x: 240 + Math.random() * 160, y: 160 + Math.random() * 120 }, data: { kind, presetId, title: p.title, description: p.description, color: p.color } };
+    const count = useStore.getState().nodes.length;
+    const node: CanvasNode = {
+      id: nextId(kind), type: kind, position: { x: 80 + (count % 3) * 340, y: 120 + Math.floor(count / 3) * 220 },
+      data: { kind, presetId, title: p.title, description: p.description, color: p.color, ...(kind === "agent" ? { schemaText: defaultSchemaText(presetId) } : {}) },
+    };
     spawn(node);
   };
 
@@ -57,12 +69,6 @@ export default function App() {
     adapterRef.current = adapter;
     setRunning(true);
     setUiState({ kind: "running" });
-    // B9+B10: fresh fetched report at run time gates hosted tool
-    // emission (backend wins), and emission additionally requires a
-    // real B3 binding: auto-bind when the caller owns exactly one
-    // ready workspace (several/none bind nothing; a selector UI is
-    // the recorded follow-up). Simulated mode never fetches, so it
-    // compiles exactly as before (allowed_tools: []).
     const capabilities = adapter.mode === "live"
       ? await adapter.capabilities().catch(() => null)
       : null;
@@ -71,24 +77,30 @@ export default function App() {
       : null;
     await runNodes(adapter, compileGraph(nodes, edges, nonce, capabilities, binding), {
       onStatus: setNodeStatus,
-      onHandle: (h) => { handlesRef.current = [...handlesRef.current, h]; },
+      onHandle: (h) => { handlesRef.current = [...handlesRef.current, h]; recordHandle(h.nodeId, h.runId); },
       shouldStop: () => stoppedRef.current,
+      graph: { nodes, edges },
+      onTelemetry: recordTelemetry,
+      onUtterance: recordUtterance,
+      onEdgeActive: (ids, active) => setEdgeActive(ids, active),
     });
     setRunning(false);
     setUiState({ kind: "idle" });
   };
 
-  return <div className="h-full relative" onClick={() => { if (uiState.kind === "linking") cancelLink(); }}>
+  return <div className="h-full flex" onClick={() => { if (uiState.kind === "linking") cancelLink(); }}>
+    <div className="relative flex-1 min-w-0 h-full">
     <VoidBackground />
     {nodes.length === 0 && uiState.kind !== "hub" && (
-      <motion.button layoutId="hub" aria-label="Create" className="glass absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 p-6 text-fuchsia-300" onClick={(e) => { e.stopPropagation(); openHub(); }}><Plus size={36} /></motion.button>
+      <motion.button layoutId="hub" aria-label="Create" className="glass absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 p-6 text-fuchsia-300" onClick={(e) => { e.stopPropagation(); openHub(); }}><Plus size={36} /></motion.button>
     )}
     {nodes.length > 0 && uiState.kind !== "hub" && (
       <button aria-label="Create" className="glass absolute bottom-6 right-6 p-3 text-fuchsia-300 z-10" onClick={(e) => { e.stopPropagation(); openHub(); }}><Plus size={20} /></button>
     )}
-    <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} fitView
+    <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} fitView fitViewOptions={{ padding: 0.28 }} maxZoom={1.05}
+      onNodesChange={onNodesChange}
       onNodeClick={(_, n) => { if (uiState.kind === "linking") completeLink(n.id); else setUiState({ kind: "menu", nodeId: n.id }); }}>
-      <Background /><Controls />
+      <Background /><Controls position="top-left" />
     </ReactFlow>
     <AnimatePresence>{uiState.kind === "hub" && (
       <motion.div layoutId="hub" initial={{ opacity: 0, scale: .9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="glass absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 p-5 z-10 w-[min(560px,92vw)]" onClick={(e) => e.stopPropagation()}>
@@ -105,8 +117,19 @@ export default function App() {
         <SessionPanel apiBase={apiBaseFromEnv(env)} identityBase={identityBaseFromEnv(env)} onAuthenticated={setLiveAdapter} />
       </div>
     )}
+    {tracks.length > 0 && (
+      <div className="absolute bottom-20 left-4 z-10 pointer-events-none [&>*]:pointer-events-auto">
+        <ConversationPanel />
+      </div>
+    )}
     {edges.length > 0 && <button aria-label={running ? "Stop run" : "Run pipeline"} disabled={!running && !adapter} className="glass absolute bottom-6 left-1/2 -translate-x-1/2 px-5 py-2 flex gap-2 items-center z-10 disabled:opacity-50" onClick={(e) => { e.stopPropagation(); void toggleRun(); }}>{running ? <Square size={14} /> : <Play size={14} />}{running ? "Stop" : "Run Pipeline"}</button>}
     {uiState.kind === "linking" && <div className="absolute top-4 left-1/2 -translate-x-1/2 glass px-4 py-1 text-sm z-10">Click a valid target to lock the link (click empty space to cancel)</div>}
-    <div className="absolute top-4 right-4 glass px-3 py-1 text-xs z-10">Mode: {mode}{mode === "live" && !liveAdapter ? " — sign in required" : ""}</div>
+    <SchemaWindow />
+    </div>
+    <div className="w-[320px] shrink-0 h-full overflow-y-auto p-3 flex flex-col gap-3 border-l border-white/10 bg-[#070312]/80">
+      <div className="glass px-3 py-1 text-xs self-start">Mode: {mode}{mode === "live" && !liveAdapter ? " — sign in required" : ""}</div>
+      <MetricsPanel />
+      <WorkspacePanel />
+    </div>
   </div>;
 }
