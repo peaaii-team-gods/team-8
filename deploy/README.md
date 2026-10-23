@@ -52,7 +52,7 @@ No dependency on `C:\rhm-services` at **runtime** (only needed if you build from
 
 - [frontend/NO_BROKEN_UI.md](../frontend/NO_BROKEN_UI.md)
 - Browser: landing → sign-in → canvas → hard refresh restore → logout
-- Telemetry UI is session-local; **download-export is deferred** (root `TODO.md`)
+- Telemetry UI is session-local. Observability offers **Download session JSON** (`canvas.session.v1`); it is not sent to platform accounting.
 
 ## Build args
 
