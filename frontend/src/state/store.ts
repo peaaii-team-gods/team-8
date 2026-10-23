@@ -6,6 +6,8 @@ import { addUsage, emptyUsage, mergeChanges, type AgentMessage, type UsageMetric
 import { scenarioById } from "../registry/scenarios";
 import type { TelemetryEvent } from "../run/telemetryEvents";
 import { newSessionId } from "../run/telemetryEvents";
+import { MCP_ATTACHMENTS } from "../registry/mcpAttachments";
+import { emptyLinkageContext, type LinkageContext } from "../registry/mcpLinkage";
 
 export type CanvasNode = Node<CanvasNodeData>;
 export type CanvasEdge = Edge<{ active?: boolean; packetLabel?: string }>;
@@ -46,10 +48,16 @@ interface Store {
   telemetryEvents: TelemetryEvent[];
   scienceReceipt: ScienceReceipt | null;
   inspectedLakeId: string | null;
+  linkNotice: string | null;
+  linkageContext: LinkageContext;
   setUiState: (s: UiState) => void;
   openHub: () => void; closeToVoid: () => void;
   openSchema: (nodeId: string) => void;
+  openMcp: (nodeId: string) => void;
   setSchema: (nodeId: string, schemaText: string) => void;
+  attachMcp: (nodeId: string, attachmentId: string) => void;
+  detachMcp: (nodeId: string, attachmentId: string) => void;
+  setLinkageContext: (ctx: LinkageContext) => void;
   spawn: (node: CanvasNode) => void;
   removeNode: (id: string) => void;
   onNodesChange: (changes: NodeChange<CanvasNode>[]) => void;
@@ -87,13 +95,31 @@ export const useStore = create<Store>((set, get) => ({
   telemetryEvents: [],
   scienceReceipt: null,
   inspectedLakeId: null,
+  linkNotice: null,
+  linkageContext: emptyLinkageContext(),
   setUiState: (uiState) => set({ uiState }),
   openHub: () => set({ uiState: { kind: "hub" } }),
   closeToVoid: () => set({ uiState: { kind: "void" } }),
   openSchema: (nodeId) => set({ uiState: { kind: "schema", nodeId } }),
+  openMcp: (nodeId) => set({ uiState: { kind: "mcp", nodeId } }),
   setSchema: (nodeId, schemaText) => set((s) => ({
     nodes: s.nodes.map((n) => n.id === nodeId ? { ...n, data: { ...n.data, schemaText } } : n),
   })),
+  attachMcp: (nodeId, attachmentId) => set((s) => ({
+    nodes: s.nodes.map((n) => {
+      if (n.id !== nodeId || n.data.kind !== "agent") return n;
+      if (!MCP_ATTACHMENTS.some((a) => a.id === attachmentId && a.attachableTo === "agent")) return n;
+      const ids = n.data.mcpAttachmentIds ?? [];
+      if (ids.includes(attachmentId)) return n;
+      return { ...n, data: { ...n.data, mcpAttachmentIds: [...ids, attachmentId] } };
+    }),
+  })),
+  detachMcp: (nodeId, attachmentId) => set((s) => ({
+    nodes: s.nodes.map((n) => n.id === nodeId
+      ? { ...n, data: { ...n.data, mcpAttachmentIds: (n.data.mcpAttachmentIds ?? []).filter((id) => id !== attachmentId) } }
+      : n),
+  })),
+  setLinkageContext: (linkageContext) => set({ linkageContext }),
   spawn: (node) => set((s) => ({
     nodes: [...s.nodes, node],
     uiState: { kind: "idle" },
@@ -110,16 +136,29 @@ export const useStore = create<Store>((set, get) => ({
     uiState: { kind: "idle" },
   })),
   onNodesChange: (changes) => set((s) => ({ nodes: applyNodeChanges(changes, s.nodes) })),
-  beginLink: (sourceId) => set({ uiState: { kind: "linking", sourceId } }),
+  beginLink: (sourceId) => set({ uiState: { kind: "linking", sourceId }, linkNotice: null }),
   completeLink: (targetId) => {
-    const { uiState, nodes } = get();
+    const { uiState, nodes, edges } = get();
     if (uiState.kind !== "linking" || uiState.sourceId === targetId) return false;
-    const src = nodes.find((n) => n.id === uiState.sourceId); const tgt = nodes.find((n) => n.id === targetId);
-    if (!src || !tgt || !canLink(src.data.kind, tgt.data.kind).allowed) return false;
-    set((s) => ({ edges: [...s.edges, { id: nextId("e"), source: uiState.sourceId, target: targetId, type: "packet", data: { active: false } }], uiState: { kind: "idle" } }));
+    const src = nodes.find((n) => n.id === uiState.sourceId);
+    const tgt = nodes.find((n) => n.id === targetId);
+    if (!src || !tgt) {
+      set({ linkNotice: "That target is not on the canvas." });
+      return false;
+    }
+    const rule = canLink(src.data.kind, tgt.data.kind);
+    if (!rule.allowed) {
+      set({ linkNotice: rule.reason });
+      return false;
+    }
+    if (edges.some((e) => e.source === src.id && e.target === tgt.id)) {
+      set({ linkNotice: "That link is already on the canvas." });
+      return false;
+    }
+    set((s) => ({ edges: [...s.edges, { id: nextId("e"), source: uiState.sourceId, target: targetId, type: "packet", data: { active: false } }], uiState: { kind: "idle" }, linkNotice: null }));
     return true;
   },
-  cancelLink: () => set({ uiState: { kind: "idle" } }),
+  cancelLink: () => set({ uiState: { kind: "idle" }, linkNotice: null }),
   setNodeStatus: (id, status, output, verification) => set((s) => ({
     nodes: s.nodes.map((n) => n.id === id ? {
       ...n,
@@ -192,6 +231,7 @@ export const useStore = create<Store>((set, get) => ({
       pipelineStage: "idle",
       scienceReceipt: null,
       inspectedLakeId: null,
+      linkNotice: null,
       uiState: { kind: "idle" },
       runStartedAt: null,
       runEndedAt: null,
@@ -208,5 +248,6 @@ export const useStore = create<Store>((set, get) => ({
     tracks: [], messages: [], workspace: [], totals: zeros(),
     scenarioId: null, pipelineStage: "idle", runStartedAt: null, runEndedAt: null,
     sessionId: newSessionId(), telemetryEvents: [], scienceReceipt: null, inspectedLakeId: null,
+    linkNotice: null, linkageContext: emptyLinkageContext(),
   }),
 }));

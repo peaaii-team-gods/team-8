@@ -25,6 +25,37 @@ describe("compiler", () => {
   });
 });
 
+describe("lake links and MCP attachments", () => {
+  it("keeps a failed link on screen and still inspects a tethered lake", () => {
+    useStore.setState({
+      nodes: [], edges: [], uiState: { kind: "void" }, linkNotice: null, inspectedLakeId: null,
+    });
+    const agent: CanvasNode = { id: "a1", type: "agent", position: { x: 0, y: 0 }, data: { kind: "agent", presetId: "builder", title: "Builder", description: "", color: "emerald" } };
+    const lake: CanvasNode = { id: "l1", type: "dataLake", position: { x: 0, y: 0 }, data: { kind: "dataLake", presetId: "clinical-lab", title: "Clinical", description: "", color: "blue" } };
+    const other: CanvasNode = { id: "l2", type: "dataLake", position: { x: 0, y: 0 }, data: { kind: "dataLake", presetId: "medicare", title: "Medicare", description: "", color: "blue" } };
+    useStore.getState().spawn(agent);
+    useStore.getState().spawn(lake);
+    useStore.getState().spawn(other);
+    useStore.getState().beginLink("a1");
+    expect(useStore.getState().completeLink("l1")).toBe(false);
+    expect(useStore.getState().linkNotice).toMatch(/do not write lakes/i);
+    expect(useStore.getState().edges).toHaveLength(0);
+    useStore.getState().beginLink("l1");
+    expect(useStore.getState().completeLink("a1")).toBe(true);
+    useStore.getState().beginLink("l2");
+    expect(useStore.getState().completeLink("a1")).toBe(true);
+    expect(useStore.getState().edges).toHaveLength(2);
+    useStore.getState().inspectLake("l1");
+    expect(useStore.getState().inspectedLakeId).toBe("l1");
+    useStore.getState().attachMcp("a1", "coding-mcp");
+    useStore.getState().attachMcp("a1", "coding-mcp");
+    useStore.getState().attachMcp("l1", "shell-mcp");
+    expect(useStore.getState().nodes.find((n) => n.id === "a1")?.data.mcpAttachmentIds).toEqual(["coding-mcp"]);
+    useStore.getState().detachMcp("a1", "coding-mcp");
+    expect(useStore.getState().nodes.find((n) => n.id === "a1")?.data.mcpAttachmentIds).toEqual([]);
+  });
+});
+
 describe("agent tracking", () => {
   it("clears all owner/session data and rotates telemetry identity on logout", () => {
     useStore.getState().loadScenario("pilot-storyboard");
