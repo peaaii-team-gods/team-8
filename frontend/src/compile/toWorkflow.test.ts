@@ -35,7 +35,7 @@ describe("B9 hosted tool emission — ON only under a fetched available report",
   });
 
   it("compileGraph threads the report to every agent workflow", () => {
-    const lake = node("l1", "dataLake", "supabase-primary");
+    const lake = node("l1", "dataLake", "clinical-lab");
     const out = compileGraph([agent, lake], [{ id: "e1", source: "l1", target: "a1" }], "n1", caps(available), aBinding);
     expect(out[0].workflow.allowed_tools).toEqual(["execute_shell", "execute_check"]);
   });

@@ -1,9 +1,12 @@
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from "@xyflow/react";
 
-export default function PacketEdge(p: EdgeProps<{ active?: boolean; packetLabel?: string }>) {
+type PacketData = { active?: boolean; packetLabel?: string };
+
+export default function PacketEdge(p: EdgeProps) {
   const [d, labelX, labelY] = getBezierPath(p);
-  const active = Boolean(p.data?.active);
-  const label = p.data?.packetLabel?.trim();
+  const data = (p.data ?? {}) as PacketData;
+  const active = Boolean(data.active);
+  const label = data.packetLabel?.trim();
   return <>
     <defs>
       <linearGradient id={`pkt-${p.id}`} x1="0%" y1="0%" x2="100%" y2="0%">
@@ -34,12 +37,9 @@ export default function PacketEdge(p: EdgeProps<{ active?: boolean; packetLabel?
       </circle>
     </>}
     {label && active && (
-      <g>
-        <animateMotion dur="2.6s" repeatCount="indefinite" path={d} rotate="0" />
-        <foreignObject x="-84" y="-132" width="168" height="64">
-          <div xmlns="http://www.w3.org/1999/xhtml" className="packet-chip packet-chip-live">{label}</div>
-        </foreignObject>
-      </g>
+      <foreignObject x={labelX - 84} y={labelY - 132} width="168" height="64">
+        <div className="packet-chip packet-chip-live">{label}</div>
+      </foreignObject>
     )}
     {label && !active && (
       <EdgeLabelRenderer>

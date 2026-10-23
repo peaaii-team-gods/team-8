@@ -21,7 +21,7 @@ describe("agentRunOrder", () => {
 
 describe("withHandoff", () => {
   it("appends upstream proposals into inputs.handoff", () => {
-    const wf = { inputs: { evidence: "x" } } as WorkflowV1;
+    const wf = { inputs: { evidence: "x" } } as unknown as WorkflowV1;
     expect(withHandoff(wf, [{ title: "Builder", output: "map" }]).inputs).toEqual({
       evidence: "x",
       handoff: "Builder proposal:\nmap",

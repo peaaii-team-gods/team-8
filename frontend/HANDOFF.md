@@ -1,3 +1,41 @@
+# Current source review - 2026-10-23
+
+The pending `Front-End-Additions` source adds the landing/sign-in gate, memory-only
+cookie-session restore/logout, synthetic science presets and scenarios, lake
+inspection, session-local observability, and the explicit Docker/Cloudflare
+operator deployment bundle. Older branch/merge statements below are historical.
+
+Review fixes preserve the distinction between proposals and acceptance: simulated
+Maintainer output is `agent_reported`, completed pipelines show proposal completion,
+failed pipelines stay failed, and one telemetry event reflects each actual terminal
+run outcome. Preset names and storyboard timers cannot prove applied repairs, drift,
+QC or verification; those metrics remain unknown pending an oracle contract. The UI
+counts finished agents rather than inventing model tick counts.
+
+Stop/logout invalidates the active run generation. Logout clears every canvas,
+message, artifact and telemetry record, rotates the session ID, and dispatches
+cancellation for known handles. A run handle returned after cancellation is cancelled
+before polling; late callbacks cannot repopulate the signed-out session. Graph
+editing is disabled during a run. Identity requests time out after 15 seconds, so
+an unreachable restore endpoint cannot indefinitely hide the sign-in page.
+
+Local review validation: `npm test` **70 passed in 15 files**; `npm run docs:check`
+and `npm run build` passed. Regression coverage includes failed pilot outcomes,
+proposal-only completion, terminal telemetry, logout during polling and cancellation
+during run creation. The build retains its advisory bundle-size warning. Compose
+configuration validated without starting services; `operate.ps1` parsed with zero
+errors. Secret-pattern scanning of 95 tracked/unignored candidate files found zero
+matches; environment and token files remain ignored. There is no GitHub workflow
+or implicit deployment hook in this repository.
+
+This is local source evidence only. The earlier published landing screenshot and
+62-test deployment record are historical and do not attest to this revised source.
+No deployment, credential mutation, live sign-in, model inference or new runtime
+acceptance was performed in this review. Shared API/Identity availability and the
+full browser/authenticated run gate remain as recorded in `../deploy/README.md`.
+
+# Historical handoffs
+
 # Canvas handoff — 2026-10-22
 
 Status: Track F (F0–F4) implemented on `codex/f-canvas-demo-20261022`; live wiring follow-up on `codex/f-canvas-live-wire-20261022` (stacked on it). **Not pushed, not merged to main.**

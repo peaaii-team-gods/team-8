@@ -85,7 +85,7 @@ export function buildWorkflow(nonce) {
     objective: "You are Builder. Inspect the supplied records and return only the requested JSON object.",
     workspace_id: `canvas_${safeNonce}_builder`,
     // Backend WorkflowDefinition.inputs is dict[str,str] (public_models.py).
-    inputs: { evidence: JSON.stringify([{ lake: "supabase-primary", records: [
+    inputs: { evidence: JSON.stringify([{ lake: "clinical-lab", records: [
       { record_id: "syn-001", reading: 12, category: "audit" },
       { record_id: "syn-002", reading: 7, category: "audit" },
     ] }]) },

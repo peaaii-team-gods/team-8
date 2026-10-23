@@ -1,0 +1,9 @@
+# Named tunnel for peaaiiteam8.online. Credentials file is mounted at runtime — never commit it.
+tunnel: ${TUNNEL_UUID}
+credentials-file: /run/secrets/tunnel_credentials.json
+ingress:
+  - hostname: peaaiiteam8.online
+    service: http://frontend:8080
+  - hostname: www.peaaiiteam8.online
+    service: http://frontend:8080
+  - service: http_status:404

@@ -15,8 +15,8 @@ const mapping: Record<string, unknown> = {
   required: ["schema_version", "id_column", "reading_column"],
   properties: {
     schema_version: { const: "mapping.v1" },
-    id_column: { const: "sensor_id" },
-    reading_column: { enum: ["reading", "value"] },
+    id_column: { enum: ["specimen_id", "sensor_id", "record_id", "well_id"] },
+    reading_column: { enum: ["reading", "value", "readout", "amount_band"] },
   },
 };
 
@@ -24,7 +24,7 @@ export const OUTPUT_SCHEMAS: OutputSchema[] = [
   {
     id: "mapping.v1",
     title: "Field mapping",
-    summary: "Builder must name sensor_id and either reading or value.",
+    summary: "Builder must name an id column and a reading/value column from the lake.",
     presetIds: ["builder"],
     document: mapping,
   },
@@ -76,11 +76,11 @@ export const OUTPUT_SCHEMAS: OutputSchema[] = [
   },
   {
     id: "policy.v1",
-    title: "Policy finding",
-    summary: "Policy Audit returns compliance against one named rule.",
+    title: "Protocol finding",
+    summary: "Protocol Auditor returns compliance against one named rule.",
     presetIds: ["policy-audit"],
     document: {
-      title: "Policy audit finding",
+      title: "Protocol audit finding",
       type: "object",
       additionalProperties: false,
       required: ["compliant", "rule", "action"],
@@ -88,6 +88,23 @@ export const OUTPUT_SCHEMAS: OutputSchema[] = [
         compliant: { type: "boolean" },
         rule: { type: "string" },
         action: { enum: ["repair", "fail", "none"] },
+      },
+    },
+  },
+  {
+    id: "assay_qc.v1",
+    title: "Assay QC",
+    summary: "Assay QC returns pass/fail with synthetic flag codes.",
+    presetIds: ["assay-qc"],
+    document: {
+      title: "Assay plate QC",
+      type: "object",
+      additionalProperties: false,
+      required: ["outcome", "flags", "note"],
+      properties: {
+        outcome: { enum: ["pass", "fail"] },
+        flags: { type: "array", items: { type: "string" } },
+        note: { type: "string" },
       },
     },
   },

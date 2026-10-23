@@ -14,18 +14,29 @@ describe("link rules", () => {
 const node = (id: string, kind: "agent" | "dataLake", presetId: string): CanvasNode => ({ id, type: kind, position: { x: 0, y: 0 }, data: { kind, presetId, title: presetId, description: "", color: "blue" } });
 describe("compiler", () => {
   it("mirrors two_agents workflow shape with lakes as inputs", () => {
-    const nodes = [node("a1", "agent", "builder"), node("l1", "dataLake", "supabase-primary")];
+    const nodes = [node("a1", "agent", "builder"), node("l1", "dataLake", "clinical-lab")];
     const out = compileGraph(nodes, [{ id: "e1", source: "l1", target: "a1" }], "test01");
     expect(out).toHaveLength(1);
     expect(out[0].workflow.schema_version).toBe("workflow.v1");
     expect(out[0].workflow.allowed_tools).toEqual([]);
     expect(out[0].workflow.loop_limits).toEqual({ max_ticks: 2, max_tokens_per_tick: 512, max_tokens_total: 2048 });
     expect(out[0].workflow.workspace_id).toBe("canvas_test01_builder");
-    expect(JSON.stringify(out[0].workflow.inputs)).toContain("syn-001");
+    expect(JSON.stringify(out[0].workflow.inputs)).toContain("syn-lab-001");
   });
 });
 
 describe("agent tracking", () => {
+  it("clears all owner/session data and rotates telemetry identity on logout", () => {
+    useStore.getState().loadScenario("pilot-storyboard");
+    const previousSession = useStore.getState().sessionId;
+    useStore.getState().recordUtterance(useStore.getState().tracks[0].nodeId, "previous owner output", []);
+    useStore.getState().clearSession();
+    expect(useStore.getState()).toMatchObject({
+      nodes: [], edges: [], tracks: [], messages: [], workspace: [], telemetryEvents: [],
+      scenarioId: null, scienceReceipt: null, inspectedLakeId: null, pipelineStage: "idle",
+    });
+    expect(useStore.getState().sessionId).not.toBe(previousSession);
+  });
   it("records an agent the moment it is spawned, before a run", () => {
     useStore.setState({
       nodes: [], edges: [], uiState: { kind: "void" },
@@ -37,7 +48,7 @@ describe("agent tracking", () => {
     });
     useStore.getState().spawn({
       id: "l1", type: "dataLake", position: { x: 0, y: 0 },
-      data: { kind: "dataLake", presetId: "supabase-primary", title: "Lake", description: "", color: "blue" },
+      data: { kind: "dataLake", presetId: "clinical-lab", title: "Lake", description: "", color: "blue" },
     });
     const tracks = useStore.getState().tracks;
     expect(tracks).toHaveLength(1);

@@ -57,6 +57,7 @@ export interface RunNodesHooks {
   onHandle?: (handle: RunHandle) => void;
   shouldStop?: () => boolean;
   onTelemetry?: (nodeId: string, usage: UsageMetrics, workspace: WorkspaceChange[]) => void;
+  onOutcome?: (nodeId: string, outcome: RunOutcome) => void;
   onUtterance?: (fromId: string, text: string, toIds: string[]) => void;
   onEdgeActive?: (edgeIds: string[], active: boolean) => void;
   graph?: { nodes: CanvasNode[]; edges: CanvasEdge[] };
@@ -104,6 +105,12 @@ export async function runNodes(
       const handle = await adapter.run(nodeId, workflow);
       handles.push(handle);
       hooks.onHandle?.(handle);
+      // A stop/logout can race run creation. Cancel the newly returned handle
+      // before polling or allowing its output to reach another session.
+      if (hooks.shouldStop?.()) {
+        await adapter.cancel(handle).catch(() => undefined);
+        break;
+      }
       const spoken: string[] = [];
       const downTargets = () => outgoingAgentEdges(nodeId, edges, nodes).map((e) => e.target);
       const say = (text: string) => {
@@ -125,7 +132,7 @@ export async function runNodes(
           for (const m of ev.messages) say(m);
         },
       });
-      if (hooks.shouldStop?.() && out.status === "cancelled") {
+      if (hooks.shouldStop?.()) {
         if (feedEdges.length) hooks.onEdgeActive?.(feedEdges, false);
         break;
       }
@@ -136,13 +143,17 @@ export async function runNodes(
         const extra = await adapter.workspaceChanges(workflow.workspace_id, nodeId).catch(() => []);
         if (extra.length) hooks.onTelemetry?.(nodeId, out.usage ?? emptyUsage(adapter.mode), extra);
       }
+      if (hooks.shouldStop?.()) break;
+      hooks.onOutcome?.(nodeId, out);
       outputs.set(nodeId, { title, output: out.output ?? labelled });
       say(out.output || spoken.at(-1) || "");
       const down = outgoingAgentEdges(nodeId, edges, nodes);
       if (down.length) hooks.onEdgeActive?.(down.map((e) => e.id), true);
       if (feedEdges.length) hooks.onEdgeActive?.(feedEdges, false);
     } catch (err) {
+      if (hooks.shouldStop?.()) break;
       hooks.onStatus(nodeId, "error", err instanceof Error ? err.message : String(err));
+      hooks.onOutcome?.(nodeId, { nodeId, status: "failed" });
       if (feedEdges.length) hooks.onEdgeActive?.(feedEdges, false);
     }
   }

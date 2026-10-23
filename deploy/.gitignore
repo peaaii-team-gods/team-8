@@ -1,0 +1,5 @@
+.env
+cloudflared.runtime.yml
+*.credentials.json
+.secrets/
+*token*.txt

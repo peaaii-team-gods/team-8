@@ -1,0 +1,35 @@
+name: team8-hackathon
+
+services:
+  frontend:
+    image: team8-canvas:${RELEASE_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        VITE_RHM_MODE: live
+        VITE_RHM_API_BASE: https://api.right-hand-man.space
+        VITE_RHM_IDENTITY_BASE: https://identity.right-hand-man.space
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18080:8080"
+    networks: [hackathon]
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    profiles: [public]
+    command: [tunnel, --no-autoupdate, run, --token-file, /run/secrets/tunnel_token]
+    volumes:
+      - type: bind
+        source: ${TUNNEL_TOKEN_FILE:-./.secrets/tunnel-token.txt}
+        target: /run/secrets/tunnel_token
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on: [frontend]
+    networks: [hackathon]
+
+networks:
+  hackathon:
+    driver: bridge

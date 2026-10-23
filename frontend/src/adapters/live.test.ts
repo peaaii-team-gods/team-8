@@ -47,7 +47,8 @@ describe("LiveAdapter poll mapping", () => {
     const handle = await a.run("a1", { schema_version: "workflow.v1" } as never);
     // backend create contract: POST /v1/workflows with {workflow} wrapper
     expect(fetchMock.mock.calls[0][0]).toBe("http://api/v1/workflows");
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ workflow: { schema_version: "workflow.v1" } });
+    const createInit = fetchMock.mock.calls[0][1] as RequestInit | undefined;
+    expect(JSON.parse(String(createInit?.body))).toEqual({ workflow: { schema_version: "workflow.v1" } });
     expect(handle).toEqual({ nodeId: "a1", runId: "r1" });
     const out = await pollUntilTerminal(a, handle, { sleep: async () => undefined, intervalMs: 0 });
     expect(fetchMock.mock.calls.map((c) => String(c[0]))).toContain("http://api/v1/runs/r1/outputs");

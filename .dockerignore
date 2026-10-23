@@ -1,0 +1,11 @@
+.git
+**/.env
+**/.env.*
+**/.secrets
+**/*credentials*.json
+**/*token*.txt
+**/node_modules
+**/dist
+**/__pycache__
+**/.pytest_cache
+**/.pilot-state*

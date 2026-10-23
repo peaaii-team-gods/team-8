@@ -26,9 +26,15 @@ export interface DataLakePreset {
 export interface McpAttachment { id: string; title: string; attachableTo: NodeKindId; capability: string; executable: boolean }
 export interface LinkRule { from: NodeKindId; to: NodeKindId; allowed: boolean; reason: string }
 export interface ServiceFeature { id: string; service: string; feature: string; requiredCapability: string | null; liveToday: boolean }
+export type VerificationKind = "proposal" | "verified" | "failed";
+
+export type PipelineStage = "idle" | "propose" | "execute" | "fail" | "repair" | "complete";
+
 export type CanvasNodeData = {
   kind: NodeKindId; presetId: string; title: string; description: string;
   color: string; status?: "queued" | "processing" | "done" | "error"; output?: string;
   /** Pretty JSON Schema text. Presets start from a predefined contract; programmers may replace it. */
   schemaText?: string;
+  /** Proposal vs Verified honesty badge (agent nodes). */
+  verification?: VerificationKind;
 };

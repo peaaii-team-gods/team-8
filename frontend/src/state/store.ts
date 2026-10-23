@@ -1,8 +1,11 @@
 import { create } from "zustand";
 import { applyNodeChanges, type Edge, type Node, type NodeChange } from "@xyflow/react";
-import type { CanvasNodeData, UiState } from "../registry/types";
+import type { CanvasNodeData, PipelineStage, UiState, VerificationKind } from "../registry/types";
 import { canLink } from "../registry/linkRules";
 import { addUsage, emptyUsage, mergeChanges, type AgentMessage, type UsageMetrics, type WorkspaceChange } from "../run/telemetry";
+import { scenarioById } from "../registry/scenarios";
+import type { TelemetryEvent } from "../run/telemetryEvents";
+import { newSessionId } from "../run/telemetryEvents";
 
 export type CanvasNode = Node<CanvasNodeData>;
 export type CanvasEdge = Edge<{ active?: boolean; packetLabel?: string }>;
@@ -17,12 +20,30 @@ export interface AgentTrack {
   metrics: UsageMetrics;
 }
 
+export interface ScienceReceipt {
+  scenarioId: string | null;
+  mapping?: string;
+  flags: string[];
+  riskOrQc?: string;
+  tokens: number;
+  contentFreeIds: string[];
+  oracleNote?: string;
+}
+
 interface Store {
   nodes: CanvasNode[]; edges: CanvasEdge[]; uiState: UiState;
   tracks: AgentTrack[];
   messages: AgentMessage[];
   workspace: WorkspaceChange[];
   totals: UsageMetrics;
+  scenarioId: string | null;
+  pipelineStage: PipelineStage;
+  runStartedAt: number | null;
+  runEndedAt: number | null;
+  sessionId: string;
+  telemetryEvents: TelemetryEvent[];
+  scienceReceipt: ScienceReceipt | null;
+  inspectedLakeId: string | null;
   setUiState: (s: UiState) => void;
   openHub: () => void; closeToVoid: () => void;
   openSchema: (nodeId: string) => void;
@@ -33,12 +54,20 @@ interface Store {
   beginLink: (sourceId: string) => void;
   completeLink: (targetId: string) => boolean;
   cancelLink: () => void;
-  setNodeStatus: (id: string, status: CanvasNodeData["status"], output?: string) => void;
+  setNodeStatus: (id: string, status: CanvasNodeData["status"], output?: string, verification?: VerificationKind) => void;
   setEdgeActive: (edgeIds: string[], active: boolean, packetLabel?: string) => void;
   recordHandle: (nodeId: string, runId: string) => void;
   recordTelemetry: (nodeId: string, usage: UsageMetrics, workspace: WorkspaceChange[]) => void;
   recordUtterance: (fromId: string, text: string, toIds: string[]) => void;
   resetRun: () => void;
+  loadScenario: (id: string) => void;
+  setPipelineStage: (stage: PipelineStage) => void;
+  markRunStart: () => void;
+  markRunEnd: () => void;
+  pushTelemetryEvent: (ev: TelemetryEvent) => void;
+  setScienceReceipt: (r: ScienceReceipt | null) => void;
+  inspectLake: (nodeId: string | null) => void;
+  clearSession: () => void;
 }
 let seq = 0;
 export const nextId = (p: string) => `${p}-${Date.now()}-${seq++}`;
@@ -48,6 +77,14 @@ const zeros = (): UsageMetrics => emptyUsage("estimated");
 export const useStore = create<Store>((set, get) => ({
   nodes: [], edges: [], uiState: { kind: "void" },
   tracks: [], messages: [], workspace: [], totals: zeros(),
+  scenarioId: null,
+  pipelineStage: "idle",
+  runStartedAt: null,
+  runEndedAt: null,
+  sessionId: newSessionId(),
+  telemetryEvents: [],
+  scienceReceipt: null,
+  inspectedLakeId: null,
   setUiState: (uiState) => set({ uiState }),
   openHub: () => set({ uiState: { kind: "hub" } }),
   closeToVoid: () => set({ uiState: { kind: "void" } }),
@@ -67,6 +104,7 @@ export const useStore = create<Store>((set, get) => ({
     edges: s.edges.filter((e) => e.source !== id && e.target !== id),
     tracks: s.tracks.filter((t) => t.nodeId !== id),
     messages: s.messages.filter((m) => m.fromId !== id && m.toId !== id),
+    inspectedLakeId: s.inspectedLakeId === id ? null : s.inspectedLakeId,
     uiState: { kind: "idle" },
   })),
   onNodesChange: (changes) => set((s) => ({ nodes: applyNodeChanges(changes, s.nodes) })),
@@ -80,8 +118,16 @@ export const useStore = create<Store>((set, get) => ({
     return true;
   },
   cancelLink: () => set({ uiState: { kind: "idle" } }),
-  setNodeStatus: (id, status, output) => set((s) => ({
-    nodes: s.nodes.map((n) => n.id === id ? { ...n, data: { ...n.data, status, output } } : n),
+  setNodeStatus: (id, status, output, verification) => set((s) => ({
+    nodes: s.nodes.map((n) => n.id === id ? {
+      ...n,
+      data: {
+        ...n.data,
+        status,
+        output,
+        verification: verification ?? (status === "done" ? "proposal" : status === "error" ? "failed" : n.data.verification),
+      },
+    } : n),
     tracks: s.tracks.map((t) => t.nodeId === id ? { ...t, status } : t),
   })),
   setEdgeActive: (edgeIds, active, packetLabel) => set((s) => ({
@@ -115,11 +161,50 @@ export const useStore = create<Store>((set, get) => ({
   }),
   resetRun: () => set((s) => ({
     uiState: { kind: "idle" },
-    nodes: s.nodes.map((n) => ({ ...n, data: { ...n.data, status: undefined, output: undefined } })),
+    nodes: s.nodes.map((n) => ({ ...n, data: { ...n.data, status: undefined, output: undefined, verification: n.data.kind === "agent" ? "proposal" : undefined } })),
     edges: s.edges.map((e) => ({ ...e, data: { ...e.data, active: false, packetLabel: undefined } })),
     tracks: s.tracks.map((t) => ({ ...t, status: undefined, runId: undefined, metrics: zeros() })),
     messages: [],
     workspace: [],
     totals: zeros(),
+    pipelineStage: "idle",
+    runStartedAt: null,
+    runEndedAt: null,
+    scienceReceipt: null,
   })),
+  loadScenario: (id) => {
+    const sc = scenarioById(id);
+    if (!sc) return;
+    const built = sc.build(nextId);
+    const tracks: AgentTrack[] = built.nodes
+      .filter((n) => n.data.kind === "agent")
+      .map((n) => ({ nodeId: n.id, title: n.data.title, presetId: n.data.presetId, spawnedAt: Date.now(), metrics: zeros() }));
+    set({
+      nodes: built.nodes,
+      edges: built.edges,
+      tracks,
+      messages: [],
+      workspace: [],
+      totals: zeros(),
+      scenarioId: id,
+      pipelineStage: "idle",
+      scienceReceipt: null,
+      inspectedLakeId: null,
+      uiState: { kind: "idle" },
+      runStartedAt: null,
+      runEndedAt: null,
+    });
+  },
+  setPipelineStage: (pipelineStage) => set({ pipelineStage }),
+  markRunStart: () => set({ runStartedAt: Date.now(), runEndedAt: null, pipelineStage: "propose" }),
+  markRunEnd: () => set({ runEndedAt: Date.now() }),
+  pushTelemetryEvent: (ev) => set((s) => ({ telemetryEvents: [...s.telemetryEvents, ev].slice(-40) })),
+  setScienceReceipt: (scienceReceipt) => set({ scienceReceipt }),
+  inspectLake: (inspectedLakeId) => set({ inspectedLakeId }),
+  clearSession: () => set({
+    nodes: [], edges: [], uiState: { kind: "void" },
+    tracks: [], messages: [], workspace: [], totals: zeros(),
+    scenarioId: null, pipelineStage: "idle", runStartedAt: null, runEndedAt: null,
+    sessionId: newSessionId(), telemetryEvents: [], scienceReceipt: null, inspectedLakeId: null,
+  }),
 }));

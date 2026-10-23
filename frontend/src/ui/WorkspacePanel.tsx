@@ -20,19 +20,19 @@ export default function WorkspacePanel() {
   return (
     <aside className="glass p-4 text-sm w-full max-h-[46vh] flex flex-col" data-testid="workspace-panel">
       <button type="button" className="flex items-center gap-2 font-semibold w-full text-left" onClick={() => setOpen((v) => !v)}>
-        <FileCode2 size={14} className="text-emerald-300" /> Coding workspace
+        <FileCode2 size={14} className="text-emerald-300" /> Artifacts {totals.source === "live" ? "" : "(simulated)"}
         <ChevronDown size={14} className={`ml-auto opacity-60 transition-transform ${open ? "" : "-rotate-90"}`} />
       </button>
       {open && <>
-        <div className="flex gap-2 text-[10px] my-2">
+        <div className="my-2 flex gap-2 text-[10px]">
           <span className="text-emerald-300">+{counts.added} added</span>
           <span className="text-amber-300">~{counts.changed} changed</span>
           <span className="text-rose-300">−{counts.removed} removed</span>
         </div>
-        <p className="text-[10px] opacity-60 mb-2">
+        <p className="mb-2 text-[10px] opacity-60">
           {totals.source === "live"
             ? "Paths reported by this session’s run events and workspace listings."
-            : "Simulated preview of paths each role would touch. A live run lists files the API actually returns."}
+            : "Simulated artifact paths only — models do not write code. Live runs list files the API returns."}
         </p>
         {workspace.length === 0 ? (
           <p className="text-xs opacity-70">Nothing written yet.</p>

@@ -17,16 +17,18 @@
 | `maintainer` |
 | `denial-predictor` |
 | `policy-audit` |
+| `assay-qc` |
 | `custom-agent` |
 
 ### Data lake presets
 
 | id |
 |---|
-| `supabase-primary` |
+| `clinical-lab` |
 | `medicare` |
 | `medicaid` |
 | `commercial` |
+| `assay-plate` |
 
 ### Output schemas
 
@@ -36,6 +38,7 @@
 | `repair.v1` |
 | `denial.v1` |
 | `policy.v1` |
+| `assay_qc.v1` |
 | `custom.v1` |
 
 ### MCP attachments (declared, not executable)
