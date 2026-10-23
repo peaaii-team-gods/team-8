@@ -116,6 +116,53 @@ describe("LiveAdapter poll mapping", () => {
     expect(await adapter().workspaces()).toEqual([]);
   });
 
+  it("lists workspace runs without model text and omits the Identity cookie", async () => {
+    const session = new IdentitySession("http://id", "http://api");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/password/login")) return json({ access_token: "tok", csrf_token: "c", user: { id: "1", username: "ada", roles: [] } });
+      if (url.endsWith("/v1/workspaces")) return json({ workspaces: [{ workspace_id: "ws", project_id: "p", task_id: "t", status: "ready" }] });
+      if (url.includes("/v1/runs?")) {
+        return json({
+          runs: [{
+            run_id: "run-1", status: "succeeded", completion_basis: "agent_reported",
+            workflow_id: "wf-1", workspace_id: "ws", created_at: "2026-10-23T00:00:00Z",
+            output: "SECRET TEXT", content: "also secret",
+          }],
+        });
+      }
+      if (url.endsWith("/v1/runs/run-1")) return json({ run_id: "run-1", status: "succeeded", completion_basis: "agent_reported", content: "SECRET TEXT" });
+      return json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const a = new LiveAdapter("http://api", session);
+    await session.login("ada", "pw");
+    const page = await a.listRuns();
+    expect(page.runs).toEqual([{
+      runId: "run-1", workflowId: "wf-1", workspaceId: "ws", status: "succeeded",
+      completionBasis: "agent_reported", createdAt: "2026-10-23T00:00:00Z", updatedAt: null,
+    }]);
+    expect(JSON.stringify(page)).not.toContain("SECRET");
+    const listCall = fetchMock.mock.calls.find((c) => String(c[0]).includes("/v1/runs?"));
+    expect(String(listCall?.[0])).toContain("workspace_id=ws");
+    expect((listCall?.[1] as RequestInit).credentials).toBe("omit");
+    expect(((listCall?.[1] as RequestInit).headers as Record<string, string>).authorization).toBe("Bearer tok");
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/outputs"))).toBe(false);
+    const detail = await a.runDetail("run-1");
+    expect(detail.summary).toBe("succeeded · agent_reported. Model text is not loaded.");
+    expect(JSON.stringify(detail)).not.toContain("SECRET");
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it("does not invent runs when the account has no workspace", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ workspaces: [] })));
+    const page = await adapter().listRuns();
+    expect(page.runs).toEqual([]);
+    expect(page.note).toMatch(/workspace/i);
+    expect(vi.mocked(fetch).mock.calls.some((c) => String(c[0]).includes("/v1/runs"))).toBe(false);
+  });
+
   it("pollUntilTerminal is bounded on timeout", async () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => json({ status: "running" })));
     const out = await pollUntilTerminal(adapter(), { nodeId: "a1", runId: "r1" }, { sleep: async () => undefined, intervalMs: 10, timeoutMs: 20 });

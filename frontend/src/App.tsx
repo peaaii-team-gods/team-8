@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ReactFlow, Background, Controls, type NodeTypes, type EdgeTypes } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Play, Square, LogOut } from "lucide-react";
+import { Plus, Play, Square } from "lucide-react";
 import VoidBackground from "./ui/VoidBackground";
 import SessionPanel from "./ui/SessionPanel";
 import MetricsPanel from "./ui/MetricsPanel";
@@ -14,6 +14,8 @@ import LandingPage from "./ui/LandingPage";
 import LakeInspector from "./ui/LakeInspector";
 import ScienceReceipt from "./ui/ScienceReceipt";
 import SyntheticBadge from "./ui/SyntheticBadge";
+import UserBar from "./ui/UserBar";
+import HistoryPanel from "./ui/HistoryPanel";
 import { AgentNode, DataLakeNode } from "./canvas/nodes";
 import PacketEdge from "./canvas/PacketEdge";
 import { useStore, nextId, type CanvasNode } from "./state/store";
@@ -42,7 +44,7 @@ export default function App() {
     nodes, edges, uiState, tracks, openHub, spawn, setUiState, completeLink, cancelLink,
     setNodeStatus, resetRun, onNodesChange, setEdgeActive, recordHandle, recordTelemetry, recordUtterance,
     loadScenario, markRunStart, markRunEnd, setPipelineStage, setScienceReceipt, scenarioId, pushTelemetryEvent, sessionId,
-    linkNotice, setLinkageContext,
+    linkNotice, setLinkageContext, clearSession,
   } = useStore();
   const [liveAdapter, setLiveAdapter] = useState<LiveAdapter | null>(null);
   const [identitySession, setIdentitySession] = useState<IdentitySession | null>(null);
@@ -278,12 +280,23 @@ export default function App() {
     );
   }
 
-  return <div className="flex h-full" onClick={(e) => {
+  return <div className="flex h-full flex-col" onClick={(e) => {
     if (uiState.kind !== "linking") return;
     const target = e.target as HTMLElement | null;
     if (target?.closest(".react-flow__node, .react-flow__edge")) return;
     cancelLink();
   }}>
+    <UserBar
+      mode={mode}
+      username={identitySession?.user?.username ?? null}
+      signedIn={!!liveAdapter}
+      busy={running}
+      onSignIn={() => setView("signin")}
+      onSignOut={() => void signOut()}
+      onClear={() => clearSession()}
+      onPilot={() => loadScenario("pilot-storyboard")}
+    />
+    <div className="flex min-h-0 flex-1">
     <div className="relative h-full min-w-0 flex-1">
     <VoidBackground />
     {nodes.length === 0 && uiState.kind !== "hub" && (
@@ -356,21 +369,17 @@ export default function App() {
       <div className="glass flex flex-col gap-1 self-stretch px-3 py-2 text-xs">
         <div className="font-display text-sm text-fuchsia-100">Team 8 · Science canvas</div>
         <div className="flex flex-wrap items-center gap-2">
-          <span>Mode: {mode}{mode === "live" && !liveAdapter ? " — sign in required" : ""}</span>
           <SyntheticBadge />
         </div>
-        {mode === "live" && liveAdapter && (
-          <button type="button" className="mt-1 inline-flex items-center gap-1 self-start text-[10px] opacity-80" onClick={() => void signOut()}>
-            <LogOut size={12} /> Sign out
-          </button>
-        )}
         {mode === "simulated" && (
           <button type="button" disabled={running} className="mt-1 text-[10px] opacity-70 disabled:opacity-50" onClick={() => setView("landing")}>Back to landing</button>
         )}
       </div>
+      <HistoryPanel mode={mode} client={mode === "live" ? liveAdapter : null} />
       <MetricsPanel />
       <ScienceReceipt />
       <WorkspacePanel />
+    </div>
     </div>
   </div>;
 }

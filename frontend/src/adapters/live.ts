@@ -2,6 +2,7 @@ import type { RhmAdapter, RunHandle, RunOutcome } from "./RhmAdapter";
 import type { IdentitySession } from "./identity";
 import type { WorkflowV1, WorkspaceBinding } from "../compile/toWorkflow";
 import { parseEvents, parseWorkspaceList, usageFromUnknown, type ParsedTelemetry, type WorkspaceChange } from "../run/telemetry";
+import { contentFreeRunSummary, sortRuns, summarizeRun, type PublicRunSummary, type RunListResult } from "./runHistory";
 // Live mode targets a local loopback stack with operator-allowlisted origins. No proxy, no credential logging.
 // Backend contract (integrate-backend app/main.py:327-401, public_models.py):
 // workflows are created as {workflow}, runs as {workflow_id}; RunResponse
@@ -11,6 +12,10 @@ export class LiveAdapter implements RhmAdapter {
   mode = "live" as const;
   constructor(private apiBase: string, private session: IdentitySession) {}
   private headers() { return { "content-type": "application/json", ...(this.session.token ? { authorization: `Bearer ${this.session.token}` } : {}) }; }
+  /** API calls carry the bearer token only. The Identity cookie stays off this origin. */
+  private apiGet(path: string) {
+    return fetch(`${this.apiBase}${path}`, { headers: this.headers(), credentials: "omit", cache: "no-store" });
+  }
   async capabilities() {
     const r = await fetch(`${this.apiBase}/v1/capabilities`, { headers: this.headers() });
     return r.ok ? (await r.json()) as Record<string, unknown> : null;
@@ -81,4 +86,38 @@ export class LiveAdapter implements RhmAdapter {
     return [];
   }
   async cancel(h: RunHandle) { await fetch(`${this.apiBase}/v1/runs/${h.runId}/cancel`, { method: "POST", headers: this.headers() }); }
+
+  /**
+   * Caller runs for workspaces this account can see.
+   * API.md documents GET /v1/runs?workspace_id= only. There is no workflow list in this repo.
+   */
+  async listRuns(): Promise<RunListResult> {
+    const workspaces = await this.workspaces();
+    const ids = [...new Set(workspaces.map((w) => w.workspace_id).filter(Boolean))];
+    if (!ids.length) {
+      return { runs: [], note: "No workspace is bound, so runs cannot be listed. The documented query is GET /v1/runs?workspace_id=…." };
+    }
+    const collected: PublicRunSummary[] = [];
+    for (const workspaceId of ids) {
+      const r = await this.apiGet(`/v1/runs?workspace_id=${encodeURIComponent(workspaceId)}&limit=20`);
+      if (!r.ok) continue;
+      const body = await r.json() as { runs?: unknown[] } | unknown[];
+      const rows = Array.isArray(body) ? body : body.runs ?? [];
+      for (const row of rows) {
+        const run = summarizeRun(row);
+        if (run) collected.push(run);
+      }
+    }
+    const runs = sortRuns(collected.filter((run, i, all) => all.findIndex((other) => other.runId === run.runId) === i)).slice(0, 20);
+    return { runs, note: runs.length ? null : "No runs on the workspaces this account can see." };
+  }
+
+  /** Status and basis only. Does not call /outputs. */
+  async runDetail(runId: string): Promise<PublicRunSummary & { summary: string }> {
+    const r = await this.apiGet(`/v1/runs/${encodeURIComponent(runId)}`);
+    if (!r.ok) throw new Error(`run read failed (${r.status})`);
+    const run = summarizeRun(await r.json());
+    if (!run) throw new Error("run read failed (no run id)");
+    return { ...run, summary: contentFreeRunSummary(run) };
+  }
 }

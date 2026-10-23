@@ -31,7 +31,7 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
   it("keeps the pilot a proposal and emits only one real terminal event per agent", async () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: /Enter canvas/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Pilot storyboard/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: /Pilot storyboard/ })[0]);
     fireEvent.click(screen.getByRole("button", { name: /run pipeline/i }));
     await waitFor(() => expect(useStore.getState().pipelineStage).toBe("complete"));
     expect(useStore.getState().telemetryEvents).toHaveLength(2);
@@ -46,7 +46,7 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     vi.spyOn(SimulatedAdapter.prototype, "poll").mockImplementation(async (h) => ({ nodeId: h.nodeId, status: "failed", basis: "agent_reported", usage: emptyUsage("simulated") }));
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: /Enter canvas/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Pilot storyboard/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: /Pilot storyboard/ })[0]);
     fireEvent.click(screen.getByRole("button", { name: /run pipeline/i }));
     await waitFor(() => expect(useStore.getState().pipelineStage).toBe("fail"));
     expect(useStore.getState().telemetryEvents.every((e) => e.status === "failed")).toBe(true);
@@ -66,7 +66,7 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     let release!: (value: RunOutcome) => void;
     const poll = vi.spyOn(LiveAdapter.prototype, "poll").mockImplementation(() => new Promise((resolve) => { release = resolve; }));
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: /Pilot storyboard/ }));
+    fireEvent.click((await screen.findAllByRole("button", { name: /Pilot storyboard/ }))[0]);
     fireEvent.click(screen.getByRole("button", { name: /run pipeline/i }));
     await waitFor(() => expect(poll).toHaveBeenCalledTimes(1));
     const oldSession = useStore.getState().sessionId;
@@ -82,6 +82,7 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: /Enter canvas/i }));
     expect(screen.getByText(/Mode: simulated/)).toBeTruthy();
+    expect(screen.getByTestId("history-panel").textContent).toMatch(/no server history/i);
 
     fireEvent.click(screen.getByLabelText("Create"));
     fireEvent.click(screen.getByRole("button", { name: /^Builder/ }));
@@ -134,5 +135,16 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     const handoff = useStore.getState().edges.find((e) => e.source === agent.id && e.target === maintainer.id)!;
     expect(handoff.data?.packetLabel).toMatch(/reading_column/);
     expect(await screen.findAllByText(/Status: done/)).toHaveLength(2);
+  });
+
+  it("clears the canvas from the bar without writing browser storage", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Enter canvas/i }));
+    fireEvent.click(screen.getAllByRole("button", { name: /Load Pilot storyboard/i })[0]);
+    expect(useStore.getState().nodes.length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Clear canvas" }));
+    expect(useStore.getState().nodes).toEqual([]);
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
   });
 });
