@@ -39,6 +39,9 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     expect(useStore.getState().telemetryEvents).toHaveLength(2);
     expect(useStore.getState().telemetryEvents.every((e) => e.status === "succeeded" && e.completion_basis === "agent_reported")).toBe(true);
     expect(useStore.getState().nodes.filter((n) => n.data.kind === "agent").every((n) => n.data.verification === "proposal")).toBe(true);
+    expect(screen.getByTestId("stage-strip")).toBeTruthy();
+    expect(screen.getByTestId("verified-badge").textContent).toBe("Verified");
+    expect(screen.getByRole("button", { name: /Download session JSON/ })).toBeTruthy();
   });
 
   it("reports a failed pilot honestly", async () => {
@@ -49,6 +52,8 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     fireEvent.click(screen.getByRole("button", { name: /run pipeline/i }));
     await waitFor(() => expect(useStore.getState().pipelineStage).toBe("fail"));
     expect(useStore.getState().telemetryEvents.every((e) => e.status === "failed")).toBe(true);
+    expect(screen.getByTestId("stage-strip")).toBeTruthy();
+    expect(screen.queryByTestId("verified-badge")).toBeNull();
   });
 
   it("clears owner data on logout and rejects a late poll result", async () => {

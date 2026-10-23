@@ -2,6 +2,15 @@ import { fixtureFor } from "../fixtures/lakes";
 import { useStore } from "../state/store";
 import { dataLakePreset } from "../registry/dataLakePresets";
 
+function keysOf(rows: unknown[]): string[] {
+  const keys: string[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    for (const key of Object.keys(row)) if (!keys.includes(key)) keys.push(key);
+  }
+  return keys;
+}
+
 export default function LakeInspector() {
   const inspectedLakeId = useStore((s) => s.inspectedLakeId);
   const nodes = useStore((s) => s.nodes);
@@ -26,14 +35,14 @@ export default function LakeInspector() {
           <table className="w-full text-left text-[10px]">
             <thead>
               <tr className="opacity-60">
-                {Object.keys(rows[0] as object).map((k) => <th key={k} className="pr-2 pb-1 font-medium">{k}</th>)}
+                {keysOf(rows).map((k) => <th key={k} className="pr-2 pb-1 font-medium">{k}</th>)}
               </tr>
             </thead>
             <tbody>
               {rows.map((row, i) => (
                 <tr key={i} className="border-t border-white/10">
-                  {Object.values(row as object).map((v, j) => (
-                    <td key={j} className="pr-2 py-1 font-mono">{String(v)}</td>
+                  {keysOf(rows).map((k) => (
+                    <td key={k} className="pr-2 py-1 font-mono">{String((row as Record<string, unknown>)[k] ?? "")}</td>
                   ))}
                 </tr>
               ))}

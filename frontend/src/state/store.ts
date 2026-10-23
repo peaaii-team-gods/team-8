@@ -31,6 +31,8 @@ export interface ScienceReceipt {
   oracleNote?: string;
   checks?: NamedCheck[];
   invalidProposal?: boolean;
+  /** Local fixture check for the pilot storyboard. Agent nodes stay proposals. */
+  fixtureVerified?: boolean;
 }
 
 interface Store {

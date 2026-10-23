@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Activity, ChevronDown } from "lucide-react";
+import { Activity, ChevronDown, Download } from "lucide-react";
 import { useStore } from "../state/store";
 import { formatTokens, formatUsageCost } from "../run/telemetry";
 import { buildObservability } from "../run/observability";
+import { buildSessionDownload, downloadSessionJson } from "../run/sessionDownload";
 import StageStrip from "./StageStrip";
 
 const DOT: Record<string, string> = {
@@ -50,6 +51,16 @@ export default function MetricsPanel() {
         <div className="mb-2 text-[10px] opacity-60">
           Set the USD admission budget before Run. Hard billing limits belong on the provider key. Unknown cost does not mean free.
         </div>
+        <button
+          type="button"
+          data-testid="download-session"
+          className="mb-2 inline-flex items-center gap-1 text-xs text-fuchsia-200"
+          onClick={() => downloadSessionJson(buildSessionDownload({
+            sessionId, scenarioId, events: telemetryEvents,
+          }))}
+        >
+          <Download size={12} /> Download session JSON
+        </button>
         {tracks.length === 0 ? (
           <p className="text-xs opacity-70">Press + or load a demo scenario. Agents are tracked here immediately.</p>
         ) : (

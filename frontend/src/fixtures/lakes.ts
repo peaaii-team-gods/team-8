@@ -5,22 +5,33 @@ export const LAKE_FIXTURES: Record<string, unknown[]> = {
     { specimen_id: "syn-lab-002", analyte: "glucose", reading: 101, unit: "mg/dL" },
     { specimen_id: "syn-lab-003", analyte: "potassium", reading: 4.1, unit: "mmol/L" },
     { specimen_id: "syn-lab-004", analyte: "potassium", value: 3.9, unit: "mmol/L" },
+    { specimen_id: "syn-lab-005", analyte: "sodium", reading: 140, unit: "mmol/L" },
+    { specimen_id: "syn-lab-006", analyte: "sodium", reading: 138, unit: "mmol/L" },
+    { specimen_id: "syn-lab-007", analyte: "glucose", reading: 88, unit: "mg/dL" },
   ],
   medicare: [
     { record_id: "syn-mcr-001", claim_type: "synthetic", amount_band: "low", denial_code: null },
     { record_id: "syn-mcr-002", claim_type: "synthetic", amount_band: "mid", denial_code: "CO-97" },
     { record_id: "syn-mcr-003", claim_type: "synthetic", amount_band: "low", denial_code: null },
     { record_id: "syn-mcr-004", claim_type: "synthetic", amount_band: "high", denial_code: "PR-1" },
+    { record_id: "syn-mcr-005", claim_type: "synthetic", amount_band: "mid", denial_code: "CO-45" },
+    { record_id: "syn-mcr-006", claim_type: "synthetic", amount_band: "low", denial_code: null },
   ],
   medicaid: [
     { record_id: "syn-mcd-001", claim_type: "synthetic", amount_band: "mid", denial_code: null },
     { record_id: "syn-mcd-002", claim_type: "synthetic", amount_band: "low", denial_code: "CO-16" },
     { record_id: "syn-mcd-003", claim_type: "synthetic", amount_band: "mid", denial_code: null },
+    { record_id: "syn-mcd-004", claim_type: "synthetic", amount_band: "low", denial_code: "CO-4" },
+    { record_id: "syn-mcd-005", claim_type: "synthetic", amount_band: "high", denial_code: null },
+    { record_id: "syn-mcd-006", claim_type: "synthetic", amount_band: "mid", denial_code: "PR-2" },
   ],
   commercial: [
     { record_id: "syn-com-001", claim_type: "synthetic", amount_band: "high", denial_code: null },
     { record_id: "syn-com-002", claim_type: "synthetic", amount_band: "high", denial_code: "N95" },
     { record_id: "syn-com-003", claim_type: "synthetic", amount_band: "mid", denial_code: null },
+    { record_id: "syn-com-004", claim_type: "synthetic", amount_band: "low", denial_code: "CO-16" },
+    { record_id: "syn-com-005", claim_type: "synthetic", amount_band: "mid", denial_code: null },
+    { record_id: "syn-com-006", claim_type: "synthetic", amount_band: "high", denial_code: "N19" },
   ],
   "hospital-mrf": [
     {

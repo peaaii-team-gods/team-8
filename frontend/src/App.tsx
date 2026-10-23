@@ -247,6 +247,11 @@ export default function App() {
         const maintainerOut = st.nodes.find((n) => n.data.presetId === "maintainer")?.data.output;
         const denialOut = st.nodes.find((n) => n.data.presetId === "denial-predictor")?.data.output;
         const qcOut = st.nodes.find((n) => n.data.presetId === "assay-qc")?.data.output;
+        const fixtureVerified = scenarioId === "pilot-storyboard"
+          && st.tracks.length > 0
+          && st.tracks.every((t) => t.status === "done")
+          && (mappingOut?.includes("reading_column") ?? false)
+          && (maintainerOut?.includes("reading_column") ?? false);
         setScienceReceipt({
           scenarioId,
           mapping: mappingOut?.slice(0, 200),
@@ -254,9 +259,12 @@ export default function App() {
           riskOrQc: denialOut ?? qcOut,
           tokens: st.totals.totalTokens,
           contentFreeIds: st.tracks.map((t) => t.runId).filter(Boolean) as string[],
-          oracleNote: scenarioId === "pilot-storyboard" && mode === "simulated"
-            ? "Simulated repair proposals. No local oracle or verified acceptance."
-            : maintainerOut ? "Maintainer proposal recorded." : undefined,
+          fixtureVerified,
+          oracleNote: fixtureVerified
+            ? "Local fixture check passed. Agent badges stay proposals."
+            : scenarioId === "pilot-storyboard" && mode === "simulated"
+              ? "Simulated repair proposals. Local fixture check did not pass."
+              : maintainerOut ? "Maintainer proposal recorded." : undefined,
         });
       }
     } catch {
@@ -370,19 +378,20 @@ export default function App() {
       </div>
     </aside>}
     {nodes.length === 0 && uiState.kind !== "hub" && (
-      <div className="absolute left-1/2 top-1/2 z-10 flex w-[min(520px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-4 text-center">
+      <div className="absolute left-1/2 top-1/2 z-10 flex w-[min(420px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-4 text-center">
         <div className="font-display text-2xl text-fuchsia-100">Team 8 science canvas</div>
-        <p className="text-sm text-white/70">Load a demo scenario or create agents and lakes.</p>
+        <p className="text-sm text-white/70">Start from the pilot, or build your own graph.</p>
         <SyntheticBadge />
-        <div className="flex flex-wrap justify-center gap-2">
-          {DEMO_SCENARIOS.map((sc) => (
-            <button key={sc.id} type="button" className="glass px-3 py-2 text-left text-xs" onClick={(e) => { e.stopPropagation(); loadScenario(sc.id); }}>
-              <div className="font-semibold text-fuchsia-200">{sc.title}</div>
-              <div className="opacity-70">{sc.blurb}</div>
-            </button>
-          ))}
-        </div>
-        <motion.button layoutId="hub" aria-label="Create" className="glass p-6 text-fuchsia-300" onClick={(e) => { e.stopPropagation(); openHub(); }}><Plus size={36} /></motion.button>
+        <button
+          type="button"
+          className="rounded-full bg-fuchsia-400/90 px-6 py-3 text-sm font-semibold text-[#1a0b28]"
+          onClick={(e) => { e.stopPropagation(); loadScenario("pilot-storyboard"); }}
+        >
+          Load Pilot storyboard
+        </button>
+        <motion.button layoutId="hub" aria-label="Create" className="text-sm text-white/70 underline-offset-4 hover:underline" onClick={(e) => { e.stopPropagation(); openHub(); }}>
+          Create
+        </motion.button>
       </div>
     )}
     {nodes.length > 0 && uiState.kind !== "hub" && (
@@ -400,18 +409,16 @@ export default function App() {
     <AnimatePresence>{uiState.kind === "hub" && (
       <motion.div layoutId="hub" initial={{ opacity: 0, scale: .9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="glass absolute left-1/2 top-1/2 z-10 w-[min(560px,92vw)] -translate-x-1/2 -translate-y-1/2 p-5" onClick={(e) => e.stopPropagation()}>
         <h2 className="mb-3 font-semibold">Create</h2>
-        <div className="text-xs uppercase opacity-60">Demo scenarios</div>
-        <div className="my-2 grid grid-cols-1 gap-2">
-          {DEMO_SCENARIOS.map((sc) => (
-            <button key={sc.id} className="glass p-3 text-left text-sm" onClick={() => loadScenario(sc.id)}>
-              {sc.title}<div className="text-xs opacity-70">{sc.blurb}</div>
-            </button>
-          ))}
-        </div>
         <div className="text-xs uppercase opacity-60">Agent</div>
         <div className="my-2 grid grid-cols-2 gap-2">{AGENT_PRESETS.map((p) => <button key={p.id} className="glass p-3 text-left" onClick={() => spawnPreset("agent", p.id)}>{p.title}<div className="text-xs opacity-70">{p.description}</div></button>)}</div>
         <div className="mt-3 text-xs uppercase opacity-60">Data Lake — declared inputs, not executable tools</div>
         <div className="my-2 grid grid-cols-2 gap-2">{DATA_LAKE_PRESETS.map((p) => <button key={p.id} className="glass p-3 text-left" onClick={() => spawnPreset("dataLake", p.id)}>{p.title}<div className="text-xs opacity-70">{p.description}</div></button>)}</div>
+        <div className="mt-3 text-xs uppercase opacity-60">Other demos</div>
+        <div className="my-2 flex flex-wrap gap-2">
+          {DEMO_SCENARIOS.filter((sc) => sc.id !== "pilot-storyboard").map((sc) => (
+            <button key={sc.id} type="button" className="text-xs text-white/70 underline-offset-2 hover:underline" onClick={() => loadScenario(sc.id)}>{sc.title}</button>
+          ))}
+        </div>
         <button className="text-sm opacity-70" onClick={() => setUiState({ kind: "void" })}>Close</button>
       </motion.div>)}
     </AnimatePresence>
