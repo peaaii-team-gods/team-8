@@ -7,7 +7,8 @@ export type UiState =
   | { kind: "menu"; nodeId: string }
   | { kind: "linking"; sourceId: string }
   | { kind: "running" }
-  | { kind: "schema"; nodeId: string };
+  | { kind: "schema"; nodeId: string }
+  | { kind: "mcp"; nodeId: string };
 
 export interface NodeKind {
   id: NodeKindId;
@@ -37,4 +38,6 @@ export type CanvasNodeData = {
   schemaText?: string;
   /** Proposal vs Verified honesty badge (agent nodes). */
   verification?: VerificationKind;
+  /** MCP preset ids from MCP_ATTACHMENTS. Declarations only; the compiler does not turn these into tools. */
+  mcpAttachmentIds?: string[];
 };

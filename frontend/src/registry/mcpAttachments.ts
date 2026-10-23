@@ -1,8 +1,7 @@
 import type { McpAttachment } from "./types";
-// Declared, not executable: the B9 compiler emission path does not consume
-// attachments (no node carries one; hosted tools are emitted directly as
-// workflow.v1 allowed_tools literals under a fetched-available report).
-// Flipping these would be posture, not behaviour — see HANDOFF B9.
+// Registry of declared attachments. `executable: false` stays on the preset:
+// runtime posture is computed in mcpLinkage.ts from a live capabilities
+// report plus a workspace binding. These ids never become allowed_tools.
 export const MCP_ATTACHMENTS: McpAttachment[] = [
   { id: "coding-mcp", title: "Coding Service MCP", attachableTo: "agent", capability: "tool_execution", executable: false },
   { id: "knowledge-mcp", title: "Knowledge Base MCP", attachableTo: "agent", capability: "tools.workspace_search", executable: false },

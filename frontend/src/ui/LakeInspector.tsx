@@ -14,6 +14,7 @@ function keysOf(rows: unknown[]): string[] {
 export default function LakeInspector() {
   const inspectedLakeId = useStore((s) => s.inspectedLakeId);
   const nodes = useStore((s) => s.nodes);
+  const edges = useStore((s) => s.edges);
   const inspectLake = useStore((s) => s.inspectLake);
   const node = nodes.find((n) => n.id === inspectedLakeId && n.data.kind === "dataLake");
   if (!node) return null;
@@ -21,6 +22,10 @@ export default function LakeInspector() {
   const preset = dataLakePreset(node.data.presetId);
   const fixtureId = node.data.presetId === "hospital-mrf" && mrfSource === "drift" ? "hospital-mrf-drift" : (preset?.fixtureId ?? node.data.presetId);
   const rows = fixtureFor(fixtureId).slice(0, 8);
+  const targets = edges
+    .filter((e) => e.source === node.id)
+    .map((e) => nodes.find((n) => n.id === e.target && n.data.kind === "agent"))
+    .filter((n): n is NonNullable<typeof n> => !!n);
   return (
     <aside className="glass absolute bottom-24 right-4 z-20 w-[min(420px,92vw)] p-4 text-sm" data-testid="lake-inspector" onClick={(e) => e.stopPropagation()}>
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -28,6 +33,11 @@ export default function LakeInspector() {
         <button type="button" className="text-xs opacity-70" onClick={() => inspectLake(null)}>Close</button>
       </div>
       <p className="mb-2 text-[10px] opacity-60">Synthetic sample rows · no PHI</p>
+      <p className="mb-2 text-[10px] opacity-70" data-testid="lake-link-copy">
+        {targets.length
+          ? `Tethered to ${targets.map((n) => n.data.title).join(", ")}. Inspecting does not change the link.`
+          : "Not tethered yet. Link this lake to an agent to send these rows as evidence."}
+      </p>
       {rows.length === 0 ? (
         <p className="text-xs opacity-70">No fixture rows.</p>
       ) : (

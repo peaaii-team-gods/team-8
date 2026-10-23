@@ -11,6 +11,7 @@ import MetricsPanel from "./ui/MetricsPanel";
 import ConversationPanel from "./ui/ConversationPanel";
 import WorkspacePanel from "./ui/WorkspacePanel";
 import SchemaWindow from "./ui/SchemaWindow";
+import McpWindow from "./ui/McpWindow";
 import LandingPage from "./ui/LandingPage";
 import LakeInspector from "./ui/LakeInspector";
 import ScienceReceipt from "./ui/ScienceReceipt";
@@ -47,6 +48,7 @@ export default function App() {
     setNodeStatus, resetRun, onNodesChange, setEdgeActive, recordHandle, recordTelemetry, recordUtterance,
     loadScenario, markRunStart, markRunEnd, setPipelineStage, setScienceReceipt, scenarioId, pushTelemetryEvent, sessionId,
     mrfMapping, mrfSource, setMrfMapping, setMrfSource,
+    linkNotice, setLinkageContext,
   } = useStore();
   const [liveAdapter, setLiveAdapter] = useState<LiveAdapter | null>(null);
   const [identitySession, setIdentitySession] = useState<IdentitySession | null>(null);
@@ -93,6 +95,20 @@ export default function App() {
     return () => { cancelled = true; };
   }, [mode, apiBase, identityBase]);
 
+  useEffect(() => {
+    if (mode !== "live" || !liveAdapter) {
+      setLinkageContext({ mode: "simulated", capabilities: null, hasWorkspaceBinding: false });
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const capabilities = await liveAdapter.capabilities().catch(() => null);
+      const binding = selectBinding(liveAdapter.workspaces ? await liveAdapter.workspaces().catch(() => []) : []);
+      if (!cancelled) setLinkageContext({ mode: "live", capabilities, hasWorkspaceBinding: !!binding });
+    })();
+    return () => { cancelled = true; };
+  }, [mode, liveAdapter, setLinkageContext]);
+
   const spawnPreset = (kind: "agent" | "dataLake", presetId: string) => {
     const p = kind === "agent" ? AGENT_PRESETS.find((x) => x.id === presetId)! : DATA_LAKE_PRESETS.find((x) => x.id === presetId)!;
     const count = useStore.getState().nodes.length;
@@ -136,12 +152,24 @@ export default function App() {
         ? selectBinding(await adapter.workspaces().catch(() => []))
         : null;
       if (!isCurrent()) return;
+      setLinkageContext({
+        mode: adapter.mode === "live" ? "live" : "simulated",
+        capabilities,
+        hasWorkspaceBinding: !!binding,
+      });
       const t0 = performance.now();
       const graph = useStore.getState();
       const onlyPresets = scenarioId === "mrf-pipeline"
         ? (graph.mrfSource === "drift" ? ["mrf-maintainer"] : ["mrf-builder"])
         : undefined;
-      let compiled = compileGraph(graph.nodes, graph.edges, nonce, capabilities, binding).map(item => {
+      let compiled = compileGraph(
+        graph.nodes,
+        graph.edges,
+        nonce,
+        capabilities,
+        binding,
+        adapter.mode === "live" ? "live" : "simulated",
+      ).map(item => {
         if (mode !== "live") return item;
         const { model_preference: _model, ...workflow } = item.workflow;
         return { ...item, workflow: { ...workflow, budget: { ...workflow.budget, max_usd: Number(spendCap) } } };
@@ -367,7 +395,12 @@ export default function App() {
     );
   }
 
-  return <div className="flex h-full" onClick={() => { if (uiState.kind === "linking") cancelLink(); }}>
+  return <div className="flex h-full" onClick={(e) => {
+    if (uiState.kind !== "linking") return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest(".react-flow__node, .react-flow__edge")) return;
+    cancelLink();
+  }}>
     <div className="relative h-full min-w-0 flex-1">
     <VoidBackground />
     {mode === "live" && identitySession && <aside className="absolute right-2 top-16 z-30 max-h-[75vh] w-[min(400px,90vw)] overflow-auto">
@@ -438,8 +471,19 @@ export default function App() {
         )}
       </div>
     )}
-    {uiState.kind === "linking" && <div className="glass absolute left-1/2 top-4 z-10 -translate-x-1/2 px-4 py-1 text-sm">Click a valid target to lock the link (click empty space to cancel)</div>}
+    {uiState.kind === "linking" && (
+      <div className="glass absolute left-1/2 top-4 z-10 max-w-md -translate-x-1/2 px-4 py-2 text-sm" data-testid="link-banner">
+        <div>
+          {nodes.find((n) => n.id === uiState.sourceId)?.data.kind === "dataLake"
+            ? "Click an agent. This lake becomes synthetic evidence. Several lakes can feed one agent."
+            : "Click another agent to hand off. Lakes are not writable from an agent."}
+        </div>
+        <div className="text-[10px] opacity-60">Click empty space to cancel.</div>
+        {linkNotice && <div className="mt-1 text-rose-200" data-testid="link-notice">{linkNotice}</div>}
+      </div>
+    )}
     <SchemaWindow />
+    <McpWindow />
     <LakeInspector />
     </div>
     <div className="flex h-full w-[320px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-white/10 bg-[#070312]/80 p-3">

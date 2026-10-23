@@ -124,6 +124,53 @@ describe("B10 binding: emission requires available AND a real binding", () => {
   });
 });
 
+describe("multi-lake evidence and MCP declarations", () => {
+  const lake = (id: string, presetId: string) => node(id, "dataLake", presetId);
+  const withMcp = (ids: string[]) => ({ ...agent, data: { ...agent.data, mcpAttachmentIds: ids } });
+
+  it("compiles every tethered lake into evidence", () => {
+    const clinical = lake("l1", "clinical-lab");
+    const medicare = lake("l2", "medicare");
+    const wf = compileAgent(agent, [
+      { id: "e1", source: "l1", target: "a1" },
+      { id: "e2", source: "l2", target: "a1" },
+    ], [agent, clinical, medicare], "n");
+    const evidence = JSON.parse(wf.inputs.evidence) as { lake: string; records: { specimen_id?: string; record_id?: string }[] }[];
+    expect(evidence.map((row) => row.lake)).toEqual(["clinical-lab", "medicare"]);
+    expect(evidence[0].records.some((r) => r.specimen_id === "syn-lab-001")).toBe(true);
+    expect(evidence[1].records.some((r) => r.record_id === "syn-mcr-001")).toBe(true);
+    expect(wf.inputs.evidence).not.toMatch(/ssn|mrn|patient/i);
+  });
+
+  it("records MCP declarations and does not invent hosted tools", () => {
+    const attached = withMcp(["coding-mcp", "knowledge-mcp", "shell-mcp", "not-a-real-mcp"]);
+    const wf = compileAgent(attached, [], [attached], "n");
+    expect(wf.allowed_tools).toEqual([]);
+    const declared = JSON.parse(wf.inputs.mcp_attachments!) as { id: string; posture: string }[];
+    expect(declared.map((row) => row.id)).toEqual(["coding-mcp", "knowledge-mcp", "shell-mcp"]);
+    expect(declared.every((row) => row.posture === "declared")).toBe(true);
+    expect(wf.task_guidance.join(" ")).toContain("do not add tools");
+  });
+
+  it("live available shell stays a declaration unless a binding exists, and never adds tools by itself", () => {
+    const attached = withMcp(["shell-mcp", "knowledge-mcp"]);
+    const unbound = compileAgent(attached, [], [attached], "n", caps(available), null, "live");
+    expect(unbound.allowed_tools).toEqual([]);
+    const unboundRows = JSON.parse(unbound.inputs.mcp_attachments!) as { id: string; posture: string }[];
+    expect(unboundRows.find((row) => row.id === "shell-mcp")?.posture).toBe("declared");
+    const bound = compileAgent(attached, [], [attached], "n", caps({
+      ...available,
+      "tools.workspace_search": { status: "available" },
+    }), aBinding, "live");
+    expect(bound.allowed_tools).toEqual(["execute_shell", "execute_check"]);
+    const rows = JSON.parse(bound.inputs.mcp_attachments!) as { id: string; posture: string }[];
+    expect(rows.find((row) => row.id === "shell-mcp")?.posture).toBe("executable");
+    expect(rows.find((row) => row.id === "knowledge-mcp")?.posture).toBe("declared");
+    expect(bound.allowed_tools).not.toContain("knowledge-mcp");
+    expect(bound.allowed_tools).not.toContain("shell-mcp");
+  });
+});
+
 describe("output schema input", () => {
   it("sends a valid hand-edited schema and ignores invalid JSON", () => {
     const withSchema = { ...agent, data: { ...agent.data, schemaText: defaultSchemaText("builder") } };
