@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Activity, ChevronDown } from "lucide-react";
+import { Activity, ChevronDown, Download } from "lucide-react";
 import { useStore } from "../state/store";
 import { formatTokens, formatUsd } from "../run/telemetry";
 import { buildObservability } from "../run/observability";
+import { buildSessionDownload, downloadSessionJson } from "../run/sessionDownload";
 import StageStrip from "./StageStrip";
 
 const DOT: Record<string, string> = {
@@ -49,8 +50,17 @@ export default function MetricsPanel() {
         </div>
         <div className="mb-2 text-[10px] opacity-60">
           Budget cap on each workflow is $0.00. {totals.source === "live" ? "Figures prefer run receipts." : "Simulated runs estimate tokens and keep cost at $0 until a live receipt reports otherwise."}
-          {" "}Session telemetry download-export is deferred.
         </div>
+        <button
+          type="button"
+          data-testid="download-session"
+          className="mb-2 inline-flex items-center gap-1 text-xs text-fuchsia-200"
+          onClick={() => downloadSessionJson(buildSessionDownload({
+            sessionId, scenarioId, events: telemetryEvents,
+          }))}
+        >
+          <Download size={12} /> Download session JSON
+        </button>
         {tracks.length === 0 ? (
           <p className="text-xs opacity-70">Press + or load a demo scenario. Agents are tracked here immediately.</p>
         ) : (

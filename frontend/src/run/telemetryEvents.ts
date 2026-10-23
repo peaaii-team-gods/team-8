@@ -54,4 +54,34 @@ export const emptyTelemetryUsage = (estimated = true): TelemetryUsage => ({
   ticks: 0,
 });
 
-/** Download-export of session telemetry JSON is deferred (see root TODO.md). */
+/** Session JSON exported from the Observability panel. Token counts stay; credentials do not. */
+export interface SessionDownload {
+  schema_version: "canvas.session.v1";
+  session_id: string;
+  scenario_id: string | null;
+  exported_at: string;
+  events: TelemetryEvent[];
+}
+
+export function buildSessionDownload(args: {
+  sessionId: string;
+  scenarioId?: string | null;
+  events: TelemetryEvent[];
+  exportedAt?: Date | string;
+}): SessionDownload {
+  const at = args.exportedAt instanceof Date
+    ? args.exportedAt.toISOString()
+    : args.exportedAt ?? new Date().toISOString();
+  return {
+    schema_version: "canvas.session.v1",
+    session_id: args.sessionId,
+    scenario_id: args.scenarioId ?? null,
+    exported_at: at,
+    events: args.events.map((event) => ({ ...event, usage: { ...event.usage }, lake_fixture_ids: [...event.lake_fixture_ids] })),
+  };
+}
+
+export function sessionDownloadFilename(doc: SessionDownload): string {
+  const stamp = doc.exported_at.replace(/[:.]/g, "-");
+  return `canvas-session-${stamp}.json`;
+}

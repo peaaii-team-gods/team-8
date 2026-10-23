@@ -28,6 +28,8 @@ export interface ScienceReceipt {
   tokens: number;
   contentFreeIds: string[];
   oracleNote?: string;
+  /** Local fixture check for the pilot storyboard. Agent nodes stay proposals. */
+  fixtureVerified?: boolean;
 }
 
 interface Store {
