@@ -78,6 +78,7 @@ interface Store {
   recordUtterance: (fromId: string, text: string, toIds: string[]) => void;
   resetRun: () => void;
   loadScenario: (id: string) => void;
+  loadSnapshot: (nodes: CanvasNode[], edges: CanvasEdge[]) => void;
   setPipelineStage: (stage: PipelineStage) => void;
   markRunStart: () => void;
   markRunEnd: () => void;
@@ -252,6 +253,25 @@ export const useStore = create<Store>((set, get) => ({
       mrfMapping: null,
     });
   },
+  loadSnapshot: (nodes, edges) => set({
+    nodes,
+    edges,
+    tracks: nodes.filter((n) => n.data.kind === "agent").map((n) => ({
+      nodeId: n.id, title: n.data.title, presetId: n.data.presetId, spawnedAt: Date.now(), metrics: zeros(),
+    })),
+    messages: [],
+    workspace: [],
+    totals: zeros(),
+    scenarioId: null,
+    pipelineStage: "idle",
+    scienceReceipt: null,
+    inspectedLakeId: null,
+    linkNotice: null,
+    uiState: nodes.length ? { kind: "idle" } : { kind: "void" },
+    runStartedAt: null,
+    runEndedAt: null,
+    telemetryEvents: [],
+  }),
   setPipelineStage: (pipelineStage) => set({ pipelineStage }),
   markRunStart: () => set({ runStartedAt: Date.now(), runEndedAt: null, pipelineStage: "propose" }),
   markRunEnd: () => set({ runEndedAt: Date.now() }),

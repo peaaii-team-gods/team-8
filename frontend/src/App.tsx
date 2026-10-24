@@ -27,6 +27,7 @@ import { defaultSchemaText } from "./registry/schemas";
 import { DATA_LAKE_PRESETS } from "./registry/dataLakePresets";
 import { DEMO_SCENARIOS } from "./registry/scenarios";
 import { compileGraph, selectBinding } from "./compile/toWorkflow";
+import { buildCanvasSnapshot, downloadCanvasSnapshot, parseCanvasSnapshot } from "./state/canvasSnapshot";
 import { liveReadiness, simulatedReadiness } from "./adapters/readiness";
 import { SimulatedAdapter } from "./adapters/simulated";
 import { IdentitySession } from "./adapters/identity";
@@ -52,8 +53,9 @@ export default function App() {
     setNodeStatus, resetRun, onNodesChange, setEdgeActive, recordHandle, recordTelemetry, recordUtterance,
     loadScenario, markRunStart, markRunEnd, setPipelineStage, setScienceReceipt, scenarioId, pushTelemetryEvent, sessionId,
     mrfMapping, mrfSource, setMrfMapping, setMrfSource,
-    linkNotice, setLinkageContext, clearSession, selectedWorkspaceId, setSelectedWorkspaceId,
+    linkNotice, setLinkageContext, clearSession, selectedWorkspaceId, setSelectedWorkspaceId, loadSnapshot,
   } = useStore();
+  const [snapshotNotice, setSnapshotNotice] = useState<string | null>(null);
   const [liveAdapter, setLiveAdapter] = useState<LiveAdapter | null>(null);
   const [identitySession, setIdentitySession] = useState<IdentitySession | null>(null);
   const [inference, setInference] = useState<InferenceStatus | null>(null);
@@ -419,9 +421,27 @@ export default function App() {
       busy={running}
       onSignIn={() => setView("signin")}
       onSignOut={() => void signOut()}
-      onClear={() => clearSession()}
-      onPilot={() => loadScenario("pilot-storyboard")}
+      onClear={() => { setSnapshotNotice(null); clearSession(); }}
+      onPilot={() => { setSnapshotNotice(null); loadScenario("pilot-storyboard"); }}
+      onExport={() => { setSnapshotNotice(null); downloadCanvasSnapshot(buildCanvasSnapshot(nodes, edges)); }}
+      onImport={(file) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const parsed = parseCanvasSnapshot(typeof reader.result === "string" ? reader.result : "");
+          if (!parsed.ok) {
+            setSnapshotNotice(parsed.error);
+            return;
+          }
+          loadSnapshot(parsed.nodes, parsed.edges);
+          setSnapshotNotice(null);
+        };
+        reader.onerror = () => setSnapshotNotice("Could not read that file.");
+        reader.readAsText(file);
+      }}
     />
+    {snapshotNotice && (
+      <p className="shrink-0 bg-amber-950/80 px-3 py-1 text-xs text-amber-100" role="alert" data-testid="snapshot-notice">{snapshotNotice}</p>
+    )}
     <div className="flex min-h-0 flex-1">
     <div className="relative h-full min-w-0 flex-1">
     <VoidBackground />

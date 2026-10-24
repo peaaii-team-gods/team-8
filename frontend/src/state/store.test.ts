@@ -56,6 +56,24 @@ describe("lake links and MCP attachments", () => {
   });
 });
 
+describe("canvas snapshot load", () => {
+  it("replaces the graph and keeps the workspace choice in memory", () => {
+    useStore.getState().setSelectedWorkspaceId("ws-1");
+    const sessionId = useStore.getState().sessionId;
+    useStore.getState().loadScenario("pilot-storyboard");
+    useStore.getState().loadSnapshot([{
+      id: "agent-share", type: "agent", position: { x: 3, y: 4 },
+      data: { kind: "agent", presetId: "builder", title: "Builder", description: "shared", color: "emerald", verification: "proposal" },
+    }], []);
+    expect(useStore.getState().nodes.map((node) => node.id)).toEqual(["agent-share"]);
+    expect(useStore.getState().scenarioId).toBeNull();
+    expect(useStore.getState().selectedWorkspaceId).toBe("ws-1");
+    expect(useStore.getState().sessionId).toBe(sessionId);
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+  });
+});
+
 describe("workspace choice", () => {
   it("keeps the selected workspace in memory and drops it on clear", () => {
     useStore.getState().setSelectedWorkspaceId("ws-1");
