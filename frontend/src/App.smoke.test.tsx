@@ -108,6 +108,31 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     expect(seen[0].allowed_tools).toEqual(["execute_shell"]);
   });
 
+  it("imports a shared snapshot without identity and keeps a bad file off the canvas", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Enter canvas/i }));
+    expect(screen.getByRole("button", { name: "Export snapshot" })).toBeTruthy();
+    fireEvent.change(screen.getByTestId("snapshot-file"), { target: { files: [new File(["{}"], "nope.json", { type: "application/json" })] } });
+    expect((await screen.findByTestId("snapshot-notice")).textContent).toMatch(/not a canvas snapshot/);
+    expect(useStore.getState().nodes).toEqual([]);
+    const shared = JSON.stringify({
+      schema_version: "canvas.snapshot.v1",
+      nodes: [{
+        id: "agent-share", type: "agent", position: { x: 10, y: 20 },
+        data: { kind: "agent", presetId: "builder", title: "Builder", description: "shared", color: "nope", status: "done", output: "hidden", verification: "verified" },
+      }],
+      edges: [],
+    });
+    fireEvent.change(screen.getByTestId("snapshot-file"), { target: { files: [new File([shared], "canvas-snapshot.json", { type: "application/json" })] } });
+    await waitFor(() => expect(useStore.getState().nodes.map((node) => node.id)).toEqual(["agent-share"]));
+    expect(useStore.getState().nodes[0].data.verification).toBe("proposal");
+    expect(useStore.getState().nodes[0].data.output).toBeUndefined();
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+    expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
+    expect(screen.queryByTestId("snapshot-notice")).toBeNull();
+  });
+
   it("spawns agents, links them, and shows the handoff", async () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: /Enter canvas/i }));
