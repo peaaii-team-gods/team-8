@@ -29,7 +29,7 @@ beforeEach(() => {
   scenarioId: null, pipelineStage: "idle", runStartedAt: null, runEndedAt: null,
   sessionId: newSessionId(), telemetryEvents: [], scienceReceipt: null, inspectedLakeId: null,
   mrfSource: "base" as const, mrfMapping: null,
-  selectedWorkspaceId: null,
+  selectedWorkspaceId: null, activity: [],
 });
 });
 
@@ -109,6 +109,13 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     expect(useStore.getState().nodes.filter((n) => n.data.kind === "agent").every((n) => n.data.verification === "proposal")).toBe(true);
     expect(screen.getByTestId("stage-strip")).toBeTruthy();
     expect(screen.getByTestId("verified-badge").textContent).toBe("Verified");
+    const activity = screen.getByTestId("activity-panel").textContent ?? "";
+    expect(activity).toMatch(/Loaded Pilot storyboard/);
+    expect(activity).toMatch(/Run started/);
+    expect(activity).toMatch(/done/);
+    expect(activity).toMatch(/Complete/);
+    expect(activity).toMatch(/Fixture check passed/);
+    expect(activity).not.toMatch(/reading_column/);
     expect(screen.getByRole("button", { name: /Download session JSON/ })).toBeTruthy();
   });
 

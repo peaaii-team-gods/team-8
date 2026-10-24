@@ -9,6 +9,7 @@ import { newSessionId } from "../run/telemetryEvents";
 import type { MrfMapping, NamedCheck } from "../mrf/types";
 import { MCP_ATTACHMENTS } from "../registry/mcpAttachments";
 import { emptyLinkageContext, type LinkageContext } from "../registry/mcpLinkage";
+import { publicDetail, stageActivity, type ActivityDraft, type ActivityItem } from "../ui/activity/activity";
 
 export type CanvasNode = Node<CanvasNodeData>;
 export type CanvasEdge = Edge<{ active?: boolean; packetLabel?: string }>;
@@ -56,6 +57,7 @@ interface Store {
   linkNotice: string | null;
   linkageContext: LinkageContext;
   selectedWorkspaceId: string | null;
+  activity: ActivityItem[];
   setUiState: (s: UiState) => void;
   setSelectedWorkspaceId: (workspaceId: string | null) => void;
   openHub: () => void; closeToVoid: () => void;
@@ -83,6 +85,8 @@ interface Store {
   markRunStart: () => void;
   markRunEnd: () => void;
   pushTelemetryEvent: (ev: TelemetryEvent) => void;
+  pushActivity: (item: ActivityDraft) => void;
+  clearActivity: () => void;
   setScienceReceipt: (r: ScienceReceipt | null) => void;
   inspectLake: (nodeId: string | null) => void;
   setMrfSource: (source: "base" | "drift") => void;
@@ -110,6 +114,7 @@ export const useStore = create<Store>((set, get) => ({
   linkNotice: null,
   linkageContext: emptyLinkageContext(),
   selectedWorkspaceId: null,
+  activity: [],
   setUiState: (uiState) => set({ uiState }),
   setSelectedWorkspaceId: (selectedWorkspaceId) => set({ selectedWorkspaceId }),
   openHub: () => set({ uiState: { kind: "hub" } }),
@@ -134,13 +139,16 @@ export const useStore = create<Store>((set, get) => ({
       : n),
   })),
   setLinkageContext: (linkageContext) => set({ linkageContext }),
-  spawn: (node) => set((s) => ({
-    nodes: [...s.nodes, node],
-    uiState: { kind: "idle" },
-    tracks: node.data.kind === "agent"
-      ? [...s.tracks, { nodeId: node.id, title: node.data.title, presetId: node.data.presetId, spawnedAt: Date.now(), metrics: zeros() }]
-      : s.tracks,
-  })),
+  spawn: (node) => {
+    set((s) => ({
+      nodes: [...s.nodes, node],
+      uiState: { kind: "idle" },
+      tracks: node.data.kind === "agent"
+        ? [...s.tracks, { nodeId: node.id, title: node.data.title, presetId: node.data.presetId, spawnedAt: Date.now(), metrics: zeros() }]
+        : s.tracks,
+    }));
+    get().pushActivity({ kind: "spawn", title: `Added ${node.data.title}`, nodeId: node.id, level: "info" });
+  },
   removeNode: (id) => set((s) => ({
     nodes: s.nodes.filter((n) => n.id !== id),
     edges: s.edges.filter((e) => e.source !== id && e.target !== id),
@@ -170,21 +178,28 @@ export const useStore = create<Store>((set, get) => ({
       return false;
     }
     set((s) => ({ edges: [...s.edges, { id: nextId("e"), source: uiState.sourceId, target: targetId, type: "packet", data: { active: false } }], uiState: { kind: "idle" }, linkNotice: null }));
+    get().pushActivity({ kind: "link", title: `Linked ${src.data.title} → ${tgt.data.title}`, nodeId: targetId, level: "info" });
     return true;
   },
   cancelLink: () => set({ uiState: { kind: "idle" }, linkNotice: null }),
-  setNodeStatus: (id, status, output, verification) => set((s) => ({
-    nodes: s.nodes.map((n) => n.id === id ? {
-      ...n,
-      data: {
-        ...n.data,
-        status,
-        output,
-        verification: verification ?? (status === "done" || status === "error" ? "proposal" : n.data.verification),
-      },
-    } : n),
-    tracks: s.tracks.map((t) => t.nodeId === id ? { ...t, status } : t),
-  })),
+  setNodeStatus: (id, status, output, verification) => {
+    const title = get().nodes.find((n) => n.id === id)?.data.title ?? "Agent";
+    const badge = verification ?? (status === "done" || status === "error" ? "proposal" : undefined);
+    set((s) => ({
+      nodes: s.nodes.map((n) => n.id === id ? {
+        ...n,
+        data: {
+          ...n.data,
+          status,
+          output,
+          verification: verification ?? (status === "done" || status === "error" ? "proposal" : n.data.verification),
+        },
+      } : n),
+      tracks: s.tracks.map((t) => t.nodeId === id ? { ...t, status } : t),
+    }));
+    if (status === "done") get().pushActivity({ kind: "agent-done", title: `${title} done`, detail: badge === "verified" ? "verified" : badge === "checked_locally" ? "checked locally" : "proposal", nodeId: id, level: "ok" });
+    if (status === "error") get().pushActivity({ kind: "agent-fail", title: `${title} failed`, detail: "failed", nodeId: id, level: "error" });
+  },
   setEdgeActive: (edgeIds, active, packetLabel) => set((s) => ({
     edges: s.edges.map((e) => edgeIds.includes(e.id) ? { ...e, data: { ...e.data, active, packetLabel: packetLabel ?? e.data?.packetLabel } } : e),
   })),
@@ -214,7 +229,9 @@ export const useStore = create<Store>((set, get) => ({
       }),
     };
   }),
-  resetRun: () => set((s) => ({
+  resetRun: () => {
+    const stopping = get().runStartedAt !== null && get().runEndedAt === null;
+    set((s) => ({
     uiState: { kind: "idle" },
     nodes: s.nodes.map((n) => ({ ...n, data: { ...n.data, status: undefined, output: undefined, verification: n.data.kind === "agent" ? "proposal" : undefined } })),
     edges: s.edges.map((e) => ({ ...e, data: { ...e.data, active: false, packetLabel: undefined } })),
@@ -226,7 +243,9 @@ export const useStore = create<Store>((set, get) => ({
     runStartedAt: null,
     runEndedAt: null,
     // Keep mapping, drift source, and the last receipt across a repair run.
-  })),
+    }));
+    if (stopping) get().pushActivity({ kind: "run-stop", title: "Run stopped", level: "warn" });
+  },
   loadScenario: (id) => {
     const sc = scenarioById(id);
     if (!sc) return;
@@ -252,31 +271,66 @@ export const useStore = create<Store>((set, get) => ({
       mrfSource: "base",
       mrfMapping: null,
     });
+    get().pushActivity({ kind: "scenario", title: `Loaded ${sc.title}`, level: "info" });
   },
-  loadSnapshot: (nodes, edges) => set({
-    nodes,
-    edges,
-    tracks: nodes.filter((n) => n.data.kind === "agent").map((n) => ({
-      nodeId: n.id, title: n.data.title, presetId: n.data.presetId, spawnedAt: Date.now(), metrics: zeros(),
-    })),
-    messages: [],
-    workspace: [],
-    totals: zeros(),
-    scenarioId: null,
-    pipelineStage: "idle",
-    scienceReceipt: null,
-    inspectedLakeId: null,
-    linkNotice: null,
-    uiState: nodes.length ? { kind: "idle" } : { kind: "void" },
-    runStartedAt: null,
-    runEndedAt: null,
-    telemetryEvents: [],
-  }),
-  setPipelineStage: (pipelineStage) => set({ pipelineStage }),
-  markRunStart: () => set({ runStartedAt: Date.now(), runEndedAt: null, pipelineStage: "propose" }),
-  markRunEnd: () => set({ runEndedAt: Date.now() }),
+  loadSnapshot: (nodes, edges) => {
+    set({
+      nodes,
+      edges,
+      tracks: nodes.filter((n) => n.data.kind === "agent").map((n) => ({
+        nodeId: n.id, title: n.data.title, presetId: n.data.presetId, spawnedAt: Date.now(), metrics: zeros(),
+      })),
+      messages: [],
+      workspace: [],
+      totals: zeros(),
+      scenarioId: null,
+      pipelineStage: "idle",
+      scienceReceipt: null,
+      inspectedLakeId: null,
+      linkNotice: null,
+      uiState: nodes.length ? { kind: "idle" } : { kind: "void" },
+      runStartedAt: null,
+      runEndedAt: null,
+      telemetryEvents: [],
+    });
+    get().pushActivity({ kind: "snapshot", title: "Imported snapshot", level: "info" });
+  },
+  setPipelineStage: (pipelineStage) => {
+    const previous = get().pipelineStage;
+    set({ pipelineStage });
+    if (pipelineStage === previous) return;
+    const item = stageActivity(pipelineStage);
+    if (item) get().pushActivity(item);
+  },
+  markRunStart: () => {
+    set({ runStartedAt: Date.now(), runEndedAt: null, pipelineStage: "propose" });
+    get().pushActivity({ kind: "run-start", title: "Run started", level: "info" });
+    const stage = stageActivity("propose");
+    if (stage) get().pushActivity(stage);
+  },
+  markRunEnd: () => {
+    set({ runEndedAt: Date.now() });
+    get().pushActivity({ kind: "run-end", title: "Run ended", level: "info" });
+  },
   pushTelemetryEvent: (ev) => set((s) => ({ telemetryEvents: [...s.telemetryEvents, ev].slice(-40) })),
-  setScienceReceipt: (scienceReceipt) => set({ scienceReceipt }),
+  pushActivity: (item) => set((s) => ({
+    activity: [...s.activity, {
+      id: nextId("act"),
+      at: Date.now(),
+      kind: item.kind,
+      title: item.title.slice(0, 80),
+      detail: publicDetail(item.detail),
+      nodeId: item.nodeId,
+      level: item.level,
+    }].slice(-80),
+  })),
+  clearActivity: () => set({ activity: [] }),
+  setScienceReceipt: (scienceReceipt) => {
+    set({ scienceReceipt });
+    if (scienceReceipt?.fixtureVerified) {
+      get().pushActivity({ kind: "fixture", title: "Fixture check passed", detail: "Agent badges stay proposals.", level: "ok" });
+    }
+  },
   inspectLake: (inspectedLakeId) => set({ inspectedLakeId }),
   setMrfSource: (mrfSource) => set({ mrfSource }),
   setMrfMapping: (mrfMapping) => set({ mrfMapping }),
@@ -286,6 +340,6 @@ export const useStore = create<Store>((set, get) => ({
     scenarioId: null, pipelineStage: "idle", runStartedAt: null, runEndedAt: null,
     sessionId: newSessionId(), telemetryEvents: [], scienceReceipt: null, inspectedLakeId: null,
     mrfSource: "base", mrfMapping: null,
-    linkNotice: null, linkageContext: emptyLinkageContext(), selectedWorkspaceId: null,
+    linkNotice: null, linkageContext: emptyLinkageContext(), selectedWorkspaceId: null, activity: [],
   }),
 }));

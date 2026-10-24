@@ -1,50 +1,50 @@
-# Feedback handoff — command palette
+# Feedback handoff — session activity timeline
 
 ## Branch
 
-`feat/command-palette` (cut from `feat/schema-library` at `ed9e15a`).
+`feat/activity-timeline` (cut from `feat/output-inspector` at `79ea7a1`).
 
-No pull request yet. This file ships in the palette commit on that branch.
+No pull request yet. This file ships in the activity commit on that branch.
 
 ## What shipped
 
-- `frontend/src/ui/commands/commands.ts` — `Command`, `registerCommands()`, `COMMAND_IDS`, `fuzzyMatch`, `isTypingTarget`.
-- `frontend/src/ui/commands/commands.test.ts`
-- `frontend/src/ui/commands/CommandPalette.tsx` — palette and `?` cheat sheet.
-- `frontend/src/ui/commands/CommandPalette.test.tsx`
-- `frontend/src/App.tsx` — Ctrl+K / ⌘K, Ctrl+Enter, and the overlay. Actions call the existing scenario, hub, run, clear, and landing functions.
-- `frontend/src/ui/library/ContractLibrary.tsx` — listens for `team8:open-contracts`.
-- `frontend/src/App.smoke.test.tsx` — palette loads the pilot; typing in a textarea does not open it; Ctrl+Enter starts Run.
-- `frontend/README.md` — “Press Ctrl+K”.
+- `frontend/src/ui/activity/activity.ts` — `ActivityItem`, `ActivityDraft`, `publicDetail`, `stageActivity`, `loadRemoteActivity`, `focusFromActivity`.
+- `frontend/src/ui/activity/activity.test.ts`
+- `frontend/src/ui/activity/ActivityPanel.tsx` — right rail, newest last, color by level, Clear activity.
+- `frontend/src/ui/activity/ActivityPanel.test.tsx`
+- `frontend/src/state/store.ts` — `pushActivity`, `clearActivity`, and rows from load, spawn, link, run start/end/stop, agent done/fail, stage, fixture check, snapshot import.
+- `frontend/src/state/store.test.ts` — a pilot path records at least three labels and drops the output body.
+- `frontend/src/App.tsx` — panel under Observability. Clear canvas appends one row after the session wipe.
+- `frontend/src/App.smoke.test.tsx` — pilot run shows load, run, done, stage, and fixture check.
+- `frontend/README.md` — one honest-limits sentence.
 
 ## Seams
 
-- `Command` is `{ id, title, enabled, reason?, run }`. `run` does nothing when `enabled` is false.
-- `registerCommands(actions)` is the only list. It does not call Identity or the API.
-- Wired ids: `scenario:pilot-storyboard`, `scenario:medicare-claim-risk`, `scenario:assay-qc`, `open-create`, `run-pipeline`, `stop-run`, `clear-canvas`, `back-to-landing`, `open-contracts`, `export-snapshot`, `import-snapshot`.
-- `open-contracts` dispatches `team8:open-contracts`. The library listens. If that component is absent, the event is a no-op.
-- `export-snapshot` and `import-snapshot` call the existing snapshot download and the existing file input (`data-testid="snapshot-file"`).
-- `readiness-refresh` is reserved in `COMMAND_IDS` and is not shown. Register it when the readiness panel exposes refresh.
+- `ActivityItem` is `{ id, at, kind, title, detail?, nodeId?, level }`. `level` is `info | ok | warn | error`.
+- `pushActivity(draft)` is the only writer. It keeps the last 80 rows, trims titles, and drops a detail that looks like JSON.
+- `loadRemoteActivity()` returns `[]`. A later history change can append server events of the same type. This panel does not poll.
+- A row with `nodeId` calls `onFocus(nodeId)`. The default focus opens the node menu and selects that node. The output inspector stays a separate panel; a row does not open it and does not carry the output body.
+- `clearActivity()` clears the list only. `clearSession()` clears it with the rest of the session. Clear canvas then pushes `Canvas cleared`.
 
 ## Tests run
 
-From `frontend/`: `npm test` (106), `npm run docs:check`, `npm run build`. All green.
+From `frontend/`: `npm test` (112), `npm run docs:check`, `npm run build`. All green.
 
 ## Merge risks
 
-This branch also contains schema-library, judge-demo, canvas-snapshot, readiness, and history commits. There is no separate `feat/canvas-snapshot-v1`.
+This branch also contains output-inspector, command-palette, schema-library, judge-demo, canvas-snapshot, readiness, and history commits.
 
-The palette diff touches `App.tsx` (same file as demo, snapshot, history, and readiness) and adds `frontend/src/ui/commands/`. It does not edit `live.ts`.
+The activity diff touches `store.ts` and `App.tsx` (same files as those features) and adds `frontend/src/ui/activity/`. It does not edit `live.ts`, `MetricsPanel.tsx`, or `StageStrip.tsx`.
 
-Expect conflicts in `App.tsx` with:
+Expect conflicts in `store.ts` with:
 
-- `feat/judge-demo-mode` — view switching and autorun sit next to the new key listener.
-- `feat/canvas-snapshot` — export/import commands call those handlers.
-- `feat/schema-library` — Contracts listens for one event.
-- `feat/project-history-bar` and `feat/readiness-console` — no palette calls into those panels. `readiness-refresh` is intentionally unregistered.
+- `feat/output-inspector` — no activity calls into the inspector.
+- `feat/project-history-bar` — history stays its own panel. `loadRemoteActivity` is the join point.
+- `feat/judge-demo-mode` — demo load goes through `loadScenario`, so the timeline records it.
+- Observability — stage rows copy the same stage names. They do not replace the stage strip.
 
 Rebase onto the integration target before review so this pull request is not the union of those features.
 
 ## Ask for the parent agent
 
-Review Ctrl+K → Load Pilot storyboard, and Ctrl+Enter only when a link exists. Confirm `?` and palette shortcuts do nothing while a schema field is focused. If demo, snapshot, or the contract library land first, rebase and keep `registerCommands` as the only command list. Wire `readiness-refresh` only when that panel has a real refresh action.
+Review Load Pilot → Run and confirm the timeline shows the load, the run, each agent completion, the stage, and the fixture check, with no output JSON in a row. Confirm Clear activity leaves the graph. If history lands first, rebase and append through `pushActivity` / `loadRemoteActivity` instead of a second list.
