@@ -10,6 +10,7 @@ import ConversationPanel from "./ui/ConversationPanel";
 import WorkspacePanel from "./ui/WorkspacePanel";
 import SchemaWindow from "./ui/SchemaWindow";
 import ContractLibrary from "./ui/library/ContractLibrary";
+import ActivityPanel from "./ui/activity/ActivityPanel";
 import OutputInspector from "./ui/inspect/OutputInspector";
 import CommandPalette, { CheatSheet } from "./ui/commands/CommandPalette";
 import { isTypingTarget, OPEN_CONTRACTS_EVENT, registerCommands } from "./ui/commands/commands";
@@ -286,7 +287,7 @@ export default function App() {
     loadScenario: (id) => { setSnapshotNotice(null); setView("canvas"); loadScenario(id); },
     openHub: () => { setView("canvas"); openHub(); },
     toggleRun: () => { void toggleRun(); },
-    clearCanvas: () => { setSnapshotNotice(null); clearSession(); },
+    clearCanvas: () => { setSnapshotNotice(null); clearSession(); useStore.getState().pushActivity({ kind: "clear", title: "Canvas cleared", level: "info" }); },
     backToLanding: () => setView("landing"),
     openContracts: () => {
       setView("canvas");
@@ -414,7 +415,7 @@ export default function App() {
       busy={running}
       onSignIn={() => setView("signin")}
       onSignOut={() => void signOut()}
-      onClear={() => { setSnapshotNotice(null); clearSession(); }}
+      onClear={() => { setSnapshotNotice(null); clearSession(); useStore.getState().pushActivity({ kind: "clear", title: "Canvas cleared", level: "info" }); }}
       onPilot={() => { setSnapshotNotice(null); loadScenario("pilot-storyboard"); }}
       onExport={() => { setSnapshotNotice(null); downloadCanvasSnapshot(buildCanvasSnapshot(nodes, edges)); }}
       onImport={(file) => {
@@ -532,6 +533,7 @@ export default function App() {
         onSelectWorkspace={setSelectedWorkspaceId}
       />
       <MetricsPanel />
+      <ActivityPanel />
       <ScienceReceipt />
       <WorkspacePanel />
     </div>

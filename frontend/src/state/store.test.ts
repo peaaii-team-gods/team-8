@@ -74,6 +74,40 @@ describe("canvas snapshot load", () => {
   });
 });
 
+describe("session activity", () => {
+  it("records a pilot run as status labels and drops the output body", () => {
+    useStore.getState().clearSession();
+    useStore.getState().loadScenario("pilot-storyboard");
+    useStore.getState().markRunStart();
+    const agent = useStore.getState().nodes.find((node) => node.data.kind === "agent");
+    expect(agent).toBeTruthy();
+    useStore.getState().setNodeStatus(agent!.id, "done", '{"reading_column":"reading"}', "proposal");
+    useStore.getState().setPipelineStage("complete");
+    useStore.getState().setScienceReceipt({
+      scenarioId: "pilot-storyboard",
+      mapping: '{"reading_column":"reading"}',
+      flags: [],
+      tokens: 1,
+      contentFreeIds: [],
+      fixtureVerified: true,
+    });
+    const activity = useStore.getState().activity;
+    expect(activity.length).toBeGreaterThanOrEqual(3);
+    expect(activity.map((item) => item.title)).toEqual(expect.arrayContaining([
+      "Loaded Pilot storyboard",
+      "Run started",
+      "Builder done",
+      "Stage Complete · proposal",
+      "Fixture check passed",
+    ]));
+    expect(JSON.stringify(activity)).not.toContain("reading_column");
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+    useStore.getState().clearSession();
+    expect(useStore.getState().activity).toEqual([]);
+  });
+});
+
 describe("workspace choice", () => {
   it("keeps the selected workspace in memory and drops it on clear", () => {
     useStore.getState().setSelectedWorkspaceId("ws-1");
