@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import SessionPanel from "./SessionPanel";
+import { ToastProvider } from "./toasts/ToastProvider";
 import { LiveAdapter } from "../adapters/live";
 import type { IdentitySession } from "../adapters/identity";
 
@@ -17,7 +18,7 @@ describe("SessionPanel", () => {
     const onAuthenticated = vi.fn();
     // capabilities fetch through the constructed LiveAdapter
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ capabilities: { run_execution: { status: "available" }, run_cancellation: { status: "available" }, shell_execution: { status: "unavailable", reason_code: "shell_execution_not_verified" }, tool_execution: { status: "unavailable" }, approval_tier3_elevation: { status: "unavailable" } } })));
-    render(<SessionPanel apiBase="http://api" identityBase="http://id" session={fakeSession(login)} onAuthenticated={onAuthenticated} />);
+    render(<ToastProvider><SessionPanel apiBase="http://api" identityBase="http://id" session={fakeSession(login)} onAuthenticated={onAuthenticated} /></ToastProvider>);
 
     fireEvent.change(screen.getByLabelText("Username"), { target: { value: "brandon" } });
     const pw = screen.getByLabelText("Password") as HTMLInputElement;
@@ -38,13 +39,15 @@ describe("SessionPanel", () => {
   it("shows the login error and does not authenticate on failure", async () => {
     const login = vi.fn(async () => { throw new Error("login failed (401)"); });
     const onAuthenticated = vi.fn();
-    render(<SessionPanel apiBase="http://api" identityBase="http://id" session={fakeSession(login)} onAuthenticated={onAuthenticated} />);
+    render(<ToastProvider><SessionPanel apiBase="http://api" identityBase="http://id" session={fakeSession(login)} onAuthenticated={onAuthenticated} /></ToastProvider>);
     fireEvent.change(screen.getByLabelText("Username"), { target: { value: "brandon" } });
     const pw = screen.getByLabelText("Password") as HTMLInputElement;
-    fireEvent.change(pw, { target: { value: "bad" } });
+    fireEvent.change(pw, { target: { value: "s3cret-value" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(pw.value).toBe("");
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("login failed (401)"));
+    expect(screen.getByTestId("toast").textContent).toMatch(/Sign in failed/);
+    expect(screen.getByTestId("toast").textContent).not.toMatch(/s3cret-value/);
     expect(onAuthenticated).not.toHaveBeenCalled();
   });
 });
