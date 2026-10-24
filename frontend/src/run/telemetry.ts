@@ -7,6 +7,7 @@ export interface UsageMetrics {
   completionTokens: number;
   totalTokens: number;
   costUsd: number;
+  costKnown?: boolean;
   source: "live" | "simulated" | "estimated";
 }
 
@@ -44,10 +45,11 @@ export const addUsage = (a: UsageMetrics, b: UsageMetrics): UsageMetrics => ({
   completionTokens: a.completionTokens + b.completionTokens,
   totalTokens: a.totalTokens + b.totalTokens,
   costUsd: a.costUsd + b.costUsd,
+  costKnown: !hasUsage(a) ? b.costKnown : !hasUsage(b) ? a.costKnown : a.costKnown === true && b.costKnown === true,
   source: a.source === "live" || b.source === "live" ? "live" : a.source === "simulated" || b.source === "simulated" ? "simulated" : "estimated",
 });
 
-export const hasUsage = (u?: UsageMetrics) => !!u && (u.totalTokens > 0 || u.promptTokens > 0 || u.completionTokens > 0 || u.costUsd > 0);
+export const hasUsage = (u?: UsageMetrics) => !!u && (u.totalTokens > 0 || u.promptTokens > 0 || u.completionTokens > 0 || u.costUsd > 0 || u.costKnown !== undefined);
 
 /** Prefer a later snapshot (run GET is typically cumulative). */
 export const preferLatest = (prev: UsageMetrics, next?: UsageMetrics): UsageMetrics =>
@@ -75,12 +77,15 @@ export function usageFromUnknown(raw: unknown, source: UsageMetrics["source"] = 
   const out = emptyUsage(source);
   if (!raw || typeof raw !== "object") return out;
   const root = raw as Record<string, unknown>;
-  const nested = (root.usage && typeof root.usage === "object" ? root.usage : root) as Record<string, unknown>;
-  out.promptTokens = pick(nested, ["prompt_tokens", "promptTokens", "tokens_prompt", "input_tokens", "tokens_in"]);
-  out.completionTokens = pick(nested, ["completion_tokens", "completionTokens", "tokens_completion", "output_tokens", "tokens_out"]);
+  const nested = (root.metrics && typeof root.metrics === "object" ? root.metrics : root.usage && typeof root.usage === "object" ? root.usage : root) as Record<string, unknown>;
+  out.promptTokens = pick(nested, ["tokens_eval", "prompt_tokens", "promptTokens", "tokens_prompt", "input_tokens", "tokens_in"]);
+  out.completionTokens = pick(nested, ["tokens_gen", "completion_tokens", "completionTokens", "tokens_completion", "output_tokens", "tokens_out"]);
   out.totalTokens = pick(nested, ["total_tokens", "totalTokens", "tokens_total", "tokens"]) || (out.promptTokens + out.completionTokens);
-  out.costUsd = pick(nested, ["cost_usd", "costUsd", "estimated_cost_usd", "usd"]);
+  out.costUsd = pick(nested, ["usd_cost", "cost_usd", "costUsd", "usd"]);
   if (!out.costUsd) out.costUsd = pick(root, ["cost_usd", "costUsd"]);
+  const costValue = nested.usd_cost ?? nested.cost_usd ?? nested.costUsd ?? nested.usd ?? root.usd_cost ?? root.cost_usd ?? root.costUsd;
+  const declared = nested.cost_known ?? nested.usd_cost_reported ?? root.cost_known ?? root.usd_cost_reported;
+  if (hasUsage(out) || declared !== undefined || costValue !== undefined) out.costKnown = declared === true && typeof costValue === "number" && Number.isFinite(costValue) && costValue >= 0;
   return out;
 }
 
@@ -163,3 +168,5 @@ export const formatUsd = (n: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(n);
 
 export const formatTokens = (n: number) => new Intl.NumberFormat("en-US").format(Math.round(n));
+
+export const formatUsageCost = (usage: UsageMetrics) => usage.costKnown === true ? formatUsd(usage.costUsd) : "Unknown";

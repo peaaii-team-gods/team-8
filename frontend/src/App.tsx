@@ -4,6 +4,8 @@ import "@xyflow/react/dist/style.css";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Play, Square, LogOut } from "lucide-react";
 import VoidBackground from "./ui/VoidBackground";
+import InferencePanel from "./ui/InferencePanel";
+import type { InferenceStatus } from "./adapters/inference";
 import SessionPanel from "./ui/SessionPanel";
 import MetricsPanel from "./ui/MetricsPanel";
 import ConversationPanel from "./ui/ConversationPanel";
@@ -44,6 +46,10 @@ export default function App() {
   } = useStore();
   const [liveAdapter, setLiveAdapter] = useState<LiveAdapter | null>(null);
   const [identitySession, setIdentitySession] = useState<IdentitySession | null>(null);
+  const [inference, setInference] = useState<InferenceStatus | null>(null);
+  const [paidConsent, setPaidConsent] = useState(false);
+  const [spendCap, setSpendCap] = useState("0");
+  const [showInference, setShowInference] = useState(false);
   const [running, setRunning] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -57,6 +63,8 @@ export default function App() {
   const env = import.meta.env as unknown as RhmEnv;
   const mode = resolveMode(env);
   const simulated = useMemo(() => new SimulatedAdapter(), []);
+  const requiresPaidConsent = !!inference?.configured;
+  const providerBlocked = !inference?.configured || !Number.isFinite(Number(spendCap)) || Number(spendCap) < 0 || (requiresPaidConsent && (!paidConsent || Number(spendCap) <= 0));
   const adapter: RhmAdapter | null = mode === "live" ? liveAdapter : simulated;
   const [view, setView] = useState<ShellView>("landing");
 
@@ -104,7 +112,8 @@ export default function App() {
       resetRun();
       return;
     }
-    if (!adapter) return;
+    if (!adapter || (mode === "live" && providerBlocked)) return;
+    liveAdapter?.setPaidInferenceConsent(paidConsent);
     const epoch = ++runEpoch.current;
     const isCurrent = () => epoch === runEpoch.current && !stoppedRef.current;
     stoppedRef.current = false;
@@ -123,7 +132,11 @@ export default function App() {
         : null;
       if (!isCurrent()) return;
       const t0 = performance.now();
-      await runNodes(adapter, compileGraph(nodes, edges, nonce, capabilities, binding), {
+      await runNodes(adapter, compileGraph(nodes, edges, nonce, capabilities, binding).map(item => {
+        if (mode !== "live") return item;
+        const { model_preference: _model, ...workflow } = item.workflow;
+        return { ...item, workflow: { ...workflow, budget: { ...workflow.budget, max_usd: Number(spendCap) } } };
+      }), {
         onStatus: (id, status, output) => {
           if (!isCurrent()) return;
           const node = useStore.getState().nodes.find((n) => n.id === id);
@@ -209,6 +222,9 @@ export default function App() {
     useStore.getState().clearSession();
     setLiveAdapter(null);
     setIdentitySession(null);
+    setInference(null);
+    setSpendCap("0");
+    setPaidConsent(false);
     setView("landing");
     try {
       await identitySession?.logout();
@@ -252,6 +268,13 @@ export default function App() {
   return <div className="flex h-full" onClick={() => { if (uiState.kind === "linking") cancelLink(); }}>
     <div className="relative h-full min-w-0 flex-1">
     <VoidBackground />
+    {mode === "live" && identitySession && <aside className="absolute right-2 top-16 z-30 max-h-[75vh] w-[min(400px,90vw)] overflow-auto">
+      <button type="button" className="glass p-2 text-xs" onClick={() => setShowInference(!showInference)}>Account inference settings</button>
+      <div hidden={!showInference}><InferencePanel apiBase={apiBase} session={identitySession} onStatus={next => { setInference(next); setPaidConsent(false); }} disabled={running} />
+        <label className="glass block p-3 text-xs"><input type="checkbox" checked={paidConsent} disabled={running} onChange={e => setPaidConsent(e.target.checked)} />I permit paid inference on this account's configured providers for these runs.</label>
+        <label className="glass block p-3 text-xs">USD admission budget per agent run<input aria-label="USD admission budget per agent run" type="number" min="0" step="0.01" value={spendCap} disabled={running} onChange={e => setSpendCap(e.target.value)} />Each agent submits a separate bounded run. All configured endpoints require a positive admission cap; charges may apply. Dollar accounting is provider-dependent; set a hard spending limit on your provider key. No automatic paid retries.</label>
+      </div>
+    </aside>}
     {nodes.length === 0 && uiState.kind !== "hub" && (
       <div className="absolute left-1/2 top-1/2 z-10 flex w-[min(520px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-4 text-center">
         <div className="font-display text-2xl text-fuchsia-100">Team 8 science canvas</div>
@@ -303,7 +326,8 @@ export default function App() {
         <ConversationPanel />
       </div>
     )}
-    {edges.length > 0 && <button aria-label={running ? "Stop run" : "Run pipeline"} disabled={!running && !adapter} className="glass absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 px-5 py-2 disabled:opacity-50" onClick={(e) => { e.stopPropagation(); void toggleRun(); }}>{running ? <Square size={14} /> : <Play size={14} />}{running ? "Stop" : "Run Pipeline"}</button>}
+    {mode === "live" && !inference?.configured && <p className="glass absolute bottom-20 left-2 z-20 max-w-sm p-2 text-xs">Open Account inference settings and select your provider before running. This account cannot use the operator's model automatically.</p>}
+    {edges.length > 0 && <button aria-label={running ? "Stop run" : "Run pipeline"} disabled={!running && (!adapter || (mode === "live" && providerBlocked))} className="glass absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 px-5 py-2 disabled:opacity-50" onClick={(e) => { e.stopPropagation(); void toggleRun(); }}>{running ? <Square size={14} /> : <Play size={14} />}{running ? "Stop" : "Run Pipeline"}</button>}
     {uiState.kind === "linking" && <div className="glass absolute left-1/2 top-4 z-10 -translate-x-1/2 px-4 py-1 text-sm">Click a valid target to lock the link (click empty space to cancel)</div>}
     <SchemaWindow />
     <LakeInspector />

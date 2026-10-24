@@ -1,3 +1,29 @@
+## Shared-account inference settings
+
+Live mode includes Account inference settings after Identity sign-in. Select
+OpenRouter BYOK or provide an OpenAI-compatible public HTTPS endpoint and model ID.
+An optional helper has independent settings. Choose a user-owned llama gateway
+as Primary to use it for all inference. There is no operator model or key fallback.
+
+The team8 login shares settings across teammates and RHM services. Save and remove
+require explicit confirmation and the current Backend revision. Refresh settings
+after a conflict, then review the change again. Keys are write-only password
+fields cleared on dispatch. They never enter canvas state, workflow inputs,
+browser storage or URLs. Production stores keys in the encrypted account vault across restarts.
+A memory-only fixture instead reports backend_process and requires re-entry. Replacement revokes subsequent ticks; an already
+dispatched request may finish.
+
+Custom endpoints must be public HTTPS and reachable from Backend. Localhost is
+the server, not your PC. Use an authenticated HTTPS gateway for a personal local
+model. Private IPs, URL credentials and redirects are unsupported.
+
+Live runs require explicit paid-inference consent for remote primary or helper
+providers, confirmed account metadata and a nonnegative USD admission cap
+per agent run. All configured endpoints need a positive cap; charges may apply. Dollar accounting depends on
+the provider; configure a hard spending limit on the provider key. Several agents
+submit separate runs, each with its own cap. Fixtures make no paid calls. The
+simulated canvas remains a synthetic demonstration without inference.
+
 # RHM Agent Canvas (hackathon demo)
 
 Visual multi-agent canvas: draw agents + data lakes, tether lakes to agents, run a bounded pipeline. A **consumer** of the public RHM contract (`../API.md`) — it owns no service state.

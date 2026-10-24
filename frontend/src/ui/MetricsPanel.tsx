@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Activity, ChevronDown } from "lucide-react";
 import { useStore } from "../state/store";
-import { formatTokens, formatUsd } from "../run/telemetry";
+import { formatTokens, formatUsageCost } from "../run/telemetry";
 import { buildObservability } from "../run/observability";
 import StageStrip from "./StageStrip";
 
@@ -33,8 +33,8 @@ export default function MetricsPanel() {
           <div className="glass p-2"><div className="opacity-60">Tokens</div><div className="text-lg font-semibold tabular-nums">{formatTokens(totals.totalTokens)}</div></div>
           <div className="glass p-2">
             <div className="opacity-60">Cost</div>
-            <div className="text-lg font-semibold tabular-nums">{formatUsd(totals.costUsd)}</div>
-            <div className="text-[10px] opacity-50">{totals.source === "live" ? "known?" : "estimated"}</div>
+            <div className="text-lg font-semibold tabular-nums">{formatUsageCost(totals)}</div>
+            <div className="text-[10px] opacity-50">{totals.costKnown === true ? "Provider reported" : "No verified billed cost"}</div>
           </div>
           <div className="glass p-2"><div className="opacity-60">Latency</div><div className="tabular-nums">{obs.latencyMs == null ? "—" : `${obs.latencyMs} ms`}</div></div>
           <div className="glass p-2"><div className="opacity-60">Agents finished</div><div className="tabular-nums">{obs.agentsFinished}/{obs.agentsTotal}</div></div>
@@ -48,8 +48,7 @@ export default function MetricsPanel() {
           <div className="glass p-2">Drift · {obs.driftDetected == null ? "—" : obs.driftDetected ? "yes" : "no"}</div>
         </div>
         <div className="mb-2 text-[10px] opacity-60">
-          Budget cap on each workflow is $0.00. {totals.source === "live" ? "Figures prefer run receipts." : "Simulated runs estimate tokens and keep cost at $0 until a live receipt reports otherwise."}
-          {" "}Session telemetry download-export is deferred.
+          Set the USD admission budget before Run. Hard billing limits belong on the provider key. Unknown cost does not mean free.
         </div>
         {tracks.length === 0 ? (
           <p className="text-xs opacity-70">Press + or load a demo scenario. Agents are tracked here immediately.</p>

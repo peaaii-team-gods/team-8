@@ -32,7 +32,7 @@ export function usageToTelemetry(u: UsageMetrics, ticks = 0) {
     tokens_gen: u.completionTokens,
     tokens_estimated: u.source !== "live",
     usd_cost: u.costUsd,
-    cost_known: u.source === "live" && u.costUsd > 0,
+    cost_known: u.costKnown === true,
     ticks,
   };
 }

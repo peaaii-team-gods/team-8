@@ -392,3 +392,21 @@ def test_auth_retry_preserves_idempotency_header():
     api.call("POST", "/v1/runs", json={"workflow_id": "wf"}, headers={"Idempotency-Key": "same-key"})
     assert len(attempts) == 2 and attempts[0].content == attempts[1].content
     api.close()
+
+
+def test_explicit_provider_consent_applies_to_both_pilot_runs(setup):
+    backend, original, journal = setup
+    api = PublicAPI(BASE, Auth(), transport=httpx.MockTransport(backend.handle), allow_provider_charges=True, max_usd_per_run=.02)
+    try:
+        assert pilot(api, journal)["status"] == "verified"
+        assert len(backend.run_posts) == 2
+        assert all(json.loads(body)["paid_inference_consent"] is True for _, body in backend.run_posts)
+        assert all(w["budget"]["max_usd"] == .02 and w["loop_limits"]["max_ticks"] == 2 for w in backend.workflows.values())
+        assert "paid_inference_consent" not in journal.path.read_text(encoding="utf-8")
+    finally:
+        api.close()
+
+@pytest.mark.parametrize("consent,budget", [(True, 0), (False, .02), (True, float("nan"))])
+def test_provider_consent_cannot_bypass_budget_validation(consent, budget):
+    with pytest.raises(PilotError):
+        PublicAPI(BASE, Auth(), allow_provider_charges=consent, max_usd_per_run=budget)

@@ -2,7 +2,7 @@ import { Handle, Position, NodeToolbar, type NodeProps } from "@xyflow/react";
 import { Bot, Braces, Database, Link2, Trash2 } from "lucide-react";
 import type { CanvasNode } from "../state/store";
 import { useStore } from "../state/store";
-import { formatTokens, formatUsd } from "../run/telemetry";
+import { formatTokens, formatUsageCost } from "../run/telemetry";
 import { matchingSchemaId, parseSchemaText } from "../registry/schemas";
 
 const ACCENT: Record<string, string> = {
@@ -52,7 +52,7 @@ function Shell({ data, id, isLake }: { data: CanvasNode["data"]; id: string; isL
     )}
     {track && !isLake && (
       <div className="mt-2 text-[10px] opacity-80" data-testid={`track-${id}`}>
-        tracked · {formatTokens(track.metrics.totalTokens)} tok · {formatUsd(track.metrics.costUsd)}
+        tracked · {formatTokens(track.metrics.totalTokens)} tok · {formatUsageCost(track.metrics)}
         {track.runId ? ` · ${track.runId.slice(0, 18)}` : ""}
       </div>
     )}

@@ -9,6 +9,8 @@ import { parseEvents, parseWorkspaceList, usageFromUnknown, type ParsedTelemetry
 const TERMINAL = ["succeeded", "failed", "cancelled", "halted_by_agent", "outcome_unknown", "halted_emergency", "context_limit_exceeded"];
 export class LiveAdapter implements RhmAdapter {
   mode = "live" as const;
+  private paidConsent = false;
+  setPaidInferenceConsent(value: boolean) { this.paidConsent = value; }
   constructor(private apiBase: string, private session: IdentitySession) {}
   private headers() { return { "content-type": "application/json", ...(this.session.token ? { authorization: `Bearer ${this.session.token}` } : {}) }; }
   async capabilities() {
@@ -28,7 +30,7 @@ export class LiveAdapter implements RhmAdapter {
     const w = await fetch(`${this.apiBase}/v1/workflows`, { method: "POST", headers: this.headers(), body: JSON.stringify({ workflow }) });
     if (!w.ok) throw new Error(`workflow create failed (${w.status})`);
     const wid = ((await w.json()) as { workflow_id?: string; id?: string }).workflow_id ?? "";
-    const r = await fetch(`${this.apiBase}/v1/runs`, { method: "POST", headers: this.headers(), body: JSON.stringify({ workflow_id: wid }) });
+    const r = await fetch(`${this.apiBase}/v1/runs`, { method: "POST", headers: this.headers(), body: JSON.stringify({ workflow_id: wid, paid_inference_consent: this.paidConsent }) });
     if (!r.ok) throw new Error(`run create failed (${r.status})`);
     const runId = ((await r.json()) as { run_id?: string; id?: string }).run_id ?? "";
     return { nodeId, runId };

@@ -6,6 +6,7 @@ import { emptyUsage } from "./run/telemetry";
 import { newSessionId } from "./run/telemetryEvents";
 import { SimulatedAdapter } from "./adapters/simulated";
 import { IdentitySession } from "./adapters/identity";
+import { InferenceSettings } from "./adapters/inference";
 import { LiveAdapter } from "./adapters/live";
 import type { RunOutcome } from "./adapters/RhmAdapter";
 
@@ -52,6 +53,7 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
   it("clears owner data on logout and rejects a late poll result", async () => {
     vi.stubEnv("VITE_RHM_MODE", "live");
     vi.spyOn(IdentitySession.prototype, "restore").mockResolvedValue(true);
+    vi.spyOn(InferenceSettings.prototype, "request").mockResolvedValue({ configured: true, revision: "fixture", provider: "local", model_id: "fixture", credential_lifetime: "backend_process", host_models_authorized: false });
     vi.spyOn(IdentitySession.prototype, "logout").mockRejectedValue(new Error("offline"));
     vi.spyOn(LiveAdapter.prototype, "capabilities").mockResolvedValue(null);
     vi.spyOn(LiveAdapter.prototype, "workspaces").mockResolvedValue([]);
@@ -62,8 +64,13 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     const poll = vi.spyOn(LiveAdapter.prototype, "poll").mockImplementation(() => new Promise((resolve) => { release = resolve; }));
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: /Pilot storyboard/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Account inference settings/ }));
+    fireEvent.change(screen.getByLabelText("USD admission budget per agent run"), { target: { value: "0.01" } });
+    fireEvent.click(screen.getByLabelText(/I permit paid inference/));
+    await waitFor(() => expect((screen.getByRole("button", { name: /run pipeline/i }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: /run pipeline/i }));
     await waitFor(() => expect(poll).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(LiveAdapter.prototype.run).mock.calls[0][1]).toMatchObject({ budget: { max_usd: .01 }, loop_limits: { max_ticks: 2, max_tokens_per_tick: 512, max_tokens_total: 2048 } });
     const oldSession = useStore.getState().sessionId;
     fireEvent.click(screen.getByRole("button", { name: /Sign out/ }));
     await waitFor(() => expect(screen.getByTestId("landing-page")).toBeTruthy());
@@ -118,7 +125,7 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
 
     expect(useStore.getState().totals.totalTokens).toBeGreaterThan(0);
     expect(useStore.getState().totals.costUsd).toBe(0);
-    expect(screen.getByTestId("metrics-panel").textContent).toMatch(/\$0\.00/);
+    expect(screen.getByTestId("metrics-panel").textContent).toContain("Unknown");
 
     expect(screen.getAllByTestId("workspace-file").map((el) => el.textContent).join("\n")).toMatch(/mapping\.proposal\.json/);
 

@@ -1,3 +1,13 @@
+## Account inference UI, 2026-10-23
+
+Source adds revision-guarded shared-account provider settings through the current
+Backend /v1/account/inference-provider API. Primary and optional helper support
+fixed OpenRouter or public HTTPS OpenAI-compatible overrides. Write-only keys
+stay outside canvas state and storage. Live runs require confirmed configuration
+and an explicit admission cap. Live submissions omit preset model hints so Backend
+selects the account model. See README for endpoint and credential lifetime limits.
+No deployment or paid inference was performed by this frontend change.
+
 # Current source review - 2026-10-23
 
 The pending `Front-End-Additions` source adds the landing/sign-in gate, memory-only

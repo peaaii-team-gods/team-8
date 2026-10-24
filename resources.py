@@ -78,7 +78,12 @@ class Journal:
 
 
 class PublicAPI:
-    def __init__(self, base, session, *, transport=None):
+    def __init__(self, base, session, *, transport=None, allow_provider_charges=False, max_usd_per_run=0):
+        import math
+        if not math.isfinite(max_usd_per_run) or max_usd_per_run < 0 or (allow_provider_charges and max_usd_per_run <= 0) or (not allow_provider_charges and max_usd_per_run > 0):
+            raise PilotError("Provider charges require explicit consent and a positive finite per-run admission budget")
+        self.allow_provider_charges = allow_provider_charges
+        self.max_usd_per_run = max_usd_per_run
         self.session = session
         self.http = httpx.Client(base_url=origin(base), timeout=15, trust_env=False,
                                  follow_redirects=False, transport=transport)
@@ -120,6 +125,7 @@ class PublicAPI:
         return selected, retention
 
     def run(self, journal, stage_name, workflow, *, retention, deadline_s=180, poll_s=0.5):
+        workflow = {**workflow, "budget": {**workflow.get("budget", {}), "max_usd": self.max_usd_per_run}}
         stages = journal.data["stages"]
         expected_hash = digest(workflow)
         stage = stages.get(stage_name)
@@ -154,7 +160,7 @@ class PublicAPI:
                                  "Reconcile the saved workspace/run history; no new run submitted.")
             stage["state"] = "run_create_uncertain"
             journal.save()
-            run = self.call("POST", "/v1/runs", json={"workflow_id": stage["workflow_id"]},
+            run = self.call("POST", "/v1/runs", json={"workflow_id": stage["workflow_id"], "paid_inference_consent": self.allow_provider_charges},
                             headers={"Idempotency-Key": stage["idempotency_key"]})
             stage["run_id"], stage["state"] = run["run_id"], run["status"]
             journal.save()

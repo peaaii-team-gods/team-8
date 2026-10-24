@@ -126,7 +126,12 @@ def main(argv=None):
     parser.add_argument("--deadline-seconds", type=int, choices=range(1, 601), default=180, metavar="1..600")
     parser.add_argument("--enroll", action="store_true", help="Redeem your personal invite, then run the pilot")
     parser.add_argument("--cancel-only", action="store_true", help="Reconcile/cancel this journal's runs without new work")
+    parser.add_argument("--allow-provider-charges", action="store_true", help="Explicitly permit account-provider charges for Builder and Maintainer runs")
+    parser.add_argument("--max-usd-per-run", type=float, default=0, help="USD admission budget for each run; provider key controls hard billing limits")
     args = parser.parse_args(argv)
+    import math
+    if not math.isfinite(args.max_usd_per_run) or args.max_usd_per_run < 0 or (args.allow_provider_charges and args.max_usd_per_run <= 0) or (not args.allow_provider_charges and args.max_usd_per_run > 0):
+        parser.error("Provider charges require both --allow-provider-charges and a positive finite --max-usd-per-run")
     if args.cancel_only and args.enroll:
         parser.error("--enroll and --cancel-only cannot be combined")
     username = args.username or input("Username: ")
@@ -143,7 +148,7 @@ def main(argv=None):
         else:
             auth.login(username, password)
         del password
-        api = PublicAPI(args.api_base, auth)
+        api = PublicAPI(args.api_base, auth, allow_provider_charges=args.allow_provider_charges, max_usd_per_run=args.max_usd_per_run)
         if args.cancel_only:
             journal_path = Path(args.state_dir) / "journal.json"
             if not journal_path.exists() or journal_path.stat().st_size > 65536:

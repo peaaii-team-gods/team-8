@@ -1,3 +1,13 @@
+## Account-provider CLI consent
+
+Configure the account provider in the hackathon web UI first. The pilot accepts
+--allow-provider-charges --max-usd-per-run 0.02 for explicit consent to both Builder
+and Maintainer runs. Each run has its own admission budget. This is not a hard
+billing cap; set the hard limit on your provider key. Default consent is false
+and the admission budget is zero, so account-provider inference is denied by
+default. The operator host model requires a separate explicit user grant.
+There are no provider key CLI arguments or key environment variables.
+
 # Two-role data pipeline pilot
 
 Builder and Validator/Maintainer collaborate through two sequential RHM public

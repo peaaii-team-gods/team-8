@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addUsage, emptyUsage, parseEvents, parseWorkspaceList, usageFromUnknown } from "./telemetry";
+import { addUsage, emptyUsage, formatUsageCost, parseEvents, parseWorkspaceList, usageFromUnknown } from "./telemetry";
 
 describe("usageFromUnknown", () => {
   it("reads nested usage and cost_usd", () => {
@@ -41,4 +41,15 @@ describe("parseWorkspaceList / addUsage", () => {
     const sum = addUsage(emptyUsage("simulated"), { promptTokens: 1, completionTokens: 2, totalTokens: 3, costUsd: 0, source: "live" });
     expect(sum).toMatchObject({ totalTokens: 3, source: "live" });
   });
+});
+
+
+it("distinguishes unknown zero cost from provider-reported zero and ignores estimates", () => {
+  const unknown = usageFromUnknown({ usage: { tokens_eval: 5, tokens_gen: 2, usd_cost: 0, cost_known: false } });
+  const zero = usageFromUnknown({ usage: { tokens_eval: 5, tokens_gen: 2, usd_cost: 0, cost_known: true } });
+  expect(unknown.totalTokens).toBe(7);
+  expect(formatUsageCost(unknown)).toBe("Unknown"); expect(formatUsageCost(zero)).toBe("$0.00");
+  expect(formatUsageCost(addUsage(unknown, zero))).toBe("Unknown");
+  expect(formatUsageCost(addUsage(emptyUsage(), zero))).toBe("$0.00");
+  expect(formatUsageCost(usageFromUnknown({ usage: { estimated_cost_usd: 4 } }))).toBe("Unknown");
 });
