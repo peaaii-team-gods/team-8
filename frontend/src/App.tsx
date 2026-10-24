@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ReactFlow, Background, Controls, type NodeTypes, type EdgeTypes } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { motion, AnimatePresence } from "framer-motion";
@@ -36,6 +36,8 @@ import { runNodes } from "./run/runNodes";
 import type { VerificationKind } from "./registry/types";
 import { usageToTelemetry } from "./run/observability";
 import { emptyUsage } from "./run/telemetry";
+import { bootDemo, demoPath, exitDemoPath, isDemoScenarioId, type DemoScenarioId } from "./demo/boot";
+import DemoBanner from "./demo/DemoBanner";
 
 const nodeTypes: NodeTypes = { agent: AgentNode, dataLake: DataLakeNode };
 const edgeTypes = { packet: PacketEdge } as EdgeTypes;
@@ -64,19 +66,29 @@ export default function App() {
 
   const env = import.meta.env as unknown as RhmEnv;
   const mode = resolveMode(env);
+  const [demo, setDemo] = useState(() => bootDemo(window.location.search));
+  const shellMode = demo.enabled ? "simulated" : mode;
   const simulated = useMemo(() => new SimulatedAdapter(), []);
-  const adapter: RhmAdapter | null = mode === "live" ? liveAdapter : simulated;
+  const adapter: RhmAdapter | null = shellMode === "live" ? liveAdapter : simulated;
   const readiness = useMemo(
-    () => (mode === "live" && liveAdapter ? liveReadiness(liveAdapter) : simulatedReadiness),
-    [mode, liveAdapter],
+    () => (shellMode === "live" && liveAdapter ? liveReadiness(liveAdapter) : simulatedReadiness),
+    [shellMode, liveAdapter],
   );
-  const [view, setView] = useState<ShellView>("landing");
+  const [view, setView] = useState<ShellView>(demo.enabled ? "canvas" : "landing");
+  const demoBooted = useRef(false);
+  const demoRan = useRef(false);
 
   const apiBase = apiBaseFromEnv(env);
   const identityBase = identityBaseFromEnv(env);
 
+  useLayoutEffect(() => {
+    if (!demo.enabled || demoBooted.current) return;
+    demoBooted.current = true;
+    loadScenario(demo.scenarioId);
+  }, [demo.enabled, demo.scenarioId, loadScenario]);
+
   useEffect(() => {
-    if (mode !== "live") return;
+    if (shellMode !== "live") return;
     let cancelled = false;
     setRestoring(true);
     const sess = new IdentitySession(identityBase, apiBase);
@@ -90,10 +102,10 @@ export default function App() {
       setRestoring(false);
     });
     return () => { cancelled = true; };
-  }, [mode, apiBase, identityBase]);
+  }, [shellMode, apiBase, identityBase]);
 
   useEffect(() => {
-    if (mode !== "live" || !liveAdapter) {
+    if (shellMode !== "live" || !liveAdapter) {
       setLinkageContext({ mode: "simulated", capabilities: null, hasWorkspaceBinding: false });
       return;
     }
@@ -107,7 +119,7 @@ export default function App() {
       if (!cancelled) setLinkageContext({ mode: "live", capabilities, hasWorkspaceBinding: !!binding });
     })();
     return () => { cancelled = true; };
-  }, [mode, liveAdapter, selectedWorkspaceId, setLinkageContext]);
+  }, [shellMode, liveAdapter, selectedWorkspaceId, setLinkageContext]);
 
   const spawnPreset = (kind: "agent" | "dataLake", presetId: string) => {
     const p = kind === "agent" ? AGENT_PRESETS.find((x) => x.id === presetId)! : DATA_LAKE_PRESETS.find((x) => x.id === presetId)!;
@@ -120,6 +132,22 @@ export default function App() {
       },
     };
     spawn(node);
+  };
+
+  const chooseScenario = (id: DemoScenarioId) => {
+    if (!isDemoScenarioId(id)) return;
+    window.history.replaceState({}, "", demoPath(window.location.search, id));
+    setDemo(bootDemo(window.location.search));
+    setSnapshotNotice(null);
+    loadScenario(id);
+  };
+
+  const exitDemo = () => {
+    window.history.replaceState({}, "", exitDemoPath(window.location.search));
+    setDemo(bootDemo(window.location.search));
+    setSnapshotNotice(null);
+    clearSession();
+    setView("landing");
   };
 
   const toggleRun = async () => {
@@ -227,7 +255,7 @@ export default function App() {
         fixtureVerified,
         oracleNote: fixtureVerified
           ? "Local fixture check passed. Agent badges stay proposals."
-          : scenarioId === "pilot-storyboard" && mode === "simulated"
+          : scenarioId === "pilot-storyboard" && shellMode === "simulated"
             ? "Simulated repair proposals. Local fixture check did not pass."
             : maintainerOut ? "Maintainer proposal recorded." : undefined,
       });
@@ -237,6 +265,16 @@ export default function App() {
       if (isCurrent()) { setRunning(false); setUiState({ kind: "idle" }); }
     }
   };
+
+  useEffect(() => {
+    if (!demo.enabled || !demo.autorun || edges.length === 0) return;
+    const timer = window.setTimeout(() => {
+      if (demoRan.current) return;
+      demoRan.current = true;
+      void toggleRun();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [demo.enabled, demo.autorun, edges.length]);
 
   const signOut = async () => {
     setSigningOut(true);
@@ -268,7 +306,7 @@ export default function App() {
   if (view === "landing") {
     return (
       <LandingPage
-        mode={mode}
+        mode={shellMode}
         sessionError={sessionError}
         onSignIn={() => setView("signin")}
         onEnterCanvas={() => setView("canvas")}
@@ -276,7 +314,7 @@ export default function App() {
     );
   }
 
-  if (view === "signin" && mode === "live") {
+  if (view === "signin" && shellMode === "live") {
     return (
       <SessionPanel
         variant="page"
@@ -298,7 +336,7 @@ export default function App() {
     cancelLink();
   }}>
     <UserBar
-      mode={mode}
+      mode={shellMode}
       username={identitySession?.user?.username ?? null}
       signedIn={!!liveAdapter}
       busy={running}
@@ -324,6 +362,14 @@ export default function App() {
     />
     {snapshotNotice && (
       <p className="shrink-0 bg-amber-950/80 px-3 py-1 text-xs text-amber-100" role="alert" data-testid="snapshot-notice">{snapshotNotice}</p>
+    )}
+    {demo.enabled && (
+      <DemoBanner
+        scenarioId={demo.scenarioId}
+        onScenario={chooseScenario}
+        onReset={() => { setSnapshotNotice(null); loadScenario(demo.scenarioId); }}
+        onExit={exitDemo}
+      />
     )}
     <div className="flex min-h-0 flex-1">
     <div className="relative h-full min-w-0 flex-1">
@@ -400,13 +446,13 @@ export default function App() {
         <div className="flex flex-wrap items-center gap-2">
           <SyntheticBadge />
         </div>
-        {mode === "simulated" && (
+        {shellMode === "simulated" && (
           <button type="button" disabled={running} className="mt-1 text-[10px] opacity-70 disabled:opacity-50" onClick={() => setView("landing")}>Back to landing</button>
         )}
       </div>
-      <HistoryPanel mode={mode} client={mode === "live" ? liveAdapter : null} />
+      <HistoryPanel mode={shellMode} client={shellMode === "live" ? liveAdapter : null} />
       <ReadinessPanel
-        mode={mode === "live" && liveAdapter ? "live" : "simulated"}
+        mode={shellMode === "live" && liveAdapter ? "live" : "simulated"}
         port={readiness}
         selectedWorkspaceId={selectedWorkspaceId}
         onSelectWorkspace={setSelectedWorkspaceId}
