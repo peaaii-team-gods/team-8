@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { OPEN_CONTRACTS_EVENT } from "../commands/commands";
 import { listContracts } from "./contracts";
 
 const CONTRACTS = listContracts();
@@ -7,6 +8,12 @@ export default function ContractLibrary() {
   const [open, setOpen] = useState(false);
   const [selectedId, setSelectedId] = useState(CONTRACTS[0]?.id ?? "");
   const selected = CONTRACTS.find((card) => card.id === selectedId) ?? CONTRACTS[0];
+
+  useEffect(() => {
+    const open = () => setOpen(true);
+    window.addEventListener(OPEN_CONTRACTS_EVENT, open);
+    return () => window.removeEventListener(OPEN_CONTRACTS_EVENT, open);
+  }, []);
 
   return (
     <div className="absolute top-4 right-4 z-20" data-testid="contract-library" onClick={(event) => event.stopPropagation()}>

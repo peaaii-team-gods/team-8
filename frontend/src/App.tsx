@@ -12,6 +12,8 @@ import ConversationPanel from "./ui/ConversationPanel";
 import WorkspacePanel from "./ui/WorkspacePanel";
 import SchemaWindow from "./ui/SchemaWindow";
 import ContractLibrary from "./ui/library/ContractLibrary";
+import CommandPalette, { CheatSheet } from "./ui/commands/CommandPalette";
+import { isTypingTarget, OPEN_CONTRACTS_EVENT, registerCommands } from "./ui/commands/commands";
 import McpWindow from "./ui/McpWindow";
 import LandingPage from "./ui/LandingPage";
 import LakeInspector from "./ui/LakeInspector";
@@ -59,6 +61,8 @@ export default function App() {
     linkNotice, setLinkageContext, clearSession, selectedWorkspaceId, setSelectedWorkspaceId, loadSnapshot,
   } = useStore();
   const [snapshotNotice, setSnapshotNotice] = useState<string | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [cheatOpen, setCheatOpen] = useState(false);
   const [liveAdapter, setLiveAdapter] = useState<LiveAdapter | null>(null);
   const [identitySession, setIdentitySession] = useState<IdentitySession | null>(null);
   const [inference, setInference] = useState<InferenceStatus | null>(null);
@@ -382,6 +386,59 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [demo.enabled, demo.autorun, edges.length]);
 
+  const commands = registerCommands({
+    loadScenario: (id) => { setSnapshotNotice(null); setView("canvas"); loadScenario(id); },
+    openHub: () => { setView("canvas"); openHub(); },
+    toggleRun: () => { void toggleRun(); },
+    clearCanvas: () => { setSnapshotNotice(null); clearSession(); },
+    backToLanding: () => setView("landing"),
+    openContracts: () => {
+      setView("canvas");
+      window.setTimeout(() => window.dispatchEvent(new Event(OPEN_CONTRACTS_EVENT)), 0);
+    },
+    exportSnapshot: () => {
+      const state = useStore.getState();
+      downloadCanvasSnapshot(buildCanvasSnapshot(state.nodes, state.edges));
+    },
+    importSnapshot: () => {
+      setView("canvas");
+      window.setTimeout(() => document.querySelector<HTMLInputElement>('[data-testid="snapshot-file"]')?.click(), 0);
+    },
+    canRun: view === "canvas" && edges.length > 0 && !!adapter,
+    running,
+    canLeave: shellMode === "simulated",
+  });
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target)) return;
+      const key = event.key.toLowerCase();
+      if ((event.ctrlKey || event.metaKey) && key === "k") {
+        event.preventDefault();
+        setPaletteOpen(true);
+        return;
+      }
+      if (event.key === "Escape") {
+        setPaletteOpen(false);
+        setCheatOpen(false);
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        if (view === "canvas" && edges.length > 0 && adapter) {
+          event.preventDefault();
+          void toggleRun();
+        }
+        return;
+      }
+      if (event.key === "?" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        setCheatOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [adapter, edges.length, toggleRun, view]);
+
   const signOut = async () => {
     setSigningOut(true);
     setSessionError(null);
@@ -408,12 +465,20 @@ export default function App() {
     }
   };
 
+  const commandChrome = (
+    <>
+      {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
+      {cheatOpen && <CheatSheet onClose={() => setCheatOpen(false)} />}
+    </>
+  );
+
   if (restoring || signingOut) {
     return <div className="flex h-full items-center justify-center text-sm opacity-70">{signingOut ? "Signing out…" : "Restoring session…"}</div>;
   }
 
   if (view === "landing") {
     return (
+      <>
       <LandingPage
         mode={shellMode}
         sessionError={sessionError}
@@ -428,11 +493,14 @@ export default function App() {
           }
         }}
       />
+      {commandChrome}
+      </>
     );
   }
 
   if (view === "signin" && shellMode === "live") {
     return (
+      <>
       <SessionPanel
         variant="page"
         apiBase={apiBase}
@@ -444,6 +512,8 @@ export default function App() {
           if (pendingMrf.current) loadScenario("mrf-pipeline");
         }}
       />
+      {commandChrome}
+      </>
     );
   }
 
@@ -597,6 +667,7 @@ export default function App() {
       <ScienceReceipt />
       <WorkspacePanel />
     </div>
+    {commandChrome}
     </div>
   </div>;
 }

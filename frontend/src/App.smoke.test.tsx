@@ -70,6 +70,30 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     expect(screen.getByTestId("mode-label").textContent).toMatch(/simulated/);
   });
 
+  it("loads the pilot from the command palette and ignores the shortcut while typing", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Enter canvas/i }));
+    const field = document.createElement("textarea");
+    document.body.appendChild(field);
+    field.focus();
+    fireEvent.keyDown(field, { key: "k", ctrlKey: true });
+    expect(screen.queryByTestId("command-palette")).toBeNull();
+    field.remove();
+
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    const box = await screen.findByLabelText("Find a command");
+    fireEvent.change(box, { target: { value: "pilot" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(useStore.getState().scenarioId).toBe("pilot-storyboard"));
+    expect(useStore.getState().edges.length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("command-palette")).toBeNull();
+    expect(localStorage.length).toBe(0);
+
+    fireEvent.keyDown(window, { key: "Enter", ctrlKey: true });
+    await waitFor(() => expect(useStore.getState().pipelineStage).not.toBe("idle"));
+    await waitFor(() => expect(useStore.getState().pipelineStage).toBe("complete"));
+  });
+
   it("keeps the pilot a proposal and emits only one real terminal event per agent", async () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: /Enter canvas/i }));
