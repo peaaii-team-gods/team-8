@@ -21,16 +21,55 @@ if (!window.DOMMatrixReadOnly) {
 }
 window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })) as never;
 
-beforeEach(() => useStore.setState({
+beforeEach(() => {
+  window.history.replaceState({}, "", "/");
+  useStore.setState({
   nodes: [], edges: [], uiState: { kind: "void" },
   tracks: [], messages: [], workspace: [], totals: emptyUsage(),
   scenarioId: null, pipelineStage: "idle", runStartedAt: null, runEndedAt: null,
   sessionId: newSessionId(), telemetryEvents: [], scienceReceipt: null, inspectedLakeId: null,
   mrfSource: "base" as const, mrfMapping: null,
   selectedWorkspaceId: null,
-}));
+});
+});
 
 describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
+  it("keeps a normal load on the landing page", () => {
+    render(<App />);
+    expect(screen.getByTestId("landing-page")).toBeTruthy();
+    expect(screen.queryByTestId("demo-banner")).toBeNull();
+    expect(useStore.getState().nodes).toEqual([]);
+  });
+
+  it("opens the pilot from ?demo=1 without a run and returns to the landing page", async () => {
+    window.history.replaceState({}, "", "/?demo=1");
+    render(<App />);
+    await waitFor(() => expect(useStore.getState().scenarioId).toBe("pilot-storyboard"));
+    expect(useStore.getState().nodes.length).toBeGreaterThan(0);
+    expect(useStore.getState().pipelineStage).toBe("idle");
+    expect(screen.queryByTestId("landing-page")).toBeNull();
+    expect(screen.getByTestId("demo-banner").textContent).toMatch(/Demo mode · Synthetic · no PHI/);
+    expect(screen.getByTestId("demo-banner").textContent).toMatch(/Propose/);
+    expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /run pipeline/i })).toBeTruthy();
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: "Exit demo" }));
+    expect(screen.getByTestId("landing-page")).toBeTruthy();
+    expect(window.location.search).not.toMatch(/demo/);
+    expect(useStore.getState().nodes).toEqual([]);
+  });
+
+  it("does not call identity while demo mode is on", async () => {
+    window.history.replaceState({}, "", "/?demo=1&scenario=assay-qc");
+    vi.stubEnv("VITE_RHM_MODE", "live");
+    const restore = vi.spyOn(IdentitySession.prototype, "restore").mockResolvedValue(false);
+    render(<App />);
+    await waitFor(() => expect(useStore.getState().scenarioId).toBe("assay-qc"));
+    expect(restore).not.toHaveBeenCalled();
+    expect(screen.getByTestId("mode-label").textContent).toMatch(/simulated/);
+  });
+
   it("keeps the pilot a proposal and emits only one real terminal event per agent", async () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: /Enter canvas/i }));

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ReactFlow, Background, Controls, type NodeTypes, type EdgeTypes } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { motion, AnimatePresence } from "framer-motion";
@@ -41,6 +41,8 @@ import { usageToTelemetry } from "./run/observability";
 import { emptyUsage } from "./run/telemetry";
 import { mrfDocument, recheckMapping, withDriftEvidence } from "./mrf/drift";
 import { failingChecks } from "./mrf/checks";
+import { bootDemo, demoPath, exitDemoPath, isDemoScenarioId, type DemoScenarioId } from "./demo/boot";
+import DemoBanner from "./demo/DemoBanner";
 
 const nodeTypes: NodeTypes = { agent: AgentNode, dataLake: DataLakeNode };
 const edgeTypes = { packet: PacketEdge } as EdgeTypes;
@@ -74,22 +76,32 @@ export default function App() {
 
   const env = import.meta.env as unknown as RhmEnv;
   const mode = resolveMode(env);
+  const [demo, setDemo] = useState(() => bootDemo(window.location.search));
+  const shellMode = demo.enabled ? "simulated" : mode;
   const simulated = useMemo(() => new SimulatedAdapter(), []);
   const requiresPaidConsent = !!inference?.configured;
   const providerBlocked = !inference?.configured || !Number.isFinite(Number(spendCap)) || Number(spendCap) < 0 || (requiresPaidConsent && (!paidConsent || Number(spendCap) <= 0));
-  const adapter: RhmAdapter | null = mode === "live" ? liveAdapter : simulated;
+  const adapter: RhmAdapter | null = shellMode === "live" ? liveAdapter : simulated;
   const readiness = useMemo(
-    () => (mode === "live" && liveAdapter ? liveReadiness(liveAdapter) : simulatedReadiness),
-    [mode, liveAdapter],
+    () => (shellMode === "live" && liveAdapter ? liveReadiness(liveAdapter) : simulatedReadiness),
+    [shellMode, liveAdapter],
   );
-  const [view, setView] = useState<ShellView>("landing");
+  const [view, setView] = useState<ShellView>(demo.enabled ? "canvas" : "landing");
   const pendingMrf = useRef(false);
+  const demoBooted = useRef(false);
+  const demoRan = useRef(false);
 
   const apiBase = apiBaseFromEnv(env);
   const identityBase = identityBaseFromEnv(env);
 
+  useLayoutEffect(() => {
+    if (!demo.enabled || demoBooted.current) return;
+    demoBooted.current = true;
+    loadScenario(demo.scenarioId);
+  }, [demo.enabled, demo.scenarioId, loadScenario]);
+
   useEffect(() => {
-    if (mode !== "live") return;
+    if (shellMode !== "live") return;
     let cancelled = false;
     setRestoring(true);
     const sess = new IdentitySession(identityBase, apiBase);
@@ -103,10 +115,10 @@ export default function App() {
       setRestoring(false);
     });
     return () => { cancelled = true; };
-  }, [mode, apiBase, identityBase]);
+  }, [shellMode, apiBase, identityBase]);
 
   useEffect(() => {
-    if (mode !== "live" || !liveAdapter) {
+    if (shellMode !== "live" || !liveAdapter) {
       setLinkageContext({ mode: "simulated", capabilities: null, hasWorkspaceBinding: false });
       return;
     }
@@ -120,7 +132,7 @@ export default function App() {
       if (!cancelled) setLinkageContext({ mode: "live", capabilities, hasWorkspaceBinding: !!binding });
     })();
     return () => { cancelled = true; };
-  }, [mode, liveAdapter, selectedWorkspaceId, setLinkageContext]);
+  }, [shellMode, liveAdapter, selectedWorkspaceId, setLinkageContext]);
 
   const spawnPreset = (kind: "agent" | "dataLake", presetId: string) => {
     const p = kind === "agent" ? AGENT_PRESETS.find((x) => x.id === presetId)! : DATA_LAKE_PRESETS.find((x) => x.id === presetId)!;
@@ -135,6 +147,22 @@ export default function App() {
     spawn(node);
   };
 
+  const chooseScenario = (id: DemoScenarioId) => {
+    if (!isDemoScenarioId(id)) return;
+    window.history.replaceState({}, "", demoPath(window.location.search, id));
+    setDemo(bootDemo(window.location.search));
+    setSnapshotNotice(null);
+    loadScenario(id);
+  };
+
+  const exitDemo = () => {
+    window.history.replaceState({}, "", exitDemoPath(window.location.search));
+    setDemo(bootDemo(window.location.search));
+    setSnapshotNotice(null);
+    clearSession();
+    setView("landing");
+  };
+
   const toggleRun = async () => {
     if (running) {
       stoppedRef.current = true;
@@ -146,7 +174,7 @@ export default function App() {
       resetRun();
       return;
     }
-    if (!adapter || (mode === "live" && providerBlocked)) return;
+    if (!adapter || (shellMode === "live" && providerBlocked)) return;
     liveAdapter?.setPaidInferenceConsent(paidConsent);
     const epoch = ++runEpoch.current;
     const isCurrent = () => epoch === runEpoch.current && !stoppedRef.current;
@@ -183,7 +211,7 @@ export default function App() {
         binding,
         adapter.mode === "live" ? "live" : "simulated",
       ).map(item => {
-        if (mode !== "live") return item;
+        if (shellMode !== "live") return item;
         const { model_preference: _model, ...workflow } = item.workflow;
         return { ...item, workflow: { ...workflow, budget: { ...workflow.budget, max_usd: Number(spendCap) } } };
       });
@@ -303,7 +331,7 @@ export default function App() {
           fixtureVerified,
           oracleNote: fixtureVerified
             ? "Local fixture check passed. Agent badges stay proposals."
-            : scenarioId === "pilot-storyboard" && mode === "simulated"
+            : scenarioId === "pilot-storyboard" && shellMode === "simulated"
               ? "Simulated repair proposals. Local fixture check did not pass."
               : maintainerOut ? "Maintainer proposal recorded." : undefined,
         });
@@ -316,7 +344,7 @@ export default function App() {
   };
 
   const injectDrift = () => {
-    if (running || !adapter || (mode === "live" && providerBlocked)) return;
+    if (running || !adapter || (shellMode === "live" && providerBlocked)) return;
     const mapping = useStore.getState().mrfMapping;
     if (!mapping) {
       setScienceReceipt({
@@ -342,6 +370,16 @@ export default function App() {
     });
     void toggleRun();
   };
+
+  useEffect(() => {
+    if (!demo.enabled || !demo.autorun || edges.length === 0) return;
+    const timer = window.setTimeout(() => {
+      if (demoRan.current) return;
+      demoRan.current = true;
+      void toggleRun();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [demo.enabled, demo.autorun, edges.length]);
 
   const signOut = async () => {
     setSigningOut(true);
@@ -376,7 +414,7 @@ export default function App() {
   if (view === "landing") {
     return (
       <LandingPage
-        mode={mode}
+        mode={shellMode}
         sessionError={sessionError}
         onSignIn={() => setView("signin")}
         onEnterCanvas={() => setView("canvas")}
@@ -392,7 +430,7 @@ export default function App() {
     );
   }
 
-  if (view === "signin" && mode === "live") {
+  if (view === "signin" && shellMode === "live") {
     return (
       <SessionPanel
         variant="page"
@@ -415,7 +453,7 @@ export default function App() {
     cancelLink();
   }}>
     <UserBar
-      mode={mode}
+      mode={shellMode}
       username={identitySession?.user?.username ?? null}
       signedIn={!!liveAdapter}
       busy={running}
@@ -442,10 +480,18 @@ export default function App() {
     {snapshotNotice && (
       <p className="shrink-0 bg-amber-950/80 px-3 py-1 text-xs text-amber-100" role="alert" data-testid="snapshot-notice">{snapshotNotice}</p>
     )}
+    {demo.enabled && (
+      <DemoBanner
+        scenarioId={demo.scenarioId}
+        onScenario={chooseScenario}
+        onReset={() => { setSnapshotNotice(null); loadScenario(demo.scenarioId); }}
+        onExit={exitDemo}
+      />
+    )}
     <div className="flex min-h-0 flex-1">
     <div className="relative h-full min-w-0 flex-1">
     <VoidBackground />
-    {mode === "live" && identitySession && <aside className="absolute right-2 top-16 z-30 max-h-[75vh] w-[min(400px,90vw)] overflow-auto">
+    {shellMode === "live" && identitySession && <aside className="absolute right-2 top-16 z-30 max-h-[75vh] w-[min(400px,90vw)] overflow-auto">
       <button type="button" className="glass p-2 text-xs" onClick={() => setShowInference(!showInference)}>Account inference settings</button>
       <div hidden={!showInference}><InferencePanel apiBase={apiBase} session={identitySession} onStatus={next => { setInference(next); setPaidConsent(false); }} disabled={running} />
         <label className="glass block p-3 text-xs"><input type="checkbox" checked={paidConsent} disabled={running} onChange={e => setPaidConsent(e.target.checked)} />I permit paid inference on this account's configured providers for these runs.</label>
@@ -502,10 +548,10 @@ export default function App() {
         <ConversationPanel />
       </div>
     )}
-    {mode === "live" && !inference?.configured && <p className="glass absolute bottom-20 left-2 z-20 max-w-sm p-2 text-xs">Open Account inference settings and select your provider before running. This account cannot use the operator's model automatically.</p>}
+    {shellMode === "live" && !inference?.configured && <p className="glass absolute bottom-20 left-2 z-20 max-w-sm p-2 text-xs">Open Account inference settings and select your provider before running. This account cannot use the operator's model automatically.</p>}
     {edges.length > 0 && (
       <div className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2">
-        <button aria-label={running ? "Stop run" : "Run pipeline"} disabled={!running && (!adapter || (mode === "live" && providerBlocked))} className="glass flex items-center gap-2 px-5 py-2 disabled:opacity-50" onClick={(e) => { e.stopPropagation(); void toggleRun(); }}>{running ? <Square size={14} /> : <Play size={14} />}{running ? "Stop" : "Run Pipeline"}</button>
+        <button aria-label={running ? "Stop run" : "Run pipeline"} disabled={!running && (!adapter || (shellMode === "live" && providerBlocked))} className="glass flex items-center gap-2 px-5 py-2 disabled:opacity-50" onClick={(e) => { e.stopPropagation(); void toggleRun(); }}>{running ? <Square size={14} /> : <Play size={14} />}{running ? "Stop" : "Run Pipeline"}</button>
         {scenarioId === "mrf-pipeline" && (
           <button type="button" aria-label="Upstream schema drift" disabled={running || !mrfMapping} className="glass px-4 py-2 text-xs disabled:opacity-50" onClick={(e) => { e.stopPropagation(); injectDrift(); }}>
             Upstream schema drift
@@ -534,13 +580,13 @@ export default function App() {
         <div className="flex flex-wrap items-center gap-2">
           <SyntheticBadge />
         </div>
-        {mode === "simulated" && (
+        {shellMode === "simulated" && (
           <button type="button" disabled={running} className="mt-1 text-[10px] opacity-70 disabled:opacity-50" onClick={() => setView("landing")}>Back to landing</button>
         )}
       </div>
-      <HistoryPanel mode={mode} client={mode === "live" ? liveAdapter : null} />
+      <HistoryPanel mode={shellMode} client={shellMode === "live" ? liveAdapter : null} />
       <ReadinessPanel
-        mode={mode === "live" && liveAdapter ? "live" : "simulated"}
+        mode={shellMode === "live" && liveAdapter ? "live" : "simulated"}
         port={readiness}
         selectedWorkspaceId={selectedWorkspaceId}
         onSelectWorkspace={setSelectedWorkspaceId}
