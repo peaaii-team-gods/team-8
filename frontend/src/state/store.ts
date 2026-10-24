@@ -55,7 +55,9 @@ interface Store {
   mrfMapping: MrfMapping | null;
   linkNotice: string | null;
   linkageContext: LinkageContext;
+  selectedWorkspaceId: string | null;
   setUiState: (s: UiState) => void;
+  setSelectedWorkspaceId: (workspaceId: string | null) => void;
   openHub: () => void; closeToVoid: () => void;
   openSchema: (nodeId: string) => void;
   openMcp: (nodeId: string) => void;
@@ -106,7 +108,9 @@ export const useStore = create<Store>((set, get) => ({
   mrfMapping: null,
   linkNotice: null,
   linkageContext: emptyLinkageContext(),
+  selectedWorkspaceId: null,
   setUiState: (uiState) => set({ uiState }),
+  setSelectedWorkspaceId: (selectedWorkspaceId) => set({ selectedWorkspaceId }),
   openHub: () => set({ uiState: { kind: "hub" } }),
   closeToVoid: () => set({ uiState: { kind: "void" } }),
   openSchema: (nodeId) => set({ uiState: { kind: "schema", nodeId } }),
@@ -262,6 +266,6 @@ export const useStore = create<Store>((set, get) => ({
     scenarioId: null, pipelineStage: "idle", runStartedAt: null, runEndedAt: null,
     sessionId: newSessionId(), telemetryEvents: [], scienceReceipt: null, inspectedLakeId: null,
     mrfSource: "base", mrfMapping: null,
-    linkNotice: null, linkageContext: emptyLinkageContext(),
+    linkNotice: null, linkageContext: emptyLinkageContext(), selectedWorkspaceId: null,
   }),
 }));

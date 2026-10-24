@@ -27,6 +27,7 @@ beforeEach(() => useStore.setState({
   scenarioId: null, pipelineStage: "idle", runStartedAt: null, runEndedAt: null,
   sessionId: newSessionId(), telemetryEvents: [], scienceReceipt: null, inspectedLakeId: null,
   mrfSource: "base" as const, mrfMapping: null,
+  selectedWorkspaceId: null,
 }));
 
 describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
@@ -86,11 +87,43 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     expect(useStore.getState()).toMatchObject({ nodes: [], messages: [], telemetryEvents: [], scienceReceipt: null, pipelineStage: "idle" });
     expect(useStore.getState().sessionId).not.toBe(oldSession);
   });
+  it("uses the workspace picked in the readiness panel on the next live run", async () => {
+    vi.stubEnv("VITE_RHM_MODE", "live");
+    vi.spyOn(IdentitySession.prototype, "restore").mockResolvedValue(true);
+    vi.spyOn(LiveAdapter.prototype, "capabilities").mockResolvedValue({
+      capabilities: { shell_execution: { status: "available" } },
+    });
+    vi.spyOn(LiveAdapter.prototype, "workspaces").mockResolvedValue([
+      { workspace_id: "ws-a", project_id: "p", task_id: "t", status: "ready" },
+      { workspace_id: "ws-b", project_id: "p2", task_id: "t2", status: "ready" },
+    ]);
+    const seen: { workspace_id: string; project_id?: string; allowed_tools: string[] }[] = [];
+    vi.spyOn(LiveAdapter.prototype, "run").mockImplementation(async (nodeId, workflow) => {
+      seen.push({ workspace_id: workflow.workspace_id, project_id: workflow.project_id, allowed_tools: workflow.allowed_tools });
+      return { nodeId, runId: "r1" };
+    });
+    vi.spyOn(LiveAdapter.prototype, "events").mockResolvedValue({ usage: emptyUsage("live"), workspace: [], messages: [], nextAfterSeq: 0 });
+    vi.spyOn(LiveAdapter.prototype, "poll").mockImplementation(async (h) => ({ nodeId: h.nodeId, status: "succeeded", basis: "agent_reported", usage: emptyUsage("live") }));
+    vi.spyOn(LiveAdapter.prototype, "cancel").mockResolvedValue();
+    render(<App />);
+    expect(await screen.findByText(/will not guess/)).toBeTruthy();
+    fireEvent.click(screen.getByDisplayValue("ws-b"));
+    await waitFor(() => expect(screen.getByTestId("bound-workspace").textContent).toBe("Bound for next Run: ws-b"));
+    fireEvent.click(screen.getAllByRole("button", { name: /Pilot storyboard/ })[0]);
+    fireEvent.click(screen.getByRole("button", { name: /run pipeline/i }));
+    await waitFor(() => expect(seen.length).toBeGreaterThan(0));
+    expect(seen.every((workflow) => workflow.workspace_id === "ws-b" && workflow.project_id === "p2")).toBe(true);
+    expect(seen[0].allowed_tools).toEqual(["execute_shell"]);
+  });
+
   it("spawns agents, links them, and shows the handoff", async () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: /Enter canvas/i }));
     expect(screen.getByText(/Mode: simulated/)).toBeTruthy();
     expect(screen.getByTestId("history-panel").textContent).toMatch(/no server history/i);
+    expect(screen.getByTestId("readiness-panel").textContent).toMatch(/live mode for binding/i);
+    await waitFor(() => expect(screen.getByTestId("cap-execute-shell").textContent).toBe("unavailable"));
+    expect(screen.getByTestId("bound-workspace").textContent).toMatch(/none/);
 
     fireEvent.click(screen.getByLabelText("Create"));
     fireEvent.click(screen.getByRole("button", { name: /^Builder/ }));

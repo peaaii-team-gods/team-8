@@ -18,6 +18,7 @@ import ScienceReceipt from "./ui/ScienceReceipt";
 import SyntheticBadge from "./ui/SyntheticBadge";
 import UserBar from "./ui/UserBar";
 import HistoryPanel from "./ui/HistoryPanel";
+import ReadinessPanel from "./ui/ReadinessPanel";
 import { AgentNode, DataLakeNode } from "./canvas/nodes";
 import PacketEdge from "./canvas/PacketEdge";
 import { useStore, nextId, type CanvasNode } from "./state/store";
@@ -26,6 +27,7 @@ import { defaultSchemaText } from "./registry/schemas";
 import { DATA_LAKE_PRESETS } from "./registry/dataLakePresets";
 import { DEMO_SCENARIOS } from "./registry/scenarios";
 import { compileGraph, selectBinding } from "./compile/toWorkflow";
+import { liveReadiness, simulatedReadiness } from "./adapters/readiness";
 import { SimulatedAdapter } from "./adapters/simulated";
 import { IdentitySession } from "./adapters/identity";
 import { LiveAdapter } from "./adapters/live";
@@ -50,7 +52,7 @@ export default function App() {
     setNodeStatus, resetRun, onNodesChange, setEdgeActive, recordHandle, recordTelemetry, recordUtterance,
     loadScenario, markRunStart, markRunEnd, setPipelineStage, setScienceReceipt, scenarioId, pushTelemetryEvent, sessionId,
     mrfMapping, mrfSource, setMrfMapping, setMrfSource,
-    linkNotice, setLinkageContext, clearSession,
+    linkNotice, setLinkageContext, clearSession, selectedWorkspaceId, setSelectedWorkspaceId,
   } = useStore();
   const [liveAdapter, setLiveAdapter] = useState<LiveAdapter | null>(null);
   const [identitySession, setIdentitySession] = useState<IdentitySession | null>(null);
@@ -74,6 +76,10 @@ export default function App() {
   const requiresPaidConsent = !!inference?.configured;
   const providerBlocked = !inference?.configured || !Number.isFinite(Number(spendCap)) || Number(spendCap) < 0 || (requiresPaidConsent && (!paidConsent || Number(spendCap) <= 0));
   const adapter: RhmAdapter | null = mode === "live" ? liveAdapter : simulated;
+  const readiness = useMemo(
+    () => (mode === "live" && liveAdapter ? liveReadiness(liveAdapter) : simulatedReadiness),
+    [mode, liveAdapter],
+  );
   const [view, setView] = useState<ShellView>("landing");
   const pendingMrf = useRef(false);
 
@@ -105,11 +111,14 @@ export default function App() {
     let cancelled = false;
     void (async () => {
       const capabilities = await liveAdapter.capabilities().catch(() => null);
-      const binding = selectBinding(liveAdapter.workspaces ? await liveAdapter.workspaces().catch(() => []) : []);
+      const binding = selectBinding(
+        liveAdapter.workspaces ? await liveAdapter.workspaces().catch(() => []) : [],
+        useStore.getState().selectedWorkspaceId ?? undefined,
+      );
       if (!cancelled) setLinkageContext({ mode: "live", capabilities, hasWorkspaceBinding: !!binding });
     })();
     return () => { cancelled = true; };
-  }, [mode, liveAdapter, setLinkageContext]);
+  }, [mode, liveAdapter, selectedWorkspaceId, setLinkageContext]);
 
   const spawnPreset = (kind: "agent" | "dataLake", presetId: string) => {
     const p = kind === "agent" ? AGENT_PRESETS.find((x) => x.id === presetId)! : DATA_LAKE_PRESETS.find((x) => x.id === presetId)!;
@@ -151,7 +160,7 @@ export default function App() {
         ? await adapter.capabilities().catch(() => null)
         : null;
       const binding = adapter.mode === "live" && adapter.workspaces
-        ? selectBinding(await adapter.workspaces().catch(() => []))
+        ? selectBinding(await adapter.workspaces().catch(() => []), useStore.getState().selectedWorkspaceId ?? undefined)
         : null;
       if (!isCurrent()) return;
       setLinkageContext({
@@ -510,6 +519,12 @@ export default function App() {
         )}
       </div>
       <HistoryPanel mode={mode} client={mode === "live" ? liveAdapter : null} />
+      <ReadinessPanel
+        mode={mode === "live" && liveAdapter ? "live" : "simulated"}
+        port={readiness}
+        selectedWorkspaceId={selectedWorkspaceId}
+        onSelectWorkspace={setSelectedWorkspaceId}
+      />
       <MetricsPanel />
       <ScienceReceipt />
       <WorkspacePanel />

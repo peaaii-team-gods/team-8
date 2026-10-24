@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SERVICE_FEATURES, featureLive } from "./services.manifest";
+import { SERVICE_FEATURES, featureChip, featureLive } from "./services.manifest";
 
 const byId = (id: string) => SERVICE_FEATURES.find((f) => f.id === id)!;
 const caps = (entries: Record<string, string>) => ({
@@ -25,5 +25,13 @@ describe("services.manifest X2 flip", () => {
   it("manifest default applies only when no capabilities were fetched", () => {
     expect(featureLive(byId("execute-shell"), null)).toBe(true);
     expect(featureLive(byId("tier3-merge"), null)).toBe(false);
+  });
+
+  it("readiness chips stay unknown until a report names a status", () => {
+    expect(featureChip(byId("execute-shell"), null)).toBe("unknown");
+    expect(featureChip(byId("execute-shell"), {})).toBe("unknown");
+    expect(featureChip(byId("execute-shell"), caps({ shell_execution: "unavailable" }))).toBe("unavailable");
+    expect(featureChip(byId("execute-shell"), caps({ shell_execution: "unknown" }))).toBe("unknown");
+    expect(featureChip(byId("execute-shell"), caps({ shell_execution: "available" }))).toBe("live");
   });
 });
