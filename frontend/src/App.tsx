@@ -9,6 +9,7 @@ import MetricsPanel from "./ui/MetricsPanel";
 import ConversationPanel from "./ui/ConversationPanel";
 import WorkspacePanel from "./ui/WorkspacePanel";
 import SchemaWindow from "./ui/SchemaWindow";
+import ContractLibrary from "./ui/library/ContractLibrary";
 import McpWindow from "./ui/McpWindow";
 import LandingPage from "./ui/LandingPage";
 import LakeInspector from "./ui/LakeInspector";
@@ -436,6 +437,7 @@ export default function App() {
         {linkNotice && <div className="mt-1 text-rose-200" data-testid="link-notice">{linkNotice}</div>}
       </div>
     )}
+    <ContractLibrary />
     <SchemaWindow />
     <McpWindow />
     <LakeInspector />
