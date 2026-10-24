@@ -184,6 +184,10 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: /Enter canvas/i }));
     expect(screen.getByText(/Mode: simulated/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Contracts" }));
+    expect(screen.getByText(/does not edit an agent/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByText(/does not edit an agent/)).toBeNull();
     expect(screen.getByTestId("history-panel").textContent).toMatch(/no server history/i);
     expect(screen.getByTestId("readiness-panel").textContent).toMatch(/live mode for binding/i);
     await waitFor(() => expect(screen.getByTestId("cap-execute-shell").textContent).toBe("unavailable"));
