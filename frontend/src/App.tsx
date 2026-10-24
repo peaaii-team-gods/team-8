@@ -12,6 +12,7 @@ import ConversationPanel from "./ui/ConversationPanel";
 import WorkspacePanel from "./ui/WorkspacePanel";
 import SchemaWindow from "./ui/SchemaWindow";
 import ContractLibrary from "./ui/library/ContractLibrary";
+import OutputInspector from "./ui/inspect/OutputInspector";
 import CommandPalette, { CheatSheet } from "./ui/commands/CommandPalette";
 import { isTypingTarget, OPEN_CONTRACTS_EVENT, registerCommands } from "./ui/commands/commands";
 import McpWindow from "./ui/McpWindow";
@@ -642,6 +643,7 @@ export default function App() {
       </div>
     )}
     <ContractLibrary />
+    <OutputInspector />
     <SchemaWindow />
     <McpWindow />
     <LakeInspector />

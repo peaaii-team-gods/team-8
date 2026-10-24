@@ -100,6 +100,10 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /Pilot storyboard/ })[0]);
     fireEvent.click(screen.getByRole("button", { name: /run pipeline/i }));
     await waitFor(() => expect(useStore.getState().pipelineStage).toBe("complete"));
+    fireEvent.click(screen.getByRole("button", { name: "Outputs" }));
+    expect(screen.getByTestId("output-inspector").textContent).toMatch(/not verification/);
+    expect(screen.getByTestId("output-left").textContent).toMatch(/reading_column/);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(useStore.getState().telemetryEvents).toHaveLength(2);
     expect(useStore.getState().telemetryEvents.every((e) => e.status === "succeeded" && e.completion_basis === "agent_reported")).toBe(true);
     expect(useStore.getState().nodes.filter((n) => n.data.kind === "agent").every((n) => n.data.verification === "proposal")).toBe(true);
