@@ -14,6 +14,21 @@ export const SERVICE_FEATURES: ServiceFeature[] = [
   { id: "tier3-merge", service: "rhm-backend-service", feature: "Tier-3 merge to main", requiredCapability: "approval_tier3_elevation", liveToday: false },
 ];
 type CapsEnvelope = { capabilities?: Record<string, { status?: unknown } | unknown> } | null;
+export type FeatureChip = "live" | "unavailable" | "unknown";
+
+/** Readiness chips. A missing report is unknown, never the manifest default. */
+export function featureChip(f: ServiceFeature, capabilities: Record<string, unknown> | null): FeatureChip {
+  if (!f.requiredCapability) return "live";
+  if (!capabilities) return "unknown";
+  const caps = (capabilities as CapsEnvelope)?.capabilities;
+  if (!caps || typeof caps !== "object") return "unknown";
+  const entry = caps[f.requiredCapability] as { status?: unknown } | undefined;
+  if (!entry || typeof entry !== "object") return "unknown";
+  if (entry.status === "available") return "live";
+  if (entry.status === "unavailable") return "unavailable";
+  return "unknown";
+}
+
 export const featureLive = (f: ServiceFeature, capabilities: Record<string, unknown> | null): boolean => {
   if (!f.requiredCapability) return true;
   if (!capabilities) return f.liveToday;

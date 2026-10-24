@@ -57,8 +57,8 @@ export interface WorkspaceBinding {
 /**
  * Binding selection (B10): an explicit workspace_id wins; otherwise
  * auto-bind only when exactly one ready workspace exists. Zero or
- * several ready workspaces bind nothing (a selector UI is the
- * recorded follow-up) — never guess a project/task pair.
+ * several ready workspaces bind nothing until the readiness panel
+ * passes an explicit workspace id — never guess a project/task pair.
  */
 export function selectBinding(workspaces: readonly WorkspaceBinding[] | null | undefined,
                               explicitWorkspaceId?: string): WorkspaceBinding | null {

@@ -50,7 +50,9 @@ interface Store {
   inspectedLakeId: string | null;
   linkNotice: string | null;
   linkageContext: LinkageContext;
+  selectedWorkspaceId: string | null;
   setUiState: (s: UiState) => void;
+  setSelectedWorkspaceId: (workspaceId: string | null) => void;
   openHub: () => void; closeToVoid: () => void;
   openSchema: (nodeId: string) => void;
   openMcp: (nodeId: string) => void;
@@ -97,7 +99,9 @@ export const useStore = create<Store>((set, get) => ({
   inspectedLakeId: null,
   linkNotice: null,
   linkageContext: emptyLinkageContext(),
+  selectedWorkspaceId: null,
   setUiState: (uiState) => set({ uiState }),
+  setSelectedWorkspaceId: (selectedWorkspaceId) => set({ selectedWorkspaceId }),
   openHub: () => set({ uiState: { kind: "hub" } }),
   closeToVoid: () => set({ uiState: { kind: "void" } }),
   openSchema: (nodeId) => set({ uiState: { kind: "schema", nodeId } }),
@@ -248,6 +252,6 @@ export const useStore = create<Store>((set, get) => ({
     tracks: [], messages: [], workspace: [], totals: zeros(),
     scenarioId: null, pipelineStage: "idle", runStartedAt: null, runEndedAt: null,
     sessionId: newSessionId(), telemetryEvents: [], scienceReceipt: null, inspectedLakeId: null,
-    linkNotice: null, linkageContext: emptyLinkageContext(),
+    linkNotice: null, linkageContext: emptyLinkageContext(), selectedWorkspaceId: null,
   }),
 }));

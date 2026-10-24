@@ -56,6 +56,17 @@ describe("lake links and MCP attachments", () => {
   });
 });
 
+describe("workspace choice", () => {
+  it("keeps the selected workspace in memory and drops it on clear", () => {
+    useStore.getState().setSelectedWorkspaceId("ws-1");
+    expect(useStore.getState().selectedWorkspaceId).toBe("ws-1");
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+    useStore.getState().clearSession();
+    expect(useStore.getState().selectedWorkspaceId).toBeNull();
+  });
+});
+
 describe("agent tracking", () => {
   it("clears all owner/session data and rotates telemetry identity on logout", () => {
     useStore.getState().loadScenario("pilot-storyboard");
