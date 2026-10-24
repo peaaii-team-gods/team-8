@@ -10,6 +10,7 @@ import type { MrfMapping, NamedCheck } from "../mrf/types";
 import { MCP_ATTACHMENTS } from "../registry/mcpAttachments";
 import { emptyLinkageContext, type LinkageContext } from "../registry/mcpLinkage";
 import { publicDetail, stageActivity, type ActivityDraft, type ActivityItem } from "../ui/activity/activity";
+import { toastText } from "../ui/toasts/toast";
 
 export type CanvasNode = Node<CanvasNodeData>;
 export type CanvasEdge = Edge<{ active?: boolean; packetLabel?: string }>;
@@ -58,6 +59,7 @@ interface Store {
   linkageContext: LinkageContext;
   selectedWorkspaceId: string | null;
   activity: ActivityItem[];
+  statusHint: string | null;
   setUiState: (s: UiState) => void;
   setSelectedWorkspaceId: (workspaceId: string | null) => void;
   openHub: () => void; closeToVoid: () => void;
@@ -87,6 +89,8 @@ interface Store {
   pushTelemetryEvent: (ev: TelemetryEvent) => void;
   pushActivity: (item: ActivityDraft) => void;
   clearActivity: () => void;
+  setStatusHint: (hint: string | null) => void;
+  clearStatusHint: () => void;
   setScienceReceipt: (r: ScienceReceipt | null) => void;
   inspectLake: (nodeId: string | null) => void;
   setMrfSource: (source: "base" | "drift") => void;
@@ -115,6 +119,7 @@ export const useStore = create<Store>((set, get) => ({
   linkageContext: emptyLinkageContext(),
   selectedWorkspaceId: null,
   activity: [],
+  statusHint: null,
   setUiState: (uiState) => set({ uiState }),
   setSelectedWorkspaceId: (selectedWorkspaceId) => set({ selectedWorkspaceId }),
   openHub: () => set({ uiState: { kind: "hub" } }),
@@ -325,6 +330,8 @@ export const useStore = create<Store>((set, get) => ({
     }].slice(-80),
   })),
   clearActivity: () => set({ activity: [] }),
+  setStatusHint: (hint) => set({ statusHint: hint ? toastText(hint) ?? null : null }),
+  clearStatusHint: () => set({ statusHint: null }),
   setScienceReceipt: (scienceReceipt) => {
     set({ scienceReceipt });
     if (scienceReceipt?.fixtureVerified) {
@@ -340,6 +347,6 @@ export const useStore = create<Store>((set, get) => ({
     scenarioId: null, pipelineStage: "idle", runStartedAt: null, runEndedAt: null,
     sessionId: newSessionId(), telemetryEvents: [], scienceReceipt: null, inspectedLakeId: null,
     mrfSource: "base", mrfMapping: null,
-    linkNotice: null, linkageContext: emptyLinkageContext(), selectedWorkspaceId: null, activity: [],
+    linkNotice: null, linkageContext: emptyLinkageContext(), selectedWorkspaceId: null, activity: [], statusHint: null,
   }),
 }));

@@ -30,7 +30,8 @@ import { useStore, nextId, type CanvasNode } from "./state/store";
 import { AGENT_PRESETS } from "./registry/agentPresets";
 import { defaultSchemaText } from "./registry/schemas";
 import { DATA_LAKE_PRESETS } from "./registry/dataLakePresets";
-import { DEMO_SCENARIOS } from "./registry/scenarios";
+import { DEMO_SCENARIOS, scenarioById } from "./registry/scenarios";
+import { useToast } from "./ui/toasts/ToastProvider";
 import { compileGraph, selectBinding } from "./compile/toWorkflow";
 import { buildCanvasSnapshot, downloadCanvasSnapshot, parseCanvasSnapshot } from "./state/canvasSnapshot";
 import { liveReadiness, simulatedReadiness } from "./adapters/readiness";
@@ -61,7 +62,9 @@ export default function App() {
     loadScenario, markRunStart, markRunEnd, setPipelineStage, setScienceReceipt, scenarioId, pushTelemetryEvent, sessionId,
     mrfMapping, mrfSource, setMrfMapping, setMrfSource,
     linkNotice, setLinkageContext, clearSession, selectedWorkspaceId, setSelectedWorkspaceId, loadSnapshot,
+    setStatusHint, clearStatusHint,
   } = useStore();
+  const { toast } = useToast();
   const [snapshotNotice, setSnapshotNotice] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [cheatOpen, setCheatOpen] = useState(false);
@@ -101,11 +104,20 @@ export default function App() {
   const apiBase = apiBaseFromEnv(env);
   const identityBase = identityBaseFromEnv(env);
 
+  const announceLoad = (id: string) => {
+    const scenario = scenarioById(id);
+    if (!scenario) return;
+    setSnapshotNotice(null);
+    loadScenario(id);
+    toast({ level: "ok", title: `Loaded ${scenario.title}`, detail: "In this tab only." });
+  };
+
   useLayoutEffect(() => {
     if (!demo.enabled || demoBooted.current) return;
     demoBooted.current = true;
-    loadScenario(demo.scenarioId);
-  }, [demo.enabled, demo.scenarioId, loadScenario]);
+    announceLoad(demo.scenarioId);
+    setStatusHint("Demo mode");
+  }, [demo.enabled, demo.scenarioId]);
 
   useEffect(() => {
     if (shellMode !== "live") return;
@@ -158,8 +170,7 @@ export default function App() {
     if (!isDemoScenarioId(id)) return;
     window.history.replaceState({}, "", demoPath(window.location.search, id));
     setDemo(bootDemo(window.location.search));
-    setSnapshotNotice(null);
-    loadScenario(id);
+    announceLoad(id);
   };
 
   const exitDemo = () => {
@@ -167,6 +178,7 @@ export default function App() {
     setDemo(bootDemo(window.location.search));
     setSnapshotNotice(null);
     clearSession();
+    clearStatusHint();
     setView("landing");
   };
 
@@ -181,7 +193,12 @@ export default function App() {
       resetRun();
       return;
     }
-    if (!adapter || (shellMode === "live" && providerBlocked)) return;
+    if (!adapter) {
+      toast({ level: "error", title: "Sign in required", detail: "Run has no session yet." });
+      setStatusHint("Sign in required");
+      return;
+    }
+    if (shellMode === "live" && providerBlocked) return;
     liveAdapter?.setPaidInferenceConsent(paidConsent);
     const epoch = ++runEpoch.current;
     const isCurrent = () => epoch === runEpoch.current && !stoppedRef.current;
@@ -389,7 +406,7 @@ export default function App() {
   }, [demo.enabled, demo.autorun, edges.length]);
 
   const commands = registerCommands({
-    loadScenario: (id) => { setSnapshotNotice(null); setView("canvas"); loadScenario(id); },
+    loadScenario: (id) => { setView("canvas"); announceLoad(id); },
     openHub: () => { setView("canvas"); openHub(); },
     toggleRun: () => { void toggleRun(); },
     clearCanvas: () => { setSnapshotNotice(null); clearSession(); useStore.getState().pushActivity({ kind: "clear", title: "Canvas cleared", level: "info" }); },
@@ -426,7 +443,7 @@ export default function App() {
         return;
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-        if (view === "canvas" && edges.length > 0 && adapter) {
+        if (view === "canvas" && edges.length > 0) {
           event.preventDefault();
           void toggleRun();
         }
@@ -533,7 +550,7 @@ export default function App() {
       onSignIn={() => setView("signin")}
       onSignOut={() => void signOut()}
       onClear={() => { setSnapshotNotice(null); clearSession(); useStore.getState().pushActivity({ kind: "clear", title: "Canvas cleared", level: "info" }); }}
-      onPilot={() => { setSnapshotNotice(null); loadScenario("pilot-storyboard"); }}
+      onPilot={() => announceLoad("pilot-storyboard")}
       onExport={() => { setSnapshotNotice(null); downloadCanvasSnapshot(buildCanvasSnapshot(nodes, edges)); }}
       onImport={(file) => {
         const reader = new FileReader();
@@ -557,7 +574,7 @@ export default function App() {
       <DemoBanner
         scenarioId={demo.scenarioId}
         onScenario={chooseScenario}
-        onReset={() => { setSnapshotNotice(null); loadScenario(demo.scenarioId); }}
+        onReset={() => { announceLoad(demo.scenarioId); setStatusHint("Demo mode"); }}
         onExit={exitDemo}
       />
     )}
@@ -579,7 +596,7 @@ export default function App() {
         <button
           type="button"
           className="rounded-full bg-fuchsia-400/90 px-6 py-3 text-sm font-semibold text-[#1a0b28]"
-          onClick={(e) => { e.stopPropagation(); loadScenario("pilot-storyboard"); }}
+          onClick={(e) => { e.stopPropagation(); announceLoad("pilot-storyboard"); }}
         >
           Load Pilot storyboard
         </button>
@@ -610,7 +627,7 @@ export default function App() {
         <div className="mt-3 text-xs uppercase opacity-60">Other demos</div>
         <div className="my-2 flex flex-wrap gap-2">
           {DEMO_SCENARIOS.filter((sc) => sc.id !== "pilot-storyboard").map((sc) => (
-            <button key={sc.id} type="button" className="text-xs text-white/70 underline-offset-2 hover:underline" onClick={() => loadScenario(sc.id)}>{sc.title}</button>
+            <button key={sc.id} type="button" className="text-xs text-white/70 underline-offset-2 hover:underline" onClick={() => announceLoad(sc.id)}>{sc.title}</button>
           ))}
         </div>
         <button className="text-sm opacity-70" onClick={() => setUiState({ kind: "void" })}>Close</button>
@@ -624,7 +641,7 @@ export default function App() {
     {shellMode === "live" && !inference?.configured && <p className="glass absolute bottom-20 left-2 z-20 max-w-sm p-2 text-xs">Open Account inference settings and select your provider before running. This account cannot use the operator's model automatically.</p>}
     {edges.length > 0 && (
       <div className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2">
-        <button aria-label={running ? "Stop run" : "Run pipeline"} disabled={!running && (!adapter || (shellMode === "live" && providerBlocked))} className="glass flex items-center gap-2 px-5 py-2 disabled:opacity-50" onClick={(e) => { e.stopPropagation(); void toggleRun(); }}>{running ? <Square size={14} /> : <Play size={14} />}{running ? "Stop" : "Run Pipeline"}</button>
+        <button aria-label={running ? "Stop run" : "Run pipeline"} disabled={!running && (!adapter || (shellMode === "live" && providerBlocked))} title={!running && !adapter ? "Sign in before Run." : undefined} className="glass flex items-center gap-2 px-5 py-2 disabled:opacity-50" onClick={(e) => { e.stopPropagation(); void toggleRun(); }}>{running ? <Square size={14} /> : <Play size={14} />}{running ? "Stop" : "Run Pipeline"}</button>
         {scenarioId === "mrf-pipeline" && (
           <button type="button" aria-label="Upstream schema drift" disabled={running || !mrfMapping} className="glass px-4 py-2 text-xs disabled:opacity-50" onClick={(e) => { e.stopPropagation(); injectDrift(); }}>
             Upstream schema drift

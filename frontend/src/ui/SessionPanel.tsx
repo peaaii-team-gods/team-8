@@ -4,6 +4,7 @@ import { IdentitySession } from "../adapters/identity";
 import { LiveAdapter } from "../adapters/live";
 import { SERVICE_FEATURES, featureLive } from "../registry/services.manifest";
 import SyntheticBadge from "./SyntheticBadge";
+import { useToast } from "./toasts/ToastProvider";
 
 interface Props {
   apiBase: string;
@@ -29,6 +30,7 @@ export default function SessionPanel({
   onLogout,
   variant = "overlay",
 }: Props) {
+  const { toast } = useToast();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +54,9 @@ export default function SessionPanel({
       setSignedIn(true);
       setCapabilities(await adapter.capabilities().catch(() => null));
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : "Sign in failed";
+      setError(message);
+      toast({ level: "error", title: "Sign in failed", detail: message });
     } finally {
       setBusy(false);
     }
