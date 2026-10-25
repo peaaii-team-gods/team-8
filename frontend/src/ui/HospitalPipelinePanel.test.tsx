@@ -201,6 +201,28 @@ describe("hospital canvas deterministic record", () => {
     expect(useStore.getState().pipelineStage).toBe("complete");
   });
 
+  it("tells signed-out live users to sign in and does not call the pipeline", async () => {
+    const requests = setup();
+    render(<HospitalPipelinePanel adapter={null} budget={0} mode="live" accessToken={null} />);
+    expect(screen.getByText("Sign in to run the pipeline")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
+    expect(requests).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: "Export to Google Drive (direct API, not MCP)" })).toBeNull();
+  });
+
+  it("sends the live identity bearer on pipeline run and export", async () => {
+    const requests = setup();
+    render(<HospitalPipelinePanel adapter={null} budget={0} mode="live" accessToken="live-token" />);
+    expect(screen.queryByText("Sign in to run the pipeline")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
+    await screen.findByRole("heading", { name: "Golden SQL report" });
+    expect((requests[0].init?.headers as Record<string, string>).Authorization).toBe("Bearer live-token");
+    fireEvent.click(screen.getByRole("button", { name: "Export to Google Drive (direct API, not MCP)" }));
+    await screen.findByText("Drive not configured");
+    const exported = requests.find(request => request.url.endsWith("/export"))!;
+    expect((exported.init?.headers as Record<string, string>).Authorization).toBe("Bearer live-token");
+  });
+
   it("never dispatches a configured remote provider even when its paid gate permits it", async () => {
     const model = modelSetup("unused");
     const gated = hospitalModelAdapter(model.adapter, { configured: true, host_models_authorized: true, revision: "r", credential_lifetime: "backend_process", provider: "openrouter" }, "1", true);

@@ -12,7 +12,7 @@ try {
   }
   switch ($Action) {
     "Status" { Invoke-Compose -ComposeArgs @("--profile", "public", "ps") }
-    "StartFrontend" { Invoke-Compose -ComposeArgs @("up", "-d", "--build", "frontend") }
+    "StartFrontend" { Invoke-Compose -ComposeArgs @("up", "-d", "--build", "frontend", "pipeline") }
     "Start" {
       if (-not (Test-Path -LiteralPath ".env" -PathType Leaf)) {
         throw "Missing deploy/.env. Copy .env.example and set TUNNEL_TOKEN_FILE to the existing tunnel token file."

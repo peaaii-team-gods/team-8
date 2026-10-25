@@ -697,7 +697,7 @@ export default function App() {
           <button type="button" disabled={running} className="mt-1 text-[10px] opacity-70 disabled:opacity-50" onClick={() => setView("landing")}>Back to landing</button>
         )}
       </div>
-      {scenarioId === "hospital-pipeline" && <HospitalPipelinePanel key={sessionId} adapter={hospitalModelAdapter(shellMode === "live" ? liveAdapter : null, inference, spendCap, paidConsent)} budget={Number(spendCap)} prepareLocalModel={() => liveAdapter?.setPaidInferenceConsent(false)} />}
+      {scenarioId === "hospital-pipeline" && <HospitalPipelinePanel key={sessionId} adapter={hospitalModelAdapter(shellMode === "live" ? liveAdapter : null, inference, spendCap, paidConsent)} budget={Number(spendCap)} prepareLocalModel={() => liveAdapter?.setPaidInferenceConsent(false)} mode={shellMode} accessToken={identitySession?.token ?? null} />}
       <HistoryPanel mode={shellMode} client={shellMode === "live" ? liveAdapter : null} />
       <ReadinessPanel
         mode={shellMode === "live" && liveAdapter ? "live" : "simulated"}

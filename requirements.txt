@@ -1,3 +1,4 @@
 # Runtime dependency. CSV, contracts, locking and CLI use Python's standard library.
 httpx>=0.27,<1
 pydantic>=2,<3
+PyJWT[crypto]>=2.8,<3

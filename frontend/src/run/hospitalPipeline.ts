@@ -13,8 +13,11 @@ export const runPath = (id: string) => `/api/pipeline/runs/${encodeURIComponent(
 export const HOSPITAL_EXPORT_EVENT = "hospital-run-export";
 export const hospitalModelAdapter = (adapter: RhmAdapter | null, inference: InferenceStatus | null, spendCap: string, paidConsent: boolean) =>
   adapter?.mode === "live" && inference?.host_models_authorized && !inference.configured && !liveProviderBlocked(inference, spendCap, paidConsent) ? adapter : null;
-export async function pipelineRequest(path: string, body?: unknown, signal?: AbortSignal) {
-  const response = await fetch(path, { method: body === undefined ? "GET" : "POST", headers: { "Content-Type": "application/json" },
+export function pipelineHeaders(token?: string | null, json = false): Record<string, string> {
+  return { ...(json ? { "Content-Type": "application/json" } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+}
+export async function pipelineRequest(path: string, body?: unknown, signal?: AbortSignal, token?: string | null) {
+  const response = await fetch(path, { method: body === undefined ? "GET" : "POST", headers: pipelineHeaders(token, true),
     ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal, cache: "no-store", redirect: "error" });
   if (!response.ok) throw new Error(`Local pipeline request failed (${response.status})`);
   return response.json();
@@ -24,7 +27,7 @@ const canonical = (value: unknown): string => JSON.stringify(value, (_key, item)
 
 /** Existing RHM adapter, bounded proposals only. The local server always keeps its golden record. */
 export async function hospitalModels(adapter: RhmAdapter, id: string, record: PipelineRecord, budget: number,
-  signal: AbortSignal, onHandle: (handle: RunHandle) => void): Promise<ModelView> {
+  signal: AbortSignal, onHandle: (handle: RunHandle) => void, token?: string | null): Promise<ModelView> {
   const events = record.steps.flatMap(step => step.telemetry), evidence = events.find(event => event.type === "evidence");
   const top = events.find(event => event.type === "top10"), injected = events.some(event => event.type === "repair" && event.label === "injected");
   if (!evidence || !top || adapter.mode !== "live") return { unavailable: true };
@@ -45,14 +48,14 @@ export async function hospitalModels(adapter: RhmAdapter, id: string, record: Pi
   };
   try {
     const mapping = await propose("mrf-hospital-builder", { evidence: JSON.stringify(evidence.source_excerpt) });
-    const result = await pipelineRequest(`${runPath(id)}/proposals`, { mapping }, signal);
+    const result = await pipelineRequest(`${runPath(id)}/proposals`, { mapping }, signal, token);
     view.mapping = result.mapping;
   } catch { view.unavailable = true; }
   if (injected && !signal.aborted) try {
     if (!evidence.drift_excerpt) throw new Error("model unavailable");
     const repair = await propose("mrf-hospital-maintainer", { evidence: JSON.stringify(evidence.drift_excerpt),
       previous_mapping: JSON.stringify(evidence.golden_mapping), failing_checks: JSON.stringify(events.flatMap(event => event.type === "checks" && Array.isArray(event.checks) ? event.checks : []).filter(check => check.pass === false)) });
-    const result = await pipelineRequest(`${runPath(id)}/proposals`, { repair }, signal);
+    const result = await pipelineRequest(`${runPath(id)}/proposals`, { repair }, signal, token);
     view.repair = result.repair;
     const proposed = repair as { action?: string; mapping?: unknown };
     view.matchesRepair = canonical(proposed.action === "replace_mapping" ? proposed.mapping : repair) === canonical(evidence.golden_repair);
@@ -60,7 +63,7 @@ export async function hospitalModels(adapter: RhmAdapter, id: string, record: Pi
   if (!signal.aborted) try {
     const proposal = await propose("hospital-analyst", { sql_rows: JSON.stringify(top.rows) }) as { summary?: unknown };
     if (typeof proposal.summary !== "string" || !proposal.summary.trim() || proposal.summary.length > 1200) throw new Error("model unavailable");
-    const guarded = await pipelineRequest(`${runPath(id)}/summary`, { text: proposal.summary }, signal);
+    const guarded = await pipelineRequest(`${runPath(id)}/summary`, { text: proposal.summary }, signal, token);
     if (guarded.ok === true) view.summary = proposal.summary;
     else view.rejected = Array.isArray(guarded.violations) ? guarded.violations.length : 0;
   } catch { view.unavailable = true; }

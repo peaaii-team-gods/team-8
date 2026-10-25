@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { RhmAdapter, RunHandle } from "../adapters/RhmAdapter";
 import { useStore } from "../state/store";
-import { HOSPITAL_EXPORT_EVENT, hospitalModels, pipelineRequest, runPath, type ModelView, type PipelineRecord } from "../run/hospitalPipeline";
+import { HOSPITAL_EXPORT_EVENT, hospitalModels, pipelineHeaders, pipelineRequest, runPath, type ModelView, type PipelineRecord } from "../run/hospitalPipeline";
 import { openHospitalReportDialog } from "./HospitalReportTable";
 const presets: Record<string, string[]> = { source: ["hospital-source"], builder: ["mrf-hospital-builder", "mrf-hospital-maintainer"], store: ["hospital-store"], analyst: ["hospital-analyst"] };
 const stepNames: Record<string, string> = { source: "Scout", builder: "Architect", store: "Ledger", analyst: "Analyst" };
@@ -28,7 +28,8 @@ const humanSummary = (step: PipelineRecord["steps"][number]) => {
   if (step.node === "analyst") return `${String(step.counts.row_count ?? 0)} SQL report rows ready`;
   return `${step.node} ${step.status}`;
 };
-export default function HospitalPipelinePanel({ adapter, budget, prepareLocalModel }: { adapter: RhmAdapter | null; budget: number; prepareLocalModel?: () => void }) {
+export default function HospitalPipelinePanel({ adapter, budget, prepareLocalModel, mode, accessToken }: { adapter: RhmAdapter | null; budget: number; prepareLocalModel?: () => void; mode?: string; accessToken?: string | null }) {
+  const signedOut = mode === "live" && !accessToken;
   const [record, setRecord] = useState<PipelineRecord | null>(null), [id, setId] = useState("");
   const [inject, setInject] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [model, setModel] = useState<ModelView>({}), [exportNote, setExportNote] = useState(""), [exporting, setExporting] = useState(false);
@@ -50,16 +51,17 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
     }
   }, [record, id, model, exportNote, exporting]);
   const start = async () => {
+    if (signedOut) return;
     const controller = new AbortController(); active.current?.abort(); active.current = controller; handles.current = [];
     const signal = controller.signal, timeout = setTimeout(() => controller.abort(), 180_000);
     setBusy(true); setError(""); setId(""); setRecord(null); setModel({}); setExportNote(""); exportLink.current = "";
     const store = useStore.getState(); store.resetRun(); store.markRunStart(); store.setPipelineStage("execute");
     try {
-      const created = await pipelineRequest("/api/pipeline/run", { source: "south-shore", inject_error: inject }, signal);
+      const created = await pipelineRequest("/api/pipeline/run", { source: "south-shore", inject_error: inject }, signal, accessToken);
       if (signal.aborted) return;
       setId(created.run_id);
       for (;;) {
-        const snapshot = await pipelineRequest(runPath(created.run_id), undefined, signal) as PipelineRecord;
+        const snapshot = await pipelineRequest(runPath(created.run_id), undefined, signal, accessToken) as PipelineRecord;
         if (signal.aborted) return;
         setRecord(snapshot);
         for (const step of snapshot.steps) for (const node of useStore.getState().nodes.filter(n => presets[step.node]?.includes(n.data.presetId))) {
@@ -70,7 +72,7 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
         if (snapshot.status === "completed") {
           store.setPipelineStage("complete");
           if (adapter) prepareLocalModel?.();
-          const proposals = adapter ? await hospitalModels(adapter, created.run_id, snapshot, budget, signal, handle => handles.current.push(handle)) : { unavailable: true };
+          const proposals = adapter ? await hospitalModels(adapter, created.run_id, snapshot, budget, signal, handle => handles.current.push(handle), accessToken) : { unavailable: true };
           if (!signal.aborted) setModel(proposals);
           break;
         }
@@ -80,9 +82,10 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
     finally { clearTimeout(timeout); if (active.current === controller) { setBusy(false); store.markRunEnd(); } }
   };
   const exportRun = async () => {
+    if (signedOut) return;
     setExporting(true); exportLink.current = "";
     try {
-      const response = await fetch(`${runPath(id)}/export`, { method: "POST", cache: "no-store", redirect: "error" });
+      const response = await fetch(`${runPath(id)}/export`, { method: "POST", headers: pipelineHeaders(accessToken), cache: "no-store", redirect: "error" });
       const result = await response.json();
       exportLink.current = result.status === "exported" ? result.folder_link : "";
       setExportNote(result.status === "exported" ? "Exported to Drive" : result.reason === "drive_export_unavailable" ? "Drive not configured" : `Export unavailable: ${result.reason ?? "run unavailable"}`);
@@ -97,8 +100,9 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
   const events = record?.steps.flatMap(step => step.telemetry) ?? [], top = events.find(event => event.type === "top10");
   return <section className="glass space-y-2 p-3 text-xs" aria-label="Hospital pipeline">
     <h2 className="font-semibold">Hospital pipeline · deterministic record</h2>
-    <label className="block"><input type="checkbox" checked={inject} disabled={busy} onChange={event => setInject(event.target.checked)} /> Inject rate-key error (injected)</label>
-    <button className="glass p-2 disabled:opacity-50" disabled={busy || exporting} onClick={() => void start()}>Run hospital pipeline</button>
+    <label className="block"><input type="checkbox" checked={inject} disabled={busy || signedOut} onChange={event => setInject(event.target.checked)} /> Inject rate-key error (injected)</label>
+    {signedOut && <p role="status">Sign in to run the pipeline</p>}
+    <button className="glass p-2 disabled:opacity-50" disabled={busy || exporting || signedOut} onClick={() => void start()}>Run hospital pipeline</button>
     {busy && <p role="status">Pipeline / model proposals running…</p>}
     {error && <p role="alert">{error}</p>}
     {record?.steps.map(step => <div key={step.node}>
@@ -119,7 +123,18 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
     {model.summary && <p data-testid="hospital-report-summary">{model.summary}</p>}
     {model.rejected !== undefined && <p>Summary rejected by guard: {model.rejected} unsupported figures</p>}
     {model.summary && <p>Model summary · guard passed; recorded report remains golden</p>}
-    {record?.status === "completed" && <><p>Recorded artifacts: {["rows.csv", "mrf.sqlite", "report.md"].map(file => <a className="mr-2 underline" key={file} href={`${runPath(id)}/artifacts/${file}`}>{file}</a>)}</p>
+    {record?.status === "completed" && !signedOut && <><p>Recorded artifacts: {["rows.csv", "mrf.sqlite", "report.md"].map(file => {
+      const href = `${runPath(id)}/artifacts/${file}`;
+      return <a className="mr-2 underline" key={file} href={href} onClick={event => {
+        if (!accessToken) return;
+        event.preventDefault();
+        void fetch(href, { headers: pipelineHeaders(accessToken), cache: "no-store", redirect: "error" }).then(async response => {
+          if (!response.ok) return;
+          const url = URL.createObjectURL(await response.blob());
+          const save = document.createElement("a"); save.href = url; save.download = file; save.click(); URL.revokeObjectURL(url);
+        });
+      }}>{file}</a>;
+    })}</p>
       <button className="glass p-2 disabled:opacity-50" disabled={exporting} onClick={() => void exportRun()}>Export to Google Drive (direct API, not MCP)</button></>}
     {exportNote && <p className="text-white/80" role="status">{exportLink.current ? <a className="underline" href={exportLink.current}>{exportNote}</a> : exportNote === "Export unavailable: drive_export_unavailable" ? "Drive not configured" : exportNote}</p>}
   </section>;

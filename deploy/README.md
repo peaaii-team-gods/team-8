@@ -27,7 +27,22 @@ copy .env.example .env
 ```
 
 Local preview (no tunnel): http://127.0.0.1:18080
-Start only the local frontend with `.\operate.ps1 -Action StartFrontend`.
+`Start` / `StartFrontend` also run the pipeline container on the compose network
+(bound `0.0.0.0:8787` inside the network, published only as `127.0.0.1:8787`).
+Public nginx proxies `/api/pipeline/` same-origin to that service. Set
+`TUNNEL_TOKEN_FILE` in `.env` to the token file path only (never the token).
+
+### Degraded modes
+
+- Tunnel connector down: public origin 530; local `http://127.0.0.1:18080` still serves the canvas.
+- Identity JWKS unreachable with an empty cache: pipeline returns `503 {"error":"identity_unavailable"}`.
+- Signed out on the live canvas: `Sign in to run the pipeline`; no anonymous run, model call, or export.
+- Model down: existing golden path is kept; no OpenRouter or paid consent on this path.
+
+### Rollback
+
+`.\operate.ps1 -Action Stop` stops the `public` profile (tunnel connector) and the compose stack.
+Start only the local frontend+pipeline with `.\operate.ps1 -Action StartFrontend`.
 
 Configure the dashboard tunnel's published application routes for both
 `peaaiiteam8.online` and `www.peaaiiteam8.online` to `http://frontend:8080`.

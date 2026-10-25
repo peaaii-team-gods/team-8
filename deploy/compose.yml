@@ -13,6 +13,23 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:18080:8080"
+    depends_on: [pipeline]
+    networks: [hackathon]
+
+  pipeline:
+    image: team8-pipeline:${RELEASE_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.pipeline
+    restart: unless-stopped
+    environment:
+      PIPELINE_HOST: "0.0.0.0"
+      PIPELINE_PORT: "8787"
+      PIPELINE_REQUIRE_AUTH: "1"
+    volumes:
+      - pipeline-data:/app/data
+    ports:
+      - "127.0.0.1:8787:8787"
     networks: [hackathon]
 
   tunnel:
@@ -33,3 +50,6 @@ services:
 networks:
   hackathon:
     driver: bridge
+
+volumes:
+  pipeline-data:

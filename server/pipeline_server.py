@@ -7,7 +7,12 @@ from pathlib import Path
 import re
 import sys
 import threading
+import time
+import urllib.request
 import uuid
+
+import jwt
+from jwt.algorithms import RSAAlgorithm
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -22,6 +27,67 @@ from scripts.slice_hpt import slice_hpt
 PREFIX = '/api/pipeline'
 LIMIT = 256 * 1024
 ARTIFACTS = {'rows.csv': 'text/csv', 'mrf.sqlite': 'application/vnd.sqlite3', 'report.md': 'text/markdown; charset=utf-8'}
+IDENTITY_ISS = 'https://identity.right-hand-man.space'
+IDENTITY_AUD = 'rhm-fleet'
+IDENTITY_JWKS = IDENTITY_ISS + '/.well-known/jwks.json'
+JWKS_TTL = 600
+
+
+class IdentityUnavailable(Exception):
+    pass
+
+
+class _JwksCache:
+    def __init__(self):
+        self.payload, self.at = None, 0.0
+
+    def get(self):
+        now = time.monotonic()
+        if self.payload is None or now - self.at >= JWKS_TTL:
+            try:
+                request = urllib.request.Request(IDENTITY_JWKS, headers={'Accept': 'application/json'})
+                with urllib.request.urlopen(request, timeout=5) as resp:
+                    payload = json.loads(resp.read().decode())
+                if not isinstance(payload, dict) or not payload.get('keys'):
+                    raise ValueError('jwks')
+                self.payload, self.at = payload, now
+            except Exception as exc:
+                print(f'jwks_refresh_failed {type(exc).__name__}', file=sys.stderr)
+                if self.payload is None:
+                    raise IdentityUnavailable() from exc
+        return self.payload
+
+
+_jwks = _JwksCache()
+
+
+def _signing_key(token):
+    header = jwt.get_unverified_header(token)
+    kid, keys = header.get('kid'), _jwks.get()['keys']
+    jwk = next((item for item in keys if item.get('kid') == kid), None)
+    if jwk is None and len(keys) == 1 and not kid:
+        jwk = keys[0]
+    if jwk is None:
+        raise jwt.InvalidTokenError('kid')
+    return RSAAlgorithm.from_jwk(jwk)
+
+
+def authenticate(headers):
+    raw = headers.get('Authorization') or headers.get('authorization') or ''
+    if not raw.startswith('Bearer ') or not raw[7:].strip():
+        return 401, {'error': 'unauthorized'}
+    token = raw[7:].strip()
+    try:
+        claims = jwt.decode(token, _signing_key(token), algorithms=['RS256'], issuer=IDENTITY_ISS,
+                            audience=IDENTITY_AUD, options={'require': ['exp', 'iss', 'aud', 'sub']})
+    except IdentityUnavailable:
+        return 503, {'error': 'identity_unavailable'}
+    except Exception as exc:
+        print(f'auth_failed {type(exc).__name__}', file=sys.stderr)
+        return 401, {'error': 'unauthorized'}
+    if not claims.get('sub'):
+        return 401, {'error': 'unauthorized'}
+    return None, claims
 
 
 def _checks(result, expected):
@@ -165,11 +231,17 @@ class PipelineService:
                 self.export_results[run_id] = result
             return copy.deepcopy(self.export_results[run_id])
 
-    def route(self, method, path, raw=b''):
+    def route(self, method, path, raw=b'', headers=None):
         def response(code, value, content='application/json'):
             return code, value, content
         if len(raw) > LIMIT:
             return response(413, {'error': 'body_too_large'})
+        caller = None
+        if os.environ.get('PIPELINE_REQUIRE_AUTH') == '1':
+            code, payload = authenticate(headers or {})
+            if code:
+                return response(code, payload)
+            caller = payload
         body = {}
         if raw:
             try:
@@ -182,9 +254,12 @@ class PipelineService:
             if set(body) != {'source', 'inject_error'} or body['source'] != 'south-shore' or type(body['inject_error']) is not bool:
                 return response(400, {'error': 'invalid_run'})
             run_id = 'run_' + uuid.uuid4().hex
+            record = {'status': 'queued', 'steps': [{'node': node, 'status': 'pending', 'counts': {}, 'telemetry': []}
+                                                    for node in ('source', 'builder', 'store', 'analyst')], 'report_md': ''}
+            if caller:
+                record['owner'] = caller['sub']
             with self.lock:
-                self.runs[run_id] = {'status': 'queued', 'steps': [{'node': node, 'status': 'pending', 'counts': {}, 'telemetry': []}
-                                                                for node in ('source', 'builder', 'store', 'analyst')], 'report_md': ''}
+                self.runs[run_id] = record
                 thread = threading.Thread(target=self._run, args=(run_id, body['inject_error']), daemon=True)
                 self.threads[run_id] = thread
                 thread.start()
@@ -195,7 +270,7 @@ class PipelineService:
         run_id, action = match.groups()
         with self.lock:
             run = copy.deepcopy(self.runs.get(run_id))
-        if run is None:
+        if run is None or (caller and run.get('owner') and run['owner'] != caller['sub']):
             return response(404, {'error': 'unknown_run'})
         if method == 'GET' and action is None:
             return response(200, {k: v for k, v in run.items() if not k.startswith('_')})
@@ -251,7 +326,7 @@ class Handler(BaseHTTPRequestHandler):
             if length > LIMIT:
                 code, value, content = 413, {'error': 'body_too_large'}, 'application/json'
             else:
-                code, value, content = self.service.route(self.command, self.path, self.rfile.read(length))
+                code, value, content = self.service.route(self.command, self.path, self.rfile.read(length), self.headers)
             body = value if isinstance(value, bytes) else json.dumps(value, allow_nan=False).encode('utf-8')
         except Exception as exc:
             print(f'handler_failed {self.command} {type(exc).__name__}', file=sys.stderr)
@@ -270,4 +345,4 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == '__main__':
-    ThreadingHTTPServer(('127.0.0.1', int(os.environ.get('PIPELINE_PORT', '8787'))), Handler).serve_forever()
+    ThreadingHTTPServer((os.environ.get('PIPELINE_HOST', '127.0.0.1'), int(os.environ.get('PIPELINE_PORT', '8787'))), Handler).serve_forever()
