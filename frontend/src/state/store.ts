@@ -6,6 +6,7 @@ import { addUsage, emptyUsage, mergeChanges, type AgentMessage, type UsageMetric
 import { scenarioById } from "../registry/scenarios";
 import type { TelemetryEvent } from "../run/telemetryEvents";
 import { newSessionId } from "../run/telemetryEvents";
+import type { NamedCheck } from "../mrf/types";
 
 export type CanvasNode = Node<CanvasNodeData>;
 export type CanvasEdge = Edge<{ active?: boolean; packetLabel?: string }>;
@@ -28,6 +29,8 @@ export interface ScienceReceipt {
   tokens: number;
   contentFreeIds: string[];
   oracleNote?: string;
+  checks?: NamedCheck[];
+  invalidProposal?: boolean;
 }
 
 interface Store {

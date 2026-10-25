@@ -6,11 +6,30 @@ export default function ScienceReceipt() {
   return (
     <aside className="glass w-full p-4 text-sm" data-testid="science-receipt">
       <div className="mb-2 font-semibold">Science receipt</div>
-      <p className="mb-2 text-[10px] opacity-60">Synthetic model proposals · no verified acceptance</p>
+      <p className="mb-2 text-[10px] opacity-60">
+        {receipt.checks?.length
+          ? "Local pinned checks · Verified only on a Coding SHA pass"
+          : "Synthetic model proposals · no verified acceptance"}
+      </p>
       <dl className="space-y-1.5 text-xs">
         {receipt.mapping && <div><dt className="opacity-60">Mapping</dt><dd className="font-mono break-all">{receipt.mapping}</dd></div>}
         {receipt.riskOrQc && <div><dt className="opacity-60">Risk / QC</dt><dd>{receipt.riskOrQc}</dd></div>}
         {receipt.flags.length > 0 && <div><dt className="opacity-60">Flags</dt><dd>{receipt.flags.join(", ")}</dd></div>}
+        {receipt.checks && receipt.checks.length > 0 && (
+          <div data-testid="oracle-checks">
+            <dt className="opacity-60">Pinned checks</dt>
+            <dd>
+              <ul className="mt-1 space-y-1">
+                {receipt.checks.map((c) => (
+                  <li key={c.name} className={c.pass ? "text-emerald-200" : "text-rose-200"} data-testid={`check-${c.name}`}>
+                    {c.pass ? "pass" : "fail"} · {c.name}
+                    {!c.pass && <span className="opacity-70"> (expected {String(c.expected)}, got {String(c.actual)})</span>}
+                  </li>
+                ))}
+              </ul>
+            </dd>
+          </div>
+        )}
         <div><dt className="opacity-60">Tokens</dt><dd className="tabular-nums">{receipt.tokens}</dd></div>
         {receipt.contentFreeIds.length > 0 && (
           <div><dt className="opacity-60">Ids</dt><dd className="font-mono text-[10px] break-all">{receipt.contentFreeIds.join(" · ")}</dd></div>

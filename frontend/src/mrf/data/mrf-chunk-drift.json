@@ -1,0 +1,91 @@
+{
+  "hospital_name": "Synthetic Mercy Demo Hospital",
+  "last_updated_on": "2026-10-01",
+  "standard_charges": {
+    "99213": 185,
+    "99214": 275,
+    "80053": 42,
+    "93000": 68
+  },
+  "in_network": [
+    {
+      "billing_code": "99213",
+      "billing_code_type": "CPT",
+      "description": "Office visit established",
+      "negotiated_rates": [
+        {
+          "payer_name": "SynPayer A",
+          "negotiated_prices": [
+            { "negotiated_amount": 150, "billing_class": "professional", "negotiated_type": "negotiated" },
+            { "negotiated_amount": 140, "billing_class": "institutional", "negotiated_type": "negotiated" },
+            { "negotiated_amount": 148, "billing_class": "professional", "negotiated_type": "negotiated" }
+          ]
+        },
+        {
+          "payer_name": "SynPayer B",
+          "negotiated_prices": [
+            { "negotiated_amount": null, "billing_class": "professional", "negotiated_type": "negotiated" },
+            { "negotiated_amount": 155, "billing_class": "institutional", "negotiated_type": "negotiated" }
+          ]
+        }
+      ]
+    },
+    {
+      "billing_code": "99214",
+      "billing_code_type": "CPT",
+      "description": "Office visit established extended",
+      "negotiated_rates": [
+        {
+          "payer_name": "SynPayer A",
+          "negotiated_prices": [
+            { "negotiated_amount": 220, "billing_class": "professional", "negotiated_type": "negotiated" },
+            { "negotiated_amount": 210, "billing_class": "institutional", "negotiated_type": "negotiated" }
+          ]
+        },
+        {
+          "payer_name": "SynPayer B",
+          "negotiated_prices": [
+            { "negotiated_amount": 230, "billing_class": "professional", "negotiated_type": "negotiated" },
+            { "negotiated_amount": 205, "billing_class": "institutional", "negotiated_type": "negotiated" },
+            { "negotiated_amount": 208, "billing_class": "institutional", "negotiated_type": "negotiated" }
+          ]
+        }
+      ]
+    },
+    {
+      "billing_code": "80053",
+      "billing_code_type": "CPT",
+      "description": "Comprehensive metabolic panel",
+      "negotiated_rates": [
+        {
+          "payer_name": "SynPayer A",
+          "negotiated_prices": [
+            { "negotiated_amount": 28, "billing_class": "professional", "negotiated_type": "negotiated" },
+            { "negotiated_amount": null, "billing_class": "institutional", "negotiated_type": "negotiated" }
+          ]
+        },
+        {
+          "payer_name": "SynPayer B",
+          "negotiated_prices": [
+            { "negotiated_amount": 31, "billing_class": "professional", "negotiated_type": "negotiated" },
+            { "negotiated_amount": 29, "billing_class": "institutional", "negotiated_type": "negotiated" }
+          ]
+        }
+      ]
+    },
+    {
+      "billing_code": "93000",
+      "billing_code_type": "CPT",
+      "description": "Electrocardiogram",
+      "negotiated_rates": [
+        {
+          "payer_name": "SynPayer A",
+          "negotiated_prices": [
+            { "negotiated_amount": 55, "billing_class": "professional", "negotiated_type": "negotiated" },
+            { "negotiated_amount": 50, "billing_class": "institutional", "negotiated_type": "negotiated" }
+          ]
+        }
+      ]
+    }
+  ]
+}

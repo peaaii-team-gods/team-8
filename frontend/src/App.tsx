@@ -32,6 +32,7 @@ import { runNodes } from "./run/runNodes";
 import type { VerificationKind } from "./registry/types";
 import { usageToTelemetry } from "./run/observability";
 import { emptyUsage } from "./run/telemetry";
+import { MRF_CHUNK } from "./mrf/data";
 
 const nodeTypes: NodeTypes = { agent: AgentNode, dataLake: DataLakeNode };
 const edgeTypes = { packet: PacketEdge } as EdgeTypes;
@@ -182,26 +183,61 @@ export default function App() {
         },
         onUtterance: (...args) => { if (isCurrent()) recordUtterance(...args); },
         onEdgeActive: (ids, active) => { if (isCurrent()) setEdgeActive(ids, active); },
+        mrf: scenarioId === "mrf-pipeline" ? {
+          fixture: MRF_CHUNK,
+          onEvaluated: (_nodeId, ev) => {
+            if (!isCurrent()) return;
+            const failed = ev.checks.filter((c) => !c.pass).map((c) => c.name);
+            const stNow = useStore.getState();
+            setScienceReceipt({
+              scenarioId,
+              mapping: ev.mapping ? JSON.stringify(ev.mapping) : undefined,
+              flags: failed,
+              tokens: stNow.totals.totalTokens,
+              contentFreeIds: stNow.tracks.map((t) => t.runId).filter(Boolean) as string[],
+              checks: ev.checks,
+              invalidProposal: ev.invalidProposal,
+              oracleNote: ev.invalidProposal
+                ? "invalid proposal"
+                : ev.declined
+                  ? `Maintainer declined (${ev.declined.reason_code})`
+                  : ev.passed
+                    ? "Pinned checks 16/2/14 + digest passed locally. Not Verified (no Coding SHA)."
+                    : `Named check failed: ${failed.join(", ") || "unknown"}`,
+            });
+          },
+        } : undefined,
       });
       if (!isCurrent()) return;
       markRunEnd();
       const st = useStore.getState();
       setPipelineStage(st.tracks.every((t) => t.status === "done") ? "complete" : "fail");
-      const mappingOut = st.nodes.find((n) => n.data.presetId === "builder")?.data.output;
-      const maintainerOut = st.nodes.find((n) => n.data.presetId === "maintainer")?.data.output;
-      const denialOut = st.nodes.find((n) => n.data.presetId === "denial-predictor")?.data.output;
-      const qcOut = st.nodes.find((n) => n.data.presetId === "assay-qc")?.data.output;
-      setScienceReceipt({
-        scenarioId,
-        mapping: mappingOut?.slice(0, 200),
-        flags: [],
-        riskOrQc: denialOut ?? qcOut,
-        tokens: st.totals.totalTokens,
-        contentFreeIds: st.tracks.map((t) => t.runId).filter(Boolean) as string[],
-        oracleNote: scenarioId === "pilot-storyboard" && mode === "simulated"
-          ? "Simulated repair proposals. No local oracle or verified acceptance."
-          : maintainerOut ? "Maintainer proposal recorded." : undefined,
-      });
+      if (scenarioId === "mrf-pipeline") {
+        const prev = useStore.getState().scienceReceipt;
+        if (prev) {
+          setScienceReceipt({
+            ...prev,
+            tokens: st.totals.totalTokens,
+            contentFreeIds: st.tracks.map((t) => t.runId).filter(Boolean) as string[],
+          });
+        }
+      } else {
+        const mappingOut = st.nodes.find((n) => n.data.presetId === "builder")?.data.output;
+        const maintainerOut = st.nodes.find((n) => n.data.presetId === "maintainer")?.data.output;
+        const denialOut = st.nodes.find((n) => n.data.presetId === "denial-predictor")?.data.output;
+        const qcOut = st.nodes.find((n) => n.data.presetId === "assay-qc")?.data.output;
+        setScienceReceipt({
+          scenarioId,
+          mapping: mappingOut?.slice(0, 200),
+          flags: [],
+          riskOrQc: denialOut ?? qcOut,
+          tokens: st.totals.totalTokens,
+          contentFreeIds: st.tracks.map((t) => t.runId).filter(Boolean) as string[],
+          oracleNote: scenarioId === "pilot-storyboard" && mode === "simulated"
+            ? "Simulated repair proposals. No local oracle or verified acceptance."
+            : maintainerOut ? "Maintainer proposal recorded." : undefined,
+        });
+      }
     } catch {
       if (isCurrent()) { markRunEnd(); setPipelineStage("fail"); }
     } finally {

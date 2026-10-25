@@ -4,6 +4,9 @@ import type { CanvasEdge, CanvasNode } from "../state/store";
 import type { CanvasNodeData } from "../registry/types";
 import { addUsage, emptyUsage, hasUsage, mergeChanges, preferLatest, type ParsedTelemetry, type UsageMetrics, type WorkspaceChange } from "./telemetry";
 import { agentRunOrder, incomingAgentIds, outgoingAgentEdges, withHandoff } from "./handoff";
+import { evaluateMapping, MRF_RETRY_HINT, mrfHandoffInputs, type MrfEvaluation } from "../mrf/oracle";
+import { interpretMrfReply, isMrfPreset } from "../mrf/validate";
+import type { MrfMapping, NamedCheck } from "../mrf/types";
 
 export const POLL_INTERVAL_MS = 1_000;
 export const POLL_TIMEOUT_MS = 120_000;
@@ -52,6 +55,11 @@ export async function pollUntilTerminal(adapter: RhmAdapter, handle: RunHandle, 
 
 export interface CompiledNode { nodeId: string; workflow: WorkflowV1 }
 
+export interface MrfRunOptions {
+  fixture: unknown;
+  onEvaluated?: (nodeId: string, evaluation: MrfEvaluation) => void;
+}
+
 export interface RunNodesHooks {
   onStatus: (nodeId: string, status: CanvasNodeData["status"], output?: string) => void;
   onHandle?: (handle: RunHandle) => void;
@@ -61,6 +69,7 @@ export interface RunNodesHooks {
   onUtterance?: (fromId: string, text: string, toIds: string[]) => void;
   onEdgeActive?: (edgeIds: string[], active: boolean) => void;
   graph?: { nodes: CanvasNode[]; edges: CanvasEdge[] };
+  mrf?: MrfRunOptions;
 }
 
 /** Outputs are model proposals (agent_reported), never verification. */
@@ -72,6 +81,7 @@ export const proposalLabel = (out: RunOutcome): string =>
  * Node status follows the real run state: queued -> processing -> done/error.
  * Only handles created here are reported via onHandle (cancel scope).
  * When graph edges exist, upstream agent outputs are handed to downstream workflows.
+ * MRF agents skip stuffed handoff.ts text: they receive mapping JSON + check results only.
  */
 export async function runNodes(
   adapter: RhmAdapter,
@@ -86,6 +96,8 @@ export async function runNodes(
   const order = agentRunOrder(nodes, edges).filter((id) => byId.has(id));
   const leftover = compiled.map((c) => c.nodeId).filter((id) => !order.includes(id));
   const outputs = new Map<string, { title: string; output: string }>();
+  let mrfMapping: MrfMapping | null = null;
+  let mrfChecks: NamedCheck[] = [];
 
   for (const nodeId of [...order, ...leftover]) {
     if (hooks.shouldStop?.()) break;
@@ -93,24 +105,20 @@ export async function runNodes(
     if (!compiledNode) continue;
     const node = nodes.find((n) => n.id === nodeId);
     const title = node?.data.title ?? nodeId;
+    const presetId = node?.data.presetId ?? "";
+    const mrfAgent = !!hooks.mrf && isMrfPreset(presetId);
     const incoming = incomingAgentIds(nodeId, edges, nodes)
       .map((id) => outputs.get(id))
       .filter((x): x is { title: string; output: string } => !!x);
-    const workflow = withHandoff(compiledNode.workflow, incoming);
+    const workflow = mrfAgent
+      ? { ...compiledNode.workflow, inputs: { ...compiledNode.workflow.inputs, ...mrfHandoffInputs(mrfMapping, mrfChecks) } }
+      : withHandoff(compiledNode.workflow, incoming);
     const feedEdges = edges.filter((e) => e.target === nodeId).map((e) => e.id);
     hooks.onStatus(nodeId, "queued");
     try {
       hooks.onStatus(nodeId, "processing");
       if (feedEdges.length) hooks.onEdgeActive?.(feedEdges, true);
-      const handle = await adapter.run(nodeId, workflow);
-      handles.push(handle);
-      hooks.onHandle?.(handle);
-      // A stop/logout can race run creation. Cancel the newly returned handle
-      // before polling or allowing its output to reach another session.
-      if (hooks.shouldStop?.()) {
-        await adapter.cancel(handle).catch(() => undefined);
-        break;
-      }
+
       const spoken: string[] = [];
       const downTargets = () => outgoingAgentEdges(nodeId, edges, nodes).map((e) => e.target);
       const say = (text: string) => {
@@ -121,21 +129,76 @@ export async function runNodes(
       };
       let rolling = emptyUsage(adapter.mode === "live" ? "live" : "estimated");
       let files: WorkspaceChange[] = [];
-      const out = await pollUntilTerminal(adapter, handle, {
-        ...pollOpts,
-        shouldStop: hooks.shouldStop,
-        onEvents: (h, ev) => {
-          pollOpts.onEvents?.(h, ev);
-          if (hasUsage(ev.usage)) rolling = addUsage(rolling, ev.usage);
-          if (ev.workspace.length) files = mergeChanges(files, ev.workspace);
-          if (hasUsage(rolling) || files.length) hooks.onTelemetry?.(nodeId, rolling, files);
-          for (const m of ev.messages) say(m);
-        },
-      });
-      if (hooks.shouldStop?.()) {
+
+      const runOnce = async (wf: WorkflowV1): Promise<RunOutcome | null> => {
+        const handle = await adapter.run(nodeId, wf);
+        handles.push(handle);
+        hooks.onHandle?.(handle);
+        if (hooks.shouldStop?.()) {
+          await adapter.cancel(handle).catch(() => undefined);
+          return null;
+        }
+        const out = await pollUntilTerminal(adapter, handle, {
+          ...pollOpts,
+          shouldStop: hooks.shouldStop,
+          onEvents: (h, ev) => {
+            pollOpts.onEvents?.(h, ev);
+            if (hasUsage(ev.usage)) rolling = addUsage(rolling, ev.usage);
+            if (ev.workspace.length) files = mergeChanges(files, ev.workspace);
+            if (hasUsage(rolling) || files.length) hooks.onTelemetry?.(nodeId, rolling, files);
+            for (const m of ev.messages) say(m);
+          },
+        });
+        return out;
+      };
+
+      let out = await runOnce(workflow);
+      if (!out || hooks.shouldStop?.()) {
         if (feedEdges.length) hooks.onEdgeActive?.(feedEdges, false);
         break;
       }
+
+      let retried = false;
+      if (mrfAgent && out.status === "succeeded") {
+        let interpreted = interpretMrfReply(presetId, out.output);
+        if (!interpreted.ok && interpreted.error === "invalid_json") {
+          retried = true;
+          const retryWf = { ...workflow, inputs: { ...workflow.inputs, retry: MRF_RETRY_HINT } };
+          const retryOut = await runOnce(retryWf);
+          if (!retryOut || hooks.shouldStop?.()) {
+            if (feedEdges.length) hooks.onEdgeActive?.(feedEdges, false);
+            break;
+          }
+          out = retryOut;
+          interpreted = interpretMrfReply(presetId, out.output);
+        }
+        if (out.status === "succeeded") {
+          if (!interpreted.ok) {
+            const evaluation: MrfEvaluation = {
+              mapping: mrfMapping, applied: null, checks: mrfChecks, passed: false,
+              invalidProposal: true, retried,
+            };
+            hooks.mrf?.onEvaluated?.(nodeId, evaluation);
+            hooks.onStatus(nodeId, "error", "invalid proposal");
+            if (out.usage || out.workspace?.length) hooks.onTelemetry?.(nodeId, out.usage ?? emptyUsage(adapter.mode), out.workspace ?? []);
+            hooks.onOutcome?.(nodeId, { ...out, status: "failed", output: "invalid proposal" });
+            if (feedEdges.length) hooks.onEdgeActive?.(feedEdges, false);
+            continue;
+          }
+          if (interpreted.mapping) {
+            const evaluated = evaluateMapping(hooks.mrf!.fixture, interpreted.mapping);
+            mrfMapping = evaluated.mapping;
+            mrfChecks = evaluated.checks;
+            hooks.mrf?.onEvaluated?.(nodeId, { ...evaluated, invalidProposal: false, retried });
+          } else {
+            hooks.mrf?.onEvaluated?.(nodeId, {
+              mapping: mrfMapping, applied: null, checks: mrfChecks, passed: false,
+              invalidProposal: false, retried, declined: interpreted.declined,
+            });
+          }
+        }
+      }
+
       const labelled = proposalLabel(out);
       hooks.onStatus(nodeId, out.status === "succeeded" ? "done" : "error", labelled);
       if (out.usage || out.workspace?.length) hooks.onTelemetry?.(nodeId, out.usage ?? emptyUsage(adapter.mode), out.workspace ?? []);
