@@ -60,13 +60,21 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     }
     expect(screen.queryByText("Mode: simulated")).toBeNull();
     expect(screen.getByText("Pipeline: local server · Model: golden path")).toBeTruthy();
-    expect(await screen.findByText("RHM live stack: not connected - golden path used")).toBeTruthy();
     const unavailable = await screen.findAllByText("unavailable");
     expect(unavailable.length).toBeGreaterThan(0);
     expect(unavailable.every(chip => chip.closest("details") && !chip.closest("details")!.open)).toBe(true);
     expect(document.querySelector(".react-flow__attribution")).toBeTruthy();
     const css = readFileSync("src/index.css", "utf8");
     expect(css).toMatch(/\.react-flow__attribution\s*\{[^}]*background:\s*rgba\(7,\s*3,\s*18,/s);
+  });
+
+  it("shows the golden-path readiness line in simulated hospital mode", async () => {
+    renderApp();
+    fireEvent.click(screen.getByRole("button", { name: /Enter canvas/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.click(screen.getByRole("button", { name: "Hospital source to SQL" }));
+    const summary = await screen.findByTestId("hospital-readiness-summary");
+    expect(summary.textContent).toBe("RHM live stack: not connected - golden path used");
   });
 
   it("renders every actual captured pipeline node, opens the complete SQL report, and exports only on click", async () => {
@@ -470,6 +478,16 @@ const hostOnlyStatus: InferenceStatus = { configured: false, revision: null, cre
 const neitherStatus: InferenceStatus = { configured: false, revision: null, credential_lifetime: "backend_process", host_models_authorized: false };
 
 describe("live provider gate (configured / host-authorized / neither)", () => {
+  it("shows connected readiness in live hospital mode", async () => {
+    liveInference(configuredStatus);
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: "Create" }));
+    fireEvent.click(screen.getByRole("button", { name: "Hospital source to SQL" }));
+    const summary = await screen.findByTestId("hospital-readiness-summary");
+    expect(summary.textContent).not.toMatch(/not connected/);
+    expect(summary.textContent).toBe("RHM live stack: connected");
+  });
+
   it("lets a configured account Run after paid consent and a positive cap", async () => {
     liveInference(configuredStatus);
     renderApp();

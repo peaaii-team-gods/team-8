@@ -66,7 +66,11 @@ export default function ReadinessPanel({
       {mode === "live" && (
         <p className="mb-2 opacity-60">A green chip is a fetched capability. Run still emits tools only through the hosted gate plus a bound workspace.</p>
       )}
-      {hospitalScenario && <p className="mb-2" data-testid="hospital-readiness-summary">RHM live stack: not connected - golden path used</p>}
+      {hospitalScenario && (
+        <p className="mb-2" data-testid="hospital-readiness-summary">
+          {mode === "live" ? "RHM live stack: connected" : "RHM live stack: not connected - golden path used"}
+        </p>
+      )}
       {loading && <p className="mb-2 opacity-60">Reading readiness…</p>}
       {capsError && <p className="mb-2 text-amber-100" role="alert">{capsError}</p>}
       <ul className="mb-3 space-y-1">
