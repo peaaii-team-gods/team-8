@@ -168,6 +168,7 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
   it("uses the workspace picked in the readiness panel on the next live run", async () => {
     vi.stubEnv("VITE_RHM_MODE", "live");
     vi.spyOn(IdentitySession.prototype, "restore").mockResolvedValue(true);
+    vi.spyOn(InferenceSettings.prototype, "request").mockResolvedValue({ configured: true, revision: "fixture", provider: "local", model_id: "fixture", credential_lifetime: "backend_process", host_models_authorized: false });
     vi.spyOn(LiveAdapter.prototype, "capabilities").mockResolvedValue({
       capabilities: { shell_execution: { status: "available" } },
     });
@@ -188,6 +189,10 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     fireEvent.click(screen.getByDisplayValue("ws-b"));
     await waitFor(() => expect(screen.getByTestId("bound-workspace").textContent).toBe("Bound for next Run: ws-b"));
     fireEvent.click(screen.getAllByRole("button", { name: /Pilot storyboard/ })[0]);
+    fireEvent.click(screen.getByRole("button", { name: /Account inference settings/ }));
+    fireEvent.change(screen.getByLabelText("USD admission budget per agent run"), { target: { value: "0.01" } });
+    fireEvent.click(screen.getByLabelText(/I permit paid inference/));
+    await waitFor(() => expect((screen.getByRole("button", { name: /run pipeline/i }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: /run pipeline/i }));
     await waitFor(() => expect(seen.length).toBeGreaterThan(0));
     expect(seen.every((workflow) => workflow.workspace_id === "ws-b" && workflow.project_id === "p2")).toBe(true);
