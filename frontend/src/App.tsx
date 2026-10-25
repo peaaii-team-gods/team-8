@@ -32,7 +32,8 @@ import { runNodes } from "./run/runNodes";
 import type { VerificationKind } from "./registry/types";
 import { usageToTelemetry } from "./run/observability";
 import { emptyUsage } from "./run/telemetry";
-import { MRF_CHUNK } from "./mrf/data";
+import { mrfDocument, recheckMapping, withDriftEvidence } from "./mrf/drift";
+import { failingChecks } from "./mrf/checks";
 
 const nodeTypes: NodeTypes = { agent: AgentNode, dataLake: DataLakeNode };
 const edgeTypes = { packet: PacketEdge } as EdgeTypes;
@@ -44,6 +45,7 @@ export default function App() {
     nodes, edges, uiState, tracks, openHub, spawn, setUiState, completeLink, cancelLink,
     setNodeStatus, resetRun, onNodesChange, setEdgeActive, recordHandle, recordTelemetry, recordUtterance,
     loadScenario, markRunStart, markRunEnd, setPipelineStage, setScienceReceipt, scenarioId, pushTelemetryEvent, sessionId,
+    mrfMapping, mrfSource, setMrfMapping, setMrfSource,
   } = useStore();
   const [liveAdapter, setLiveAdapter] = useState<LiveAdapter | null>(null);
   const [identitySession, setIdentitySession] = useState<IdentitySession | null>(null);
@@ -133,11 +135,20 @@ export default function App() {
         : null;
       if (!isCurrent()) return;
       const t0 = performance.now();
-      await runNodes(adapter, compileGraph(nodes, edges, nonce, capabilities, binding).map(item => {
+      const graph = useStore.getState();
+      const onlyPresets = scenarioId === "mrf-pipeline"
+        ? (graph.mrfSource === "drift" ? ["mrf-maintainer"] : ["mrf-builder"])
+        : undefined;
+      let compiled = compileGraph(graph.nodes, graph.edges, nonce, capabilities, binding).map(item => {
         if (mode !== "live") return item;
         const { model_preference: _model, ...workflow } = item.workflow;
         return { ...item, workflow: { ...workflow, budget: { ...workflow.budget, max_usd: Number(spendCap) } } };
-      }), {
+      });
+      if (scenarioId === "mrf-pipeline") {
+        compiled = withDriftEvidence(compiled, graph.mrfSource);
+        compiled = compiled.filter((c) => onlyPresets!.includes(graph.nodes.find((n) => n.id === c.nodeId)?.data.presetId ?? ""));
+      }
+      await runNodes(adapter, compiled, {
         onStatus: (id, status, output) => {
           if (!isCurrent()) return;
           const node = useStore.getState().nodes.find((n) => n.id === id);
@@ -147,7 +158,7 @@ export default function App() {
           } else if (status === "error") verification = "failed";
           setNodeStatus(id, status, output, verification);
           if (status === "error") setPipelineStage("fail");
-          else if (status === "processing") setPipelineStage(node?.data.presetId === "maintainer" ? "repair" : "execute");
+          else if (status === "processing") setPipelineStage(node?.data.presetId === "maintainer" || node?.data.presetId === "mrf-maintainer" ? "repair" : "execute");
         },
         onHandle: (h) => {
           if (!isCurrent()) return; // runNodes cancels a late handle itself
@@ -155,7 +166,7 @@ export default function App() {
           recordHandle(h.nodeId, h.runId);
         },
         shouldStop: () => !isCurrent(),
-        graph: { nodes, edges },
+        graph: { nodes: graph.nodes, edges: graph.edges },
         onTelemetry: (nodeId, usage, workspace) => {
           if (!isCurrent()) return;
           recordTelemetry(nodeId, usage, workspace);
@@ -184,9 +195,12 @@ export default function App() {
         onUtterance: (...args) => { if (isCurrent()) recordUtterance(...args); },
         onEdgeActive: (ids, active) => { if (isCurrent()) setEdgeActive(ids, active); },
         mrf: scenarioId === "mrf-pipeline" ? {
-          fixture: MRF_CHUNK,
+          fixture: mrfDocument(useStore.getState().mrfSource),
+          initialMapping: useStore.getState().mrfMapping,
+          initialChecks: useStore.getState().scienceReceipt?.checks ?? [],
           onEvaluated: (_nodeId, ev) => {
             if (!isCurrent()) return;
+            if (ev.mapping) setMrfMapping(ev.mapping);
             const failed = ev.checks.filter((c) => !c.pass).map((c) => c.name);
             const stNow = useStore.getState();
             setScienceReceipt({
@@ -243,6 +257,34 @@ export default function App() {
     } finally {
       if (isCurrent()) { setRunning(false); setUiState({ kind: "idle" }); }
     }
+  };
+
+  const injectDrift = () => {
+    if (running || !adapter || (mode === "live" && providerBlocked)) return;
+    const mapping = useStore.getState().mrfMapping;
+    if (!mapping) {
+      setScienceReceipt({
+        scenarioId, flags: [], tokens: 0, contentFreeIds: [],
+        oracleNote: "Run Builder first so a mapping exists to recheck.",
+      });
+      return;
+    }
+    setMrfSource("drift");
+    const evaluated = recheckMapping("drift", mapping);
+    const failed = failingChecks(evaluated.checks);
+    setPipelineStage("fail");
+    setScienceReceipt({
+      scenarioId,
+      mapping: JSON.stringify(mapping),
+      flags: failed.map((c) => c.name),
+      tokens: useStore.getState().totals.totalTokens,
+      contentFreeIds: useStore.getState().tracks.map((t) => t.runId).filter(Boolean) as string[],
+      checks: evaluated.checks,
+      oracleNote: failed.length
+        ? `Named check failed: ${failed.map((c) => c.name).join(", ")}`
+        : "Drift did not fail a pinned check.",
+    });
+    void toggleRun();
   };
 
   const signOut = async () => {
@@ -363,7 +405,16 @@ export default function App() {
       </div>
     )}
     {mode === "live" && !inference?.configured && <p className="glass absolute bottom-20 left-2 z-20 max-w-sm p-2 text-xs">Open Account inference settings and select your provider before running. This account cannot use the operator's model automatically.</p>}
-    {edges.length > 0 && <button aria-label={running ? "Stop run" : "Run pipeline"} disabled={!running && (!adapter || (mode === "live" && providerBlocked))} className="glass absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 px-5 py-2 disabled:opacity-50" onClick={(e) => { e.stopPropagation(); void toggleRun(); }}>{running ? <Square size={14} /> : <Play size={14} />}{running ? "Stop" : "Run Pipeline"}</button>}
+    {edges.length > 0 && (
+      <div className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2">
+        <button aria-label={running ? "Stop run" : "Run pipeline"} disabled={!running && (!adapter || (mode === "live" && providerBlocked))} className="glass flex items-center gap-2 px-5 py-2 disabled:opacity-50" onClick={(e) => { e.stopPropagation(); void toggleRun(); }}>{running ? <Square size={14} /> : <Play size={14} />}{running ? "Stop" : "Run Pipeline"}</button>
+        {scenarioId === "mrf-pipeline" && (
+          <button type="button" aria-label="Upstream schema drift" disabled={running || !mrfMapping} className="glass px-4 py-2 text-xs disabled:opacity-50" onClick={(e) => { e.stopPropagation(); injectDrift(); }}>
+            Upstream schema drift
+          </button>
+        )}
+      </div>
+    )}
     {uiState.kind === "linking" && <div className="glass absolute left-1/2 top-4 z-10 -translate-x-1/2 px-4 py-1 text-sm">Click a valid target to lock the link (click empty space to cancel)</div>}
     <SchemaWindow />
     <LakeInspector />

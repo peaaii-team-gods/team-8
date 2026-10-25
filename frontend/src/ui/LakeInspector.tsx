@@ -8,8 +8,10 @@ export default function LakeInspector() {
   const inspectLake = useStore((s) => s.inspectLake);
   const node = nodes.find((n) => n.id === inspectedLakeId && n.data.kind === "dataLake");
   if (!node) return null;
+  const mrfSource = useStore((s) => s.mrfSource);
   const preset = dataLakePreset(node.data.presetId);
-  const rows = fixtureFor(preset?.fixtureId ?? node.data.presetId).slice(0, 8);
+  const fixtureId = node.data.presetId === "hospital-mrf" && mrfSource === "drift" ? "hospital-mrf-drift" : (preset?.fixtureId ?? node.data.presetId);
+  const rows = fixtureFor(fixtureId).slice(0, 8);
   return (
     <aside className="glass absolute bottom-24 right-4 z-20 w-[min(420px,92vw)] p-4 text-sm" data-testid="lake-inspector" onClick={(e) => e.stopPropagation()}>
       <div className="mb-2 flex items-center justify-between gap-2">

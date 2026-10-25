@@ -26,6 +26,7 @@ beforeEach(() => useStore.setState({
   tracks: [], messages: [], workspace: [], totals: emptyUsage(),
   scenarioId: null, pipelineStage: "idle", runStartedAt: null, runEndedAt: null,
   sessionId: newSessionId(), telemetryEvents: [], scienceReceipt: null, inspectedLakeId: null,
+  mrfSource: "base" as const, mrfMapping: null,
 }));
 
 describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
@@ -138,3 +139,31 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     expect(await screen.findAllByText(/Status: done/)).toHaveLength(2);
   });
 });
+
+describe("MRF drift + one repair (jsdom)", () => {
+  it("passes base checks, fails a named check on drift, then passes after one repair", async () => {
+    const { MRF_GOLDEN_MAPPING, MRF_GOLDEN_REPAIR_REPLY } = await import("./mrf/data");
+    vi.spyOn(SimulatedAdapter.prototype, "poll").mockImplementation(async (h) => {
+      const preset = useStore.getState().nodes.find((n) => n.id === h.nodeId)?.data.presetId;
+      return {
+        nodeId: h.nodeId,
+        status: "succeeded",
+        basis: "agent_reported",
+        output: preset === "mrf-builder" ? JSON.stringify(MRF_GOLDEN_MAPPING) : JSON.stringify(MRF_GOLDEN_REPAIR_REPLY),
+        usage: emptyUsage("simulated"),
+      };
+    });
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /Enter canvas/i }));
+    fireEvent.click(screen.getByRole("button", { name: /MRF price file/ }));
+    fireEvent.click(screen.getByRole("button", { name: /run pipeline/i }));
+    await waitFor(() => expect(useStore.getState().scienceReceipt?.checks?.every((c) => c.pass)).toBe(true));
+    expect(useStore.getState().mrfSource).toBe("base");
+    fireEvent.click(screen.getByRole("button", { name: /Upstream schema drift/i }));
+    await waitFor(() => expect(useStore.getState().scienceReceipt?.oracleNote).toMatch(/Named check failed: nulls_repaired/));
+    await waitFor(() => expect(useStore.getState().scienceReceipt?.checks?.every((c) => c.pass)).toBe(true));
+    expect(useStore.getState().mrfSource).toBe("drift");
+    expect(useStore.getState().mrfMapping?.fields.rate).toBe("negotiated_amount");
+  });
+});
+

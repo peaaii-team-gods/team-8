@@ -57,6 +57,8 @@ export interface CompiledNode { nodeId: string; workflow: WorkflowV1 }
 
 export interface MrfRunOptions {
   fixture: unknown;
+  initialMapping?: MrfMapping | null;
+  initialChecks?: NamedCheck[];
   onEvaluated?: (nodeId: string, evaluation: MrfEvaluation) => void;
 }
 
@@ -96,8 +98,8 @@ export async function runNodes(
   const order = agentRunOrder(nodes, edges).filter((id) => byId.has(id));
   const leftover = compiled.map((c) => c.nodeId).filter((id) => !order.includes(id));
   const outputs = new Map<string, { title: string; output: string }>();
-  let mrfMapping: MrfMapping | null = null;
-  let mrfChecks: NamedCheck[] = [];
+  let mrfMapping: MrfMapping | null = hooks.mrf?.initialMapping ?? null;
+  let mrfChecks: NamedCheck[] = hooks.mrf?.initialChecks ?? [];
 
   for (const nodeId of [...order, ...leftover]) {
     if (hooks.shouldStop?.()) break;

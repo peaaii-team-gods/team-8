@@ -6,7 +6,7 @@ import { addUsage, emptyUsage, mergeChanges, type AgentMessage, type UsageMetric
 import { scenarioById } from "../registry/scenarios";
 import type { TelemetryEvent } from "../run/telemetryEvents";
 import { newSessionId } from "../run/telemetryEvents";
-import type { NamedCheck } from "../mrf/types";
+import type { MrfMapping, NamedCheck } from "../mrf/types";
 
 export type CanvasNode = Node<CanvasNodeData>;
 export type CanvasEdge = Edge<{ active?: boolean; packetLabel?: string }>;
@@ -47,6 +47,8 @@ interface Store {
   telemetryEvents: TelemetryEvent[];
   scienceReceipt: ScienceReceipt | null;
   inspectedLakeId: string | null;
+  mrfSource: "base" | "drift";
+  mrfMapping: MrfMapping | null;
   setUiState: (s: UiState) => void;
   openHub: () => void; closeToVoid: () => void;
   openSchema: (nodeId: string) => void;
@@ -70,6 +72,8 @@ interface Store {
   pushTelemetryEvent: (ev: TelemetryEvent) => void;
   setScienceReceipt: (r: ScienceReceipt | null) => void;
   inspectLake: (nodeId: string | null) => void;
+  setMrfSource: (source: "base" | "drift") => void;
+  setMrfMapping: (mapping: MrfMapping | null) => void;
   clearSession: () => void;
 }
 let seq = 0;
@@ -88,6 +92,8 @@ export const useStore = create<Store>((set, get) => ({
   telemetryEvents: [],
   scienceReceipt: null,
   inspectedLakeId: null,
+  mrfSource: "base",
+  mrfMapping: null,
   setUiState: (uiState) => set({ uiState }),
   openHub: () => set({ uiState: { kind: "hub" } }),
   closeToVoid: () => set({ uiState: { kind: "void" } }),
@@ -173,7 +179,7 @@ export const useStore = create<Store>((set, get) => ({
     pipelineStage: "idle",
     runStartedAt: null,
     runEndedAt: null,
-    scienceReceipt: null,
+    // Keep mapping, drift source, and the last receipt across a repair run.
   })),
   loadScenario: (id) => {
     const sc = scenarioById(id);
@@ -196,6 +202,8 @@ export const useStore = create<Store>((set, get) => ({
       uiState: { kind: "idle" },
       runStartedAt: null,
       runEndedAt: null,
+      mrfSource: "base",
+      mrfMapping: null,
     });
   },
   setPipelineStage: (pipelineStage) => set({ pipelineStage }),
@@ -204,10 +212,13 @@ export const useStore = create<Store>((set, get) => ({
   pushTelemetryEvent: (ev) => set((s) => ({ telemetryEvents: [...s.telemetryEvents, ev].slice(-40) })),
   setScienceReceipt: (scienceReceipt) => set({ scienceReceipt }),
   inspectLake: (inspectedLakeId) => set({ inspectedLakeId }),
+  setMrfSource: (mrfSource) => set({ mrfSource }),
+  setMrfMapping: (mrfMapping) => set({ mrfMapping }),
   clearSession: () => set({
     nodes: [], edges: [], uiState: { kind: "void" },
     tracks: [], messages: [], workspace: [], totals: zeros(),
     scenarioId: null, pipelineStage: "idle", runStartedAt: null, runEndedAt: null,
     sessionId: newSessionId(), telemetryEvents: [], scienceReceipt: null, inspectedLakeId: null,
+    mrfSource: "base", mrfMapping: null,
   }),
 }));
