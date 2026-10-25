@@ -98,17 +98,17 @@ describe("hospital canvas deterministic record", () => {
     setup(undefined, realResult);
     render(<HospitalPipelinePanel adapter={null} budget={0} />);
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
-    await screen.findByText(/42 rows - local SQLite/);
-    const sourceSummary = screen.getByText(/Scout files fetched/);
+    await screen.findByText(/183335 rows - local SQLite/);
+    const sourceSummary = screen.getByText(/Scout fetch/);
     const sourceDetails = sourceSummary.parentElement?.querySelector("details");
     expect(sourceDetails?.open).toBe(false);
     expect(sourceDetails?.querySelector("pre")?.textContent).toContain("https://www.southshorehealth.org/cms-hpt.txt");
     expect(sourceDetails?.querySelector("pre")?.textContent).toContain("https://zencloud-southshorehealth.s3.us-east-1.amazonaws.com/www.southshorehealth.org/assets/2026-03/042769210_south-shore-hospital_standardcharges.json");
     expect(sourceDetails?.querySelector("pre")?.textContent).toContain("0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd");
-    expect(screen.getByText(/Golden repair: 42\/42 rows restored/)).toBeTruthy();
+    expect(screen.getByText(/Golden repair: 183335\/183335 rows restored/)).toBeTruthy();
     expect(screen.getByText("Golden SQL report")).toBeTruthy();
     expect(screen.getByText("Commercial vs Medicare Managed Care Plan median, this hospital's file")).toBeTruthy();
-    expect(screen.getByText("5 comparison groups with 11 reported fields")).toBeTruthy();
+    expect(screen.getByText("6938 comparison groups")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open full report" })).toBeTruthy();
     const detailSummaries = screen.getAllByText("Show details");
     expect(detailSummaries).toHaveLength(4);
@@ -122,7 +122,7 @@ describe("hospital canvas deterministic record", () => {
     const furnace = useStore.getState().nodes.find(node => node.data.presetId === "mrf-hospital-maintainer")!;
     const furnaceTelemetry = JSON.parse(furnace.data.output!).telemetry;
     expect(furnaceTelemetry.find((event: { type: string }) => event.type === "checks").checks.find((check: { name: string }) => check.name === "fields.rate")).toMatchObject({ pass: false, expected: "standard_charge_dollar", actual: "missing" });
-    expect(furnaceTelemetry.find((event: { type: string }) => event.type === "repair").checks.find((check: { name: string }) => check.name === "inserted_row_count")).toMatchObject({ pass: true, expected: 42, actual: 42 });
+    expect(furnaceTelemetry.find((event: { type: string }) => event.type === "repair").checks.find((check: { name: string }) => check.name === "inserted_row_count")).toMatchObject({ pass: true, expected: 183335, actual: 183335 });
   });
 
   it("exports only on click and shows the returned folder", async () => {

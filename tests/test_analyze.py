@@ -13,7 +13,7 @@ def test_summary_guard_checks_dollars_against_only_numeric_row_values():
     assert not summary_guard('Negative -$100.', rows)
     assert not summary_guard('Bad precision $100.001.', rows)
 
-from analyze import analyze, write_run_artifacts, BASELINE_LABEL
+from analyze import analyze, write_ledger_artifacts, write_run_artifacts, BASELINE_LABEL, MA_CAVEAT
 from mrf_apply import apply_mapping, load_json
 from store import store_rows
 import csv
@@ -81,3 +81,25 @@ def test_golden_artifacts_and_percent_exclusion(tmp_path):
 def test_guard_does_not_accept_partial_currency_tokens():
     rows = [{'commercial_median': 1, 'ma_median': 100, 'difference': 99}]
     assert not summary_guard('Unsupported $.50 and $1e3 and $1_000.', rows)
+
+
+def test_full_ledger_report_sections(tmp_path):
+    from ingest import ingest_file
+    from pathlib import Path
+    parsed = ingest_file(Path(__file__).resolve().parents[1] / 'fixtures' / 'hospital-v3-slice.json')
+    artifacts = write_ledger_artifacts(parsed['rows'], 'full-slice', data_dir=tmp_path / 'data', excluded_counts={
+        'skipped_no_dollar_count': parsed['counts']['skipped_no_dollar_count'],
+        'quarantined_row_count': parsed['counts']['quarantined_row_count']}, metrics=parsed['metrics'])
+    text = open(artifacts['report_path'], encoding='utf-8').read()
+    assert '## Codes with commercial and MA medians' in text
+    assert '## Per-payer spread (dollar rates)' in text
+    assert MA_CAVEAT in text
+    assert text.count(MA_CAVEAT) >= 3
+    assert 'Min' in text and 'Max' in text
+    assert artifacts['top_rows']
+    assert artifacts['spread']
+    assert Path(artifacts['report_csv']).is_file()
+    repeated = write_ledger_artifacts(parsed['rows'], 'full-slice-2', data_dir=tmp_path / 'data',
+                                      excluded_counts=artifacts['excluded_counts'], metrics=parsed['metrics'])
+    assert repeated['sha256'] == artifacts['sha256']
+    assert open(repeated['report_path'], encoding='utf-8').read() == text

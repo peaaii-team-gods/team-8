@@ -14,16 +14,19 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from analyze import summary_violations, write_run_artifacts
+from analyze import summary_violations, write_ledger_artifacts
 from discovery import discover
 from hospital_mapping import generate_row_model
+from ingest import SOURCE_SHA256, ingest_file
 from mrf_apply import apply_mapping, load_json
 from resources import digest
-from scripts.slice_hpt import slice_hpt
 
 PREFIX = '/api/pipeline'
 LIMIT = 256 * 1024
-ARTIFACTS = {'rows.csv': 'text/csv', 'mrf.sqlite': 'application/vnd.sqlite3', 'report.md': 'text/markdown; charset=utf-8'}
+ARTIFACTS = {'rows.csv': 'text/csv', 'report.csv': 'text/csv', 'mrf.sqlite': 'application/vnd.sqlite3',
+             'report.md': 'text/markdown; charset=utf-8'}
+STAGE = ('bytes_streamed', 'items_parsed', 'rows_emitted', 'rows_quarantined', 'rows_repaired',
+         'stage_ms', 'rows_per_s', 'mb_per_s')
 IDENTITY_ISS = 'https://identity.right-hand-man.space'
 IDENTITY_AUD = 'rhm-fleet'
 IDENTITY_JWKS = IDENTITY_ISS + '/.well-known/jwks.json'
@@ -106,7 +109,8 @@ def authenticate(headers):
 
 
 def _checks(result, expected):
-    return [{'name': key, 'pass': result[key] == value, 'expected': value, 'actual': result[key]}
+    counts = result['counts'] if 'rows' in result else result
+    return [{'name': key, 'pass': counts[key] == value, 'expected': value, 'actual': counts[key]}
             for key, value in expected['counts'].items()] + [
                 {'name': 'digest', 'pass': digest(result['rows']) == expected['digest'],
                  'expected': expected['digest'], 'actual': digest(result['rows'])}]
@@ -128,54 +132,73 @@ def _excerpt(fixture):
     return {'standard_charge_information': examples}
 
 
-def _rate_check(fixture, mapping):
-    key = mapping['fields']['rate']
-    present = any(key in payer for item in fixture['standard_charge_information'] for charge in item['standard_charges']
-                  for payer in charge.get('payers_information', []))
+def _rate_check(present, key):
     return {'name': 'fields.rate', 'pass': present, 'expected': key, 'actual': key if present else 'missing'}
+
+
+def _wrap_excerpt(items):
+    return _excerpt({'standard_charge_information': items})
+
+
+def _metrics(parsed):
+    metrics = dict(parsed['metrics'])
+    counts = {key: metrics[key] for key in STAGE if key in metrics}
+    counts.update(item_count=parsed['counts']['items_parsed'], code_type_counts=parsed['code_type_counts'],
+                  parse_mode=parsed['parse_mode'])
+    return counts, metrics
 
 
 def run_pipeline(run_id, emit, data_dir, *, inject_error=False, discoverer=discover):
     emit('source', 'running', {}, {'type': 'start'})
     fetched = discoverer('www.southshorehealth.org', 'South Shore Hospital', cache_dir=data_dir / 'hpt-cache')
     emit('source', 'running', {}, {'type': 'trace', **{k: fetched[k] for k in ('trace', 'label', 'sha256')}})
-    scratch = data_dir / 'slices' / run_id
-    scratch.mkdir(parents=True)
-    counts = slice_hpt(Path(fetched['path']), scratch / 'slice.json', scratch / 'provenance.json')
-    fixture = json.loads((scratch / 'slice.json').read_text(encoding='utf-8'))
-    emit('source', 'completed', counts, {'type': 'slice', 'counts': counts})
+    baseline = ingest_file(fetched['path'], inject_error=False)
+    source_counts, source_metrics = _metrics(baseline)
+    emit('source', 'completed', source_counts, {'type': 'ingest', 'parse_mode': baseline['parse_mode'], **source_metrics})
     mapping, repair = load_json('hospital-golden-mapping.json'), load_json('hospital-golden-repair.json')
-    expected = load_json('hospital-golden-result.json')
-    baseline = copy.deepcopy(fixture)
-    if inject_error:
-        fixture['injected_drift'] = 'injected: standard_charge_dollar -> standard_charge_amount'
-        for item in fixture['standard_charge_information']:
-            for charge in item.get('standard_charges', []):
-                for payer in charge.get('payers_information', []):
-                    if 'standard_charge_dollar' in payer:
-                        payer['standard_charge_amount'] = payer.pop('standard_charge_dollar')
-    # Bounded actual source examples only; never include top-level hospital contacts.
-    emit('builder', 'running', {}, {'type': 'evidence', 'source_excerpt': _excerpt(baseline), 'drift_excerpt': _excerpt(fixture),
+    expected = None
+    golden_path = ROOT / 'fixtures' / 'hospital-full-golden-result.json'
+    if baseline['sha256'] == SOURCE_SHA256 and golden_path.is_file():
+        expected = json.loads(golden_path.read_text(encoding='utf-8'))
+    drifted = ingest_file(fetched['path'], inject_error=True) if inject_error else baseline
+    emit('builder', 'running', {}, {'type': 'evidence', 'source_excerpt': _wrap_excerpt(baseline['excerpt']),
+                                   'drift_excerpt': _wrap_excerpt(drifted['excerpt']),
                                    'golden_mapping': mapping, 'golden_repair': repair})
-    result = apply_mapping(fixture, mapping)
-    checks = [_rate_check(fixture, mapping), *_checks(result, expected)]
+    result, rate_key = drifted if inject_error else baseline, mapping['fields']['rate']
+    checks = [_rate_check(result['rate_present'] if not inject_error else False, rate_key)]
+    if expected:
+        checks.extend(_checks(result if not inject_error else drifted, expected))
     emit('builder', 'running', {}, {'type': 'checks', 'checks': checks})
     if inject_error:
-        result = apply_mapping(fixture, repair)
-        checks = [_rate_check(fixture, repair), *_checks(result, expected)]
-        emit('builder', 'running', {}, {'type': 'repair', 'label': 'injected', 'mapping': repair, 'checks': checks})
+        result = ingest_file(fetched['path'], inject_error=True, rate_key=repair['fields']['rate'])
+        result['counts']['rows_repaired'] = result['counts']['inserted_row_count']
+        result['metrics']['rows_repaired'] = result['counts']['inserted_row_count']
+        repair_checks = [_rate_check(result['rate_present'], repair['fields']['rate'])]
+        if expected:
+            repair_checks.extend(_checks(result, expected))
+        else:
+            repair_checks.append({'name': 'digest', 'pass': digest(result['rows']) == digest(baseline['rows']),
+                                  'expected': digest(baseline['rows']), 'actual': digest(result['rows'])})
+        emit('builder', 'running', {}, {'type': 'repair', 'label': 'injected', 'mapping': repair, 'checks': repair_checks})
+        checks = repair_checks
     if not all(check['pass'] for check in checks):
         raise ValueError('golden_checks_failed')
-    emit('builder', 'completed', {'row_count': len(result['rows'])}, {'type': 'checks', 'checks': checks})
+    emit('builder', 'completed', {'row_count': len(result['rows']), **result['metrics']},
+         {'type': 'checks', 'checks': checks})
     emit('store', 'running', {}, {'type': 'start'})
-    artifacts = write_run_artifacts(result['rows'], run_id, data_dir=data_dir, mapping=repair if inject_error else mapping,
-                                   excluded_counts={k: result[k] for k in ('skipped_no_dollar_count', 'quarantined_row_count')})
-    emit('store', 'completed', {'row_count': artifacts['row_count']},
-         {'type': 'artifact', 'row_count': artifacts['row_count'], 'sha256': artifacts['sha256'], 'label': 'local SQLite'})
-    emit('analyst', 'completed', {'row_count': len(artifacts['top_rows'])},
-         {'type': 'top10', 'rows': artifacts['top_rows'], 'baseline_label': artifacts['baseline_label']})
-    return {'_fixture': fixture, '_baseline': baseline, '_rows': result['rows'], '_top_rows': artifacts['top_rows'],
-            'report_md': Path(artifacts['report_path']).read_text(encoding='utf-8')}
+    artifacts = write_ledger_artifacts(
+        result['rows'], run_id, data_dir=data_dir,
+        excluded_counts={k: result['counts'][k] for k in ('skipped_no_dollar_count', 'quarantined_row_count')},
+        metrics=result['metrics'])
+    store_counts = {'row_count': artifacts['row_count'], **{k: result['metrics'][k] for k in STAGE}}
+    emit('store', 'completed', store_counts,
+         {'type': 'artifact', 'row_count': artifacts['row_count'], 'sha256': artifacts['sha256'],
+          'label': 'local SQLite', **result['metrics']})
+    emit('analyst', 'completed', {'row_count': len(artifacts['top_rows']), **result['metrics']},
+         {'type': 'top10', 'rows': artifacts['top_rows'], 'spread': artifacts['spread'],
+          'baseline_label': artifacts['baseline_label']})
+    return {'_source_path': fetched['path'], '_inject_error': inject_error, '_rows': result['rows'],
+            '_top_rows': artifacts['top_rows'], 'report_md': Path(artifacts['report_path']).read_text(encoding='utf-8')}
 
 
 def _diffs(value, golden, prefix=''):
@@ -183,6 +206,19 @@ def _diffs(value, golden, prefix=''):
         return [path for key in sorted(set(value) | set(golden))
                 for path in _diffs(value.get(key), golden.get(key), f'{prefix}.{key}' if prefix else key)]
     return [] if value == golden else [prefix]
+
+
+def _load_source(run, *, drifted):
+    cached = run.get('_fixture' if drifted else '_baseline')
+    if cached is not None:
+        return cached
+    document = json.loads(Path(run['_source_path']).read_bytes().decode('utf-8-sig'))
+    if drifted and run.get('_inject_error'):
+        from ingest import _inject
+        for item in document.get('standard_charge_information') or []:
+            if isinstance(item, dict):
+                _inject(item)
+    return document
 
 
 def _proposal(mapping, fixture, rows):
@@ -313,16 +349,29 @@ class PipelineService:
             result = {}
             if 'mapping' in body:
                 golden = load_json('hospital-golden-mapping.json')
-                baseline_rows = apply_mapping(run['_baseline'], golden)['rows']
-                valid, _, _ = _proposal(body['mapping'], run['_baseline'], baseline_rows)
+                baseline = _load_source(run, drifted=False)
+                baseline_rows = apply_mapping(baseline, golden)['rows']
+                valid, _, _ = _proposal(body['mapping'], baseline, baseline_rows)
                 diffs = _diffs(body['mapping'], golden)
                 result['mapping'] = {'valid': valid, 'matches_golden': not diffs, 'diffs': diffs}
             if 'repair' in body:
                 repair = body['repair']
                 if isinstance(repair, dict) and repair.get('action') == 'replace_mapping':
                     repair = repair.get('mapping')
-                valid, fixed, errors = _proposal(repair, run['_fixture'], run['_rows'])
-                result['repair'] = {'valid': valid, 'fixed_rows': fixed, 'remaining_errors': errors}
+                if run.get('_source_path'):
+                    try:
+                        from hospital_mapping import parse_hospital_mapping
+                        parse_hospital_mapping(repair)
+                        parsed = ingest_file(run['_source_path'], inject_error=bool(run.get('_inject_error')),
+                                             rate_key=repair['fields']['rate'])
+                        valid = digest(parsed['rows']) == digest(run['_rows'])
+                        result['repair'] = {'valid': valid, 'fixed_rows': len(parsed['rows']) if valid else 0,
+                                            'remaining_errors': [] if valid else ['run_rows']}
+                    except (ValueError, TypeError, KeyError, AttributeError):
+                        result['repair'] = {'valid': False, 'fixed_rows': 0, 'remaining_errors': ['invalid_mapping']}
+                else:
+                    valid, fixed, errors = _proposal(repair, _load_source(run, drifted=True), run['_rows'])
+                    result['repair'] = {'valid': valid, 'fixed_rows': fixed, 'remaining_errors': errors}
             return response(200, result)
         return response(404, {'error': 'not_found'})
 

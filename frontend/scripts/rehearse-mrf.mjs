@@ -15,7 +15,7 @@ console.log("Beats: base pass → drift named fail (nulls_repaired) → one repa
 console.log("Labels: Proposal / Checked locally. Never Verified without a Coding SHA.");
 const result = spawnSync(
   process.execPath,
-  ["node_modules/vitest/vitest.mjs", "run", "src/mrf/apply.test.ts", "src/mrf/drift.test.ts", "src/mrf/labels.test.ts", "src/App.smoke.test.tsx", "-t", "MRF|honesty|pinned"],
+  ["node_modules/vitest/vitest.mjs", "run", "src/mrf/apply.test.ts", "src/mrf/drift.test.ts", "src/mrf/labels.test.ts", "src/App.smoke.test.tsx", "src/ui/HospitalReportTable.test.tsx", "-t", "MRF|honesty|pinned|report sections|MA caveat|captured pipeline node"],
   { cwd: root, stdio: "inherit", env: process.env },
 );
 if (result.status !== 0) process.exit(result.status ?? 1);

@@ -100,8 +100,10 @@ function Shell({ data, id, isLake }: { data: CanvasNode["data"]; id: string; isL
       <div>{source.url} · {source.bytes} bytes</div>
       {source.url?.endsWith(".json") && trace.sha256 && <div>MRF SHA-256: {trace.sha256.slice(0, 8)}</div>}
     </div>)}
-    {failedRate && typeof failedRows?.actual === "number" && typeof failedRows.expected === "number" && <p className="mt-2 text-sm text-rose-200">Injected error: fields.rate expected {String(failedRate.expected)}, got {String(failedRate.actual)} - {failedRows.actual}/{failedRows.expected} rows</p>}
+    {failedRate && <p className="mt-2 text-sm text-rose-200">Injected error: fields.rate expected {String(failedRate.expected)}, got {String(failedRate.actual)}{typeof failedRows?.actual === "number" && typeof failedRows.expected === "number" && failedRows.pass === false ? ` - ${failedRows.actual}/${failedRows.expected} rows` : ""}</p>}
     {repairedRows?.pass === true && <p className="mt-2 text-sm text-emerald-200">Golden repair: {String(repairedRows.actual)}/{String(repairedRows.expected)} rows restored</p>}
+    {data.presetId === "hospital-source" && typeof counts?.parse_mode === "string" && <p className="mt-2 text-sm text-white/80" data-testid={`parse-mode-${id}`}>{counts.parse_mode === "streamed" ? "streamed" : "parsed in memory"}{typeof counts.items_parsed === "number" ? ` · ${counts.items_parsed} items` : ""}{typeof counts.bytes_streamed === "number" ? ` · ${counts.bytes_streamed} bytes` : ""}</p>}
+    {typeof counts?.rows_per_s === "number" && <p className="mt-1 text-[11px] text-white/70">{String(counts.rows_emitted ?? counts.row_count ?? "")} rows · {String(counts.rows_per_s)} rows/s · {String(counts.mb_per_s)} MB/s · {String(counts.stage_ms)} ms{typeof counts.rows_quarantined === "number" ? ` · ${counts.rows_quarantined} quarantined` : ""}{typeof counts.rows_repaired === "number" && counts.rows_repaired > 0 ? ` · ${counts.rows_repaired} repaired` : ""}</p>}
     {data.presetId === "hospital-store" && <p className="mt-2 text-sm text-white/80">{typeof counts?.row_count === "number" ? `${counts.row_count} rows - local SQLite` : "Waiting for row count"}</p>}
     {typeof hospitalView.modelRepair === "string" && <p className="text-sm text-white/60">{hospitalView.modelRepair}</p>}
     {data.presetId === "hospital-analyst" && <>
@@ -113,7 +115,7 @@ function Shell({ data, id, isLake }: { data: CanvasNode["data"]; id: string; isL
         <dialog id="hospital-report-modal" className="m-auto w-[96vw] max-w-[1500px] max-h-[90vh] overflow-auto rounded-xl border border-white/20 bg-[#100a1c] p-5 text-white shadow-2xl backdrop:bg-black/70">
           <div className="mb-3 flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">{data.title}</h2><p className="mt-1 text-sm text-white/70">{data.description}</p><p className="text-xs text-white/60">{String(top.baseline_label ?? "")}</p></div>
             <form method="dialog"><button className="rounded-lg border border-white/20 px-3 py-1 text-xs">Close report</button></form></div>
-          <HospitalReportTable rows={top.rows} className="w-full table-fixed" />
+          <HospitalReportTable rows={top.rows as unknown[]} spread={Array.isArray(top.spread) ? top.spread as unknown[] : []} className="w-full table-fixed" />
           {reportNotes.length > 0 && <ul className="mt-3 space-y-1 text-sm text-white/70">{reportNotes.map(note => <li key={note}>{note}</li>)}</ul>}
         </dialog>
       </>}

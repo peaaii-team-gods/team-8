@@ -116,7 +116,11 @@ def test_real_pipeline_offline_with_injected_repair(tmp_path):
         return {'path': str(source), 'trace': [], 'label': 'cached', 'sha256': 'fixture'}
     events = []
     result = run_pipeline('offline', lambda *args: events.append(args), tmp_path, inject_error=True, discoverer=discover)
-    assert len(result['_rows']) == 42
+    from ingest import ingest_file
+    from resources import digest
+    restored = ingest_file(source, inject_error=True, rate_key='standard_charge_amount')
+    assert digest(result['_rows']) == digest(restored['rows'])
+    assert len(result['_rows']) == restored['counts']['inserted_row_count'] > 42
     assert any(event[3]['type'] == 'repair' for event in events)
     assert any(event[3].get('label') == 'cached' for event in events)
     assert (tmp_path / 'runs' / 'offline' / 'mrf.sqlite').exists()

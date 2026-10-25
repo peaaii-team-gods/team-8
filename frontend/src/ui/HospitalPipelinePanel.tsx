@@ -10,8 +10,8 @@ const failureLine = (step: PipelineRecord["steps"][number]) => {
   const checks = eventsFor(step, "checks").flatMap(event => Array.isArray(event.checks) ? event.checks as Record<string, unknown>[] : []);
   const rate = checks.find(check => check.name === "fields.rate" && check.pass === false);
   const inserted = checks.find(check => check.name === "inserted_row_count");
-  return rate && typeof inserted?.actual === "number" && typeof inserted.expected === "number"
-    ? `Injected error: fields.rate expected ${String(rate.expected)}, got ${String(rate.actual)} - ${inserted.actual}/${inserted.expected} rows` : "";
+  return rate
+    ? `Injected error: fields.rate expected ${String(rate.expected)}, got ${String(rate.actual)}${typeof inserted?.actual === "number" && typeof inserted.expected === "number" && inserted.pass === false ? ` - ${inserted.actual}/${inserted.expected} rows` : ""}` : "";
 };
 const repairLine = (step: PipelineRecord["steps"][number]) => {
   const repair = eventsFor(step, "repair").find(event => event.label === "injected");
@@ -23,7 +23,10 @@ const humanSummary = (step: PipelineRecord["steps"][number]) => {
   if (step.node === "builder") return repairLine(step) || failureLine(step) || `Architect ${step.status}`;
   if (step.node === "source") {
     const trace = eventsFor(step, "trace")[0];
-    return trace?.label === "cached" ? "Scout fetch cached" : "Scout files fetched";
+    const ingest = eventsFor(step, "ingest")[0];
+    const mode = typeof ingest?.parse_mode === "string" ? ingest.parse_mode : typeof step.counts.parse_mode === "string" ? String(step.counts.parse_mode) : "";
+    const fetched = trace?.label === "cached" ? "Scout fetch cached" : "Scout files fetched";
+    return mode ? `${fetched} · ${mode}` : fetched;
   }
   if (step.node === "analyst") return `${String(step.counts.row_count ?? 0)} SQL report rows ready`;
   return `${step.node} ${step.status}`;
@@ -118,13 +121,13 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
       <h3 className="font-semibold">Golden SQL report</h3>
       <p>Commercial vs Medicare Managed Care Plan median, this hospital's file</p>
       <p className="text-white/60">{String(top.baseline_label)}</p>
-      <p className="text-white/60">{Array.isArray(top.rows) ? top.rows.length : 0} comparison groups with 11 reported fields</p>
+      <p className="text-white/60">{Array.isArray(top.rows) ? top.rows.length : 0} comparison groups</p>
       <button type="button" className="glass rounded-lg px-3 py-1 text-sm" onClick={openHospitalReportDialog}>Open full report</button>
     </section>}
     {model.summary && <p data-testid="hospital-report-summary">{model.summary}</p>}
     {model.rejected !== undefined && <p>Summary rejected by guard: {model.rejected} unsupported figures</p>}
     {model.summary && <p>Model summary · guard passed; recorded report remains golden</p>}
-    {record?.status === "completed" && !signedOut && <><p>Recorded artifacts: {["rows.csv", "mrf.sqlite", "report.md"].map(file => {
+    {record?.status === "completed" && !signedOut && <><p>Recorded artifacts: {["rows.csv", "report.csv", "mrf.sqlite", "report.md"].map(file => {
       const href = `${runPath(id)}/artifacts/${file}`;
       return <a className="mr-2 underline" key={file} href={href} onClick={event => {
         if (!accessToken) return;

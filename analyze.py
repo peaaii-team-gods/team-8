@@ -7,7 +7,8 @@ import re
 import sqlite3
 from statistics import median
 
-from store import store_rows, validated_rows
+from ingest import LEDGER_FIELDS
+from store import store_ledger, store_rows, validated_rows
 
 BASELINE_LABEL = "Medicare Advantage rates in this hospital's file"
 MONEY = re.compile(r'[-+]?\$\s*[-+]?(?:[\d,]+(?:\.\d+)?|\.\d+)(?:[eE][-+]?\d+|_\d+)*')
@@ -65,16 +66,20 @@ class _Median:
         return float(median(Decimal(str(value)) for value in self.values)) if self.values else None
 
 
+def _connect(db_path):
+    connection = sqlite3.connect(Path(db_path).resolve().as_uri() + '?mode=ro', uri=True)
+    connection.row_factory = sqlite3.Row
+    connection.create_aggregate('median', 1, _Median)
+    connection.create_function('commercial', 1, lambda plan: int(
+        re.search(COMMERCIAL_EXCLUSION_PATTERN, plan or '', re.IGNORECASE) is None))
+    return connection
+
+
 def analyze(db_path, top_n=10):
     """Run the fixed ranked median query against an existing local SQLite store."""
     if type(top_n) is not int or not 1 <= top_n <= 10:
         raise ValueError('top_n must be an integer from 1 to 10')
-    uri = Path(db_path).resolve().as_uri() + '?mode=ro'
-    with closing(sqlite3.connect(uri, uri=True)) as connection:
-        connection.row_factory = sqlite3.Row
-        connection.create_aggregate('median', 1, _Median)
-        connection.create_function('commercial', 1, lambda plan: int(
-            re.search(COMMERCIAL_EXCLUSION_PATTERN, plan, re.IGNORECASE) is None))
+    with closing(_connect(db_path)) as connection:
         return [dict(row) for row in connection.execute(FIXED_QUERY, (MA_PLAN, MA_PLAN, top_n))]
 
 
@@ -141,3 +146,92 @@ def write_run_artifacts(rows, run_id, *, data_dir=Path('data'), mapping=None, ex
     report_path.write_text(report, encoding='utf-8')
     return {**stored, 'db_path': stored['path'], 'rows_csv': str(csv_path), 'report_path': str(report_path),
             'top_rows': top_rows, 'baseline_label': BASELINE_LABEL, 'excluded_counts': counts}
+
+
+FULL_QUERY = (
+    "WITH grouped AS (SELECT billing_code, code_type, billing_class, min(description) AS description, "
+    "median(CASE WHEN commercial(plan_name) THEN negotiated_rate END) AS commercial_median, "
+    "median(CASE WHEN plan_name = ? THEN negotiated_rate END) AS ma_median, "
+    "median(gross_charge) AS gross_charge, median(discounted_cash) AS discounted_cash, "
+    "min(min_charge) AS min_charge, max(max_charge) AS max_charge, "
+    "sum(commercial(plan_name) AND negotiated_rate IS NOT NULL) AS n_commercial, "
+    "sum(CASE WHEN plan_name = ? AND negotiated_rate IS NOT NULL THEN 1 ELSE 0 END) AS n_MA "
+    "FROM hospital_rates GROUP BY billing_code, code_type, billing_class) "
+    "SELECT *, round(commercial_median - ma_median, 6) AS difference, "
+    "round(commercial_median / nullif(ma_median, 0), 2) AS ratio FROM grouped "
+    "WHERE commercial_median IS NOT NULL AND ma_median IS NOT NULL "
+    "ORDER BY difference DESC, billing_code ASC, code_type ASC, billing_class ASC")
+SPREAD_QUERY = (
+    "SELECT payer_name, plan_name, min(negotiated_rate) AS min_rate, median(negotiated_rate) AS median_rate, "
+    "max(negotiated_rate) AS max_rate, count(*) AS n FROM hospital_rates WHERE negotiated_rate IS NOT NULL "
+    "GROUP BY payer_name, plan_name ORDER BY payer_name ASC, plan_name ASC")
+MA_CAVEAT = 'Medicare Managed Care Plan is a single-plan baseline: no code has MA n>=2 in this file.'
+
+
+def analyze_full(db_path):
+    """Every code with commercial and MA medians, plus per-plan spread."""
+    with closing(_connect(db_path)) as connection:
+        return ([dict(row) for row in connection.execute(FULL_QUERY, (MA_PLAN, MA_PLAN))],
+                [dict(row) for row in connection.execute(SPREAD_QUERY)])
+
+
+def _md(cells):
+    return '| ' + ' | '.join(_cell(value) for value in cells) + ' |'
+
+
+def render_full_report(rows, spread, *, excluded_counts=None, metrics=None):
+    counts, metrics = excluded_counts or {}, metrics or {}
+    lines = ['# Hospital rate comparison', '',
+             'Storage: local SQLite. Parse mode: ' + str(metrics.get('parse_mode', 'streamed')) + '.', '',
+             'Medicare Advantage baseline: ' + BASELINE_LABEL + '.', '', MA_CAVEAT, '',
+             '## Codes with commercial and MA medians', '',
+             'Ranked by commercial median minus the Medicare Advantage baseline, descending. n and the MA single-plan caveat apply to every section.',
+             'Commercial plans exclude names matching: ' + COMMERCIAL_EXCLUSION_PATTERN + '.', '',
+             '| Code | Type | Class | Description | Commercial median | MA median | Difference | Ratio | n_commercial | n_MA | Gross | Cash | Min | Max |',
+             '| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |']
+    for row in rows:
+        lines.append(_md([row['billing_code'], row['code_type'], row['billing_class'], row['description'],
+                          _money(row['commercial_median']), _money(row['ma_median']), _money(row['difference']),
+                          'n/a' if row['ratio'] is None else f"{row['ratio']:.2f}", row['n_commercial'], row['n_MA'],
+                          _money(row['gross_charge']), _money(row['discounted_cash']),
+                          _money(row['min_charge']), _money(row['max_charge'])]))
+    if not rows:
+        lines.extend(['', 'No groups have both eligible commercial and Medicare Advantage baseline rates.'])
+    lines.extend(['', MA_CAVEAT, '', '## Per-payer spread (dollar rates)', '',
+                  '| Payer | Plan | Min | Median | Max | n |', '| --- | --- | ---: | ---: | ---: | ---: |'])
+    lines.extend(_md([row['payer_name'], row['plan_name'], _money(row['min_rate']), _money(row['median_rate']),
+                      _money(row['max_rate']), row['n']]) for row in spread)
+    lines.extend(['', MA_CAVEAT, '', 'Small-n medians (some groups contain one plan) are indicative only.',
+                  'Percent/algorithm prices are stored as percent_rate/algorithm and never converted into dollar rates.',
+                  f"Excluded non-dollar payer entries: {counts.get('skipped_no_dollar_count', 0)}.",
+                  f"Quarantined source items: {counts.get('quarantined_row_count', 0)}.", ''])
+    text = '\n'.join(lines)
+    if summary_violations(text, rows + spread):
+        raise ValueError('report contains unsupported dollar figures')
+    return text
+
+
+def write_ledger_artifacts(rows, run_id, *, data_dir=Path('data'), excluded_counts=None, metrics=None):
+    """Write data/runs/<run_id>/{rows.csv,report.csv,mrf.sqlite,report.md} from the full ledger."""
+    if not isinstance(run_id, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,127}', run_id):
+        raise ValueError('invalid run_id')
+    counts = dict(excluded_counts or {})
+    if set(counts) - {'skipped_no_dollar_count', 'quarantined_row_count'} or any(
+            type(value) is not int or value < 0 for value in counts.values()):
+        raise ValueError('invalid excluded_counts')
+    directory = Path(data_dir) / 'runs' / run_id
+    directory.mkdir(parents=True, exist_ok=False)
+    stored = store_ledger(rows, directory / 'mrf.sqlite')
+    top_rows, spread = analyze_full(stored['path'])
+    report = render_full_report(top_rows, spread, excluded_counts=counts, metrics=metrics)
+    csv_path, report_csv, report_path = directory / 'rows.csv', directory / 'report.csv', directory / 'report.md'
+    with csv_path.open('w', newline='', encoding='utf-8') as stream:
+        writer = csv.DictWriter(stream, fieldnames=list(LEDGER_FIELDS))
+        writer.writeheader(); writer.writerows({key: row.get(key) for key in LEDGER_FIELDS} for row in rows)
+    with report_csv.open('w', newline='', encoding='utf-8') as stream:
+        writer = csv.DictWriter(stream, fieldnames=list(top_rows[0]) if top_rows else ['billing_code'])
+        writer.writeheader(); writer.writerows(top_rows)
+    report_path.write_text(report, encoding='utf-8')
+    return {**stored, 'db_path': stored['path'], 'rows_csv': str(csv_path), 'report_csv': str(report_csv),
+            'report_path': str(report_path), 'top_rows': top_rows, 'spread': spread,
+            'baseline_label': BASELINE_LABEL, 'excluded_counts': counts}
