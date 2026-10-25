@@ -1,0 +1,19 @@
+{
+  "schema_version": "mrf.mapping.v1",
+  "collection": "in_network",
+  "rate_groups": "negotiated_rates",
+  "prices": "negotiated_prices",
+  "fields": {
+    "billing_code": "billing_code",
+    "description": "description",
+    "payer_name": "payer_name",
+    "billing_class": "billing_class",
+    "negotiated_type": "negotiated_type",
+    "rate": "negotiated_rate"
+  },
+  "standard_charge_lookup": "standard_charges",
+  "null_policy": {
+    "rate": { "fill_from": "standard_charges", "by": "billing_code" }
+  },
+  "dedupe_key": ["billing_code", "payer_name", "billing_class"]
+}
