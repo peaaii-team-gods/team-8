@@ -30,6 +30,7 @@ import type { RhmAdapter, RunHandle } from "./adapters/RhmAdapter";
 import { resolveMode, apiBaseFromEnv, identityBaseFromEnv, type RhmEnv } from "./adapters/selectAdapter";
 import { runNodes } from "./run/runNodes";
 import type { VerificationKind } from "./registry/types";
+import { verificationFromOracle } from "./mrf/labels";
 import { usageToTelemetry } from "./run/observability";
 import { emptyUsage } from "./run/telemetry";
 import { mrfDocument, recheckMapping, withDriftEvidence } from "./mrf/drift";
@@ -70,6 +71,7 @@ export default function App() {
   const providerBlocked = !inference?.configured || !Number.isFinite(Number(spendCap)) || Number(spendCap) < 0 || (requiresPaidConsent && (!paidConsent || Number(spendCap) <= 0));
   const adapter: RhmAdapter | null = mode === "live" ? liveAdapter : simulated;
   const [view, setView] = useState<ShellView>("landing");
+  const pendingMrf = useRef(false);
 
   const apiBase = apiBaseFromEnv(env);
   const identityBase = identityBaseFromEnv(env);
@@ -153,9 +155,7 @@ export default function App() {
           if (!isCurrent()) return;
           const node = useStore.getState().nodes.find((n) => n.id === id);
           let verification: VerificationKind | undefined;
-          if (status === "done") {
-            verification = "proposal";
-          } else if (status === "error") verification = "failed";
+          if (status === "done" || status === "error") verification = "proposal";
           setNodeStatus(id, status, output, verification);
           if (status === "error") setPipelineStage("fail");
           else if (status === "processing") setPipelineStage(node?.data.presetId === "maintainer" || node?.data.presetId === "mrf-maintainer" ? "repair" : "execute");
@@ -201,6 +201,13 @@ export default function App() {
           onEvaluated: (_nodeId, ev) => {
             if (!isCurrent()) return;
             if (ev.mapping) setMrfMapping(ev.mapping);
+            const nodeNow = useStore.getState().nodes.find((n) => n.id === _nodeId);
+            setNodeStatus(
+              _nodeId,
+              ev.invalidProposal ? "error" : (nodeNow?.data.status ?? "done"),
+              nodeNow?.data.output,
+              verificationFromOracle({ checksPassed: !!ev.passed && !ev.invalidProposal }),
+            );
             const failed = ev.checks.filter((c) => !c.pass).map((c) => c.name);
             const stNow = useStore.getState();
             setScienceReceipt({
@@ -324,6 +331,14 @@ export default function App() {
         sessionError={sessionError}
         onSignIn={() => setView("signin")}
         onEnterCanvas={() => setView("canvas")}
+        onLoadMrf={() => {
+          pendingMrf.current = true;
+          if (mode === "live") setView("signin");
+          else {
+            setView("canvas");
+            loadScenario("mrf-pipeline");
+          }
+        }}
       />
     );
   }
@@ -338,6 +353,7 @@ export default function App() {
           setLiveAdapter(adapterLive);
           setIdentitySession(sess);
           setView("canvas");
+          if (pendingMrf.current) loadScenario("mrf-pipeline");
         }}
       />
     );

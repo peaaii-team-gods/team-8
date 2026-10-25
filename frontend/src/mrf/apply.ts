@@ -101,7 +101,7 @@ export function applyMapping(fixture: unknown, mappingInput: unknown): ApplyResu
   const seen = new Set<string>();
   const rows: WarehouseRow[] = [];
   for (const row of flattened) {
-    const key = mapping.dedupe_key.map((k) => String((row as Record<string, unknown>)[k] ?? "")).join("\0");
+    const key = mapping.dedupe_key.map((k) => String((row as unknown as Record<string, unknown>)[k] ?? "")).join("\0");
     if (seen.has(key)) continue;
     seen.add(key);
     rows.push(row);

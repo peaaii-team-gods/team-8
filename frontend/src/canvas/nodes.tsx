@@ -37,12 +37,12 @@ function Shell({ data, id, isLake }: { data: CanvasNode["data"]; id: string; isL
       <div
         className={`mt-2 inline-flex rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide ${
           data.verification === "verified" ? "bg-emerald-400/20 text-emerald-200" :
-          data.verification === "failed" ? "bg-rose-400/20 text-rose-200" :
+          data.verification === "checked_locally" ? "bg-sky-400/20 text-sky-100" :
           "bg-amber-400/20 text-amber-100"
         }`}
         data-testid={`verification-${id}`}
       >
-        {data.verification === "verified" ? "Verified" : data.verification === "failed" ? "Failed" : "Proposal"}
+        {data.verification === "verified" ? "Verified" : data.verification === "checked_locally" ? "Checked locally" : "Proposal"}
       </div>
     )}
     {!isLake && data.schemaText && (

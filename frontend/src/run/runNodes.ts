@@ -161,6 +161,7 @@ export async function runNodes(
       }
 
       let retried = false;
+      let pendingEval: MrfEvaluation | null = null;
       if (mrfAgent && out.status === "succeeded") {
         let interpreted = interpretMrfReply(presetId, out.output);
         if (!interpreted.ok && interpreted.error === "invalid_json") {
@@ -191,18 +192,20 @@ export async function runNodes(
             const evaluated = evaluateMapping(hooks.mrf!.fixture, interpreted.mapping);
             mrfMapping = evaluated.mapping;
             mrfChecks = evaluated.checks;
-            hooks.mrf?.onEvaluated?.(nodeId, { ...evaluated, invalidProposal: false, retried });
+            pendingEval = { ...evaluated, invalidProposal: false, retried };
           } else {
-            hooks.mrf?.onEvaluated?.(nodeId, {
+            pendingEval = {
               mapping: mrfMapping, applied: null, checks: mrfChecks, passed: false,
-              invalidProposal: false, retried, declined: interpreted.declined,
-            });
+              invalidProposal: false, retried,
+              declined: interpreted.declined?.action === "fail" ? interpreted.declined : undefined,
+            };
           }
         }
       }
 
       const labelled = proposalLabel(out);
       hooks.onStatus(nodeId, out.status === "succeeded" ? "done" : "error", labelled);
+      if (pendingEval) hooks.mrf?.onEvaluated?.(nodeId, pendingEval);
       if (out.usage || out.workspace?.length) hooks.onTelemetry?.(nodeId, out.usage ?? emptyUsage(adapter.mode), out.workspace ?? []);
       if (adapter.workspaceChanges && workflow.workspace_id) {
         const extra = await adapter.workspaceChanges(workflow.workspace_id, nodeId).catch(() => []);

@@ -5,10 +5,11 @@ interface Props {
   mode: "simulated" | "live";
   onSignIn: () => void;
   onEnterCanvas: () => void;
+  onLoadMrf: () => void;
   sessionError?: string | null;
 }
 
-export default function LandingPage({ mode, onSignIn, onEnterCanvas, sessionError }: Props) {
+export default function LandingPage({ mode, onSignIn, onEnterCanvas, onLoadMrf, sessionError }: Props) {
   return (
     <div className="relative min-h-full overflow-hidden" data-testid="landing-page">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_30%_20%,#3b1470_0%,transparent_55%),radial-gradient(ellipse_at_80%_80%,#150826_0%,#070312_70%)]" />
@@ -53,6 +54,9 @@ export default function LandingPage({ mode, onSignIn, onEnterCanvas, sessionErro
               Enter canvas
             </button>
           )}
+          <button type="button" className="glass px-5 py-2.5 text-sm font-semibold text-emerald-200" onClick={onLoadMrf}>
+            Run MRF demo
+          </button>
           <a href="#how-it-works" className="glass px-5 py-2.5 text-sm text-white/80">
             How it works
           </a>
@@ -62,6 +66,7 @@ export default function LandingPage({ mode, onSignIn, onEnterCanvas, sessionErro
           <p>1. Attach a synthetic science data lake to an agent.</p>
           <p>2. Agents propose bounded JSON contracts. Live tools require backend authorization.</p>
           <p>3. Explore repair proposals on the pilot storyboard. Model output is not verified acceptance.</p>
+          <p>4. MRF demo: birds propose a flatten mapping; fixed code applies it and runs pinned 16/2/14 + digest checks. Labels are Proposal, Checked locally, or Verified (Coding SHA only).</p>
         </section>
       </div>
     </div>

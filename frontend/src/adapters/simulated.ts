@@ -1,10 +1,13 @@
 import type { RhmAdapter, RunHandle, RunOutcome } from "./RhmAdapter";
 import type { WorkflowV1 } from "../compile/toWorkflow";
 import type { UsageMetrics, WorkspaceChange } from "../run/telemetry";
+import { MRF_GOLDEN_MAPPING, MRF_GOLDEN_REPAIR_REPLY } from "../mrf/data";
 
 const REPLIES: Record<string, string> = {
   builder: '{"schema_version":"mapping.v1","id_column":"specimen_id","reading_column":"reading"}',
   maintainer: '{"action":"replace_mapping","mapping":{"schema_version":"mapping.v1","id_column":"specimen_id","reading_column":"value"}}',
+  "mrf-builder": JSON.stringify(MRF_GOLDEN_MAPPING),
+  "mrf-maintainer": JSON.stringify(MRF_GOLDEN_REPAIR_REPLY),
   "denial-predictor": '{"risk":"medium","flags":["modifier_mismatch"],"note":"synthetic audit only"}',
   "policy-audit": '{"compliant":false,"rule":"reading_column_must_exist","action":"repair"}',
   "assay-qc": '{"outcome":"pass","flags":["vehicle_ok"],"note":"synthetic plate QC"}',
@@ -24,6 +27,8 @@ const FILES: Record<string, WorkspaceChange[]> = {
   "policy-audit": [{ path: "work/policy-findings.json", kind: "added", summary: "Protocol rule hits" }],
   "assay-qc": [{ path: "work/assay-qc.json", kind: "added", summary: "Assay QC outcome" }],
   "custom-agent": [{ path: "work/custom-review.json", kind: "added", summary: "Custom agent notes" }],
+  "mrf-builder": [{ path: "contracts/mrf-mapping.proposal.json", kind: "added", summary: "MRF flatten-mapping proposal" }],
+  "mrf-maintainer": [{ path: "contracts/mrf-mapping.repair.json", kind: "added", summary: "One MRF mapping repair" }],
 };
 
 const hash = (s: string) => Array.from(s).reduce((a, c) => (a + c.charCodeAt(0)) % 97, 17);
@@ -37,7 +42,7 @@ const usageFor = (nodeId: string, workflow: WorkflowV1): UsageMetrics => {
 
 const presetKey = (wf: WorkflowV1 | undefined): string => {
   const blob = `${wf?.workspace_id ?? ""} ${wf?.objective ?? ""}`.toLowerCase();
-  const keys = Object.keys(REPLIES);
+  const keys = Object.keys(REPLIES).sort((a, b) => b.length - a.length);
   return keys.find((k) => blob.includes(k) || blob.includes(k.replace("-", " "))) ?? "custom-agent";
 };
 

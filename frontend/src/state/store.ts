@@ -134,7 +134,7 @@ export const useStore = create<Store>((set, get) => ({
         ...n.data,
         status,
         output,
-        verification: verification ?? (status === "done" ? "proposal" : status === "error" ? "failed" : n.data.verification),
+        verification: verification ?? (status === "done" || status === "error" ? "proposal" : n.data.verification),
       },
     } : n),
     tracks: s.tracks.map((t) => t.nodeId === id ? { ...t, status } : t),
