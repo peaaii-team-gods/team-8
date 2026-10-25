@@ -210,6 +210,34 @@ describe("hospital canvas deterministic record", () => {
     expect(screen.queryByRole("button", { name: "Export to Google Drive (direct API, not MCP)" })).toBeNull();
   });
 
+  it("surfaces a 401 when a live artifact download fails", async () => {
+    vi.stubGlobal("fetch", async (url: string) => {
+      if (url === "/api/pipeline/run") return response({ run_id: "run-test" });
+      if (url === "/api/pipeline/runs/run-test") return response(result);
+      if (url.includes("/artifacts/")) return new Response("no", { status: 401 });
+      throw new Error("Unexpected request");
+    });
+    render(<HospitalPipelinePanel adapter={null} budget={0} mode="live" accessToken="live-token" />);
+    fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
+    await screen.findByRole("heading", { name: "Golden SQL report" });
+    fireEvent.click(screen.getByRole("link", { name: "rows.csv" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Artifact unavailable (401)");
+  });
+
+  it("surfaces a connection failure when a live artifact download cannot reach the pipeline", async () => {
+    vi.stubGlobal("fetch", async (url: string) => {
+      if (url === "/api/pipeline/run") return response({ run_id: "run-test" });
+      if (url === "/api/pipeline/runs/run-test") return response(result);
+      if (url.includes("/artifacts/")) throw new TypeError("Failed to fetch");
+      throw new Error("Unexpected request");
+    });
+    render(<HospitalPipelinePanel adapter={null} budget={0} mode="live" accessToken="live-token" />);
+    fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
+    await screen.findByRole("heading", { name: "Golden SQL report" });
+    fireEvent.click(screen.getByRole("link", { name: "rows.csv" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Artifact unavailable: connection failed");
+  });
+
   it("sends the live identity bearer on pipeline run and export", async () => {
     const requests = setup();
     render(<HospitalPipelinePanel adapter={null} budget={0} mode="live" accessToken="live-token" />);

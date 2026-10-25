@@ -31,7 +31,7 @@ const humanSummary = (step: PipelineRecord["steps"][number]) => {
 export default function HospitalPipelinePanel({ adapter, budget, prepareLocalModel, mode, accessToken }: { adapter: RhmAdapter | null; budget: number; prepareLocalModel?: () => void; mode?: string; accessToken?: string | null }) {
   const signedOut = mode === "live" && !accessToken;
   const [record, setRecord] = useState<PipelineRecord | null>(null), [id, setId] = useState("");
-  const [inject, setInject] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const [inject, setInject] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(""), [artifactError, setArtifactError] = useState("");
   const [model, setModel] = useState<ModelView>({}), [exportNote, setExportNote] = useState(""), [exporting, setExporting] = useState(false);
   const active = useRef<AbortController | null>(null), handles = useRef<RunHandle[]>([]), exportLink = useRef("");
   useEffect(() => () => { active.current?.abort(); for (const handle of handles.current) void adapter?.cancel(handle).catch(() => undefined); }, [adapter]);
@@ -54,7 +54,7 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
     if (signedOut) return;
     const controller = new AbortController(); active.current?.abort(); active.current = controller; handles.current = [];
     const signal = controller.signal, timeout = setTimeout(() => controller.abort(), 180_000);
-    setBusy(true); setError(""); setId(""); setRecord(null); setModel({}); setExportNote(""); exportLink.current = "";
+    setBusy(true); setError(""); setArtifactError(""); setId(""); setRecord(null); setModel({}); setExportNote(""); exportLink.current = "";
     const store = useStore.getState(); store.resetRun(); store.markRunStart(); store.setPipelineStage("execute");
     try {
       const created = await pipelineRequest("/api/pipeline/run", { source: "south-shore", inject_error: inject }, signal, accessToken);
@@ -105,6 +105,7 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
     <button className="glass p-2 disabled:opacity-50" disabled={busy || exporting || signedOut} onClick={() => void start()}>Run hospital pipeline</button>
     {busy && <p role="status">Pipeline / model proposals running…</p>}
     {error && <p role="alert">{error}</p>}
+    {artifactError && <p role="alert">{artifactError}</p>}
     {record?.steps.map(step => <div key={step.node}>
       <strong>{stepNames[step.node] ?? step.node}</strong>: {step.status}
       <span className="ml-1 text-white/70">· {humanSummary(step)}</span>
@@ -128,11 +129,12 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
       return <a className="mr-2 underline" key={file} href={href} onClick={event => {
         if (!accessToken) return;
         event.preventDefault();
+        setArtifactError("");
         void fetch(href, { headers: pipelineHeaders(accessToken), cache: "no-store", redirect: "error" }).then(async response => {
-          if (!response.ok) return;
+          if (!response.ok) { setArtifactError(`Artifact unavailable (${response.status})`); return; }
           const url = URL.createObjectURL(await response.blob());
           const save = document.createElement("a"); save.href = url; save.download = file; save.click(); URL.revokeObjectURL(url);
-        });
+        }).catch(() => { setArtifactError("Artifact unavailable: connection failed"); });
       }}>{file}</a>;
     })}</p>
       <button className="glass p-2 disabled:opacity-50" disabled={exporting} onClick={() => void exportRun()}>Export to Google Drive (direct API, not MCP)</button></>}

@@ -35,8 +35,10 @@ Public nginx proxies `/api/pipeline/` same-origin to that service. Set
 ### Degraded modes
 
 - Tunnel connector down: public origin 530; local `http://127.0.0.1:18080` still serves the canvas.
+- Pipeline container down: nginx still serves the canvas; `/api/pipeline/` fails until the pipeline name resolves again.
 - Identity JWKS unreachable with an empty cache: pipeline returns `503 {"error":"identity_unavailable"}`.
 - Signed out on the live canvas: `Sign in to run the pipeline`; no anonymous run, model call, or export.
+- Live hospital pipeline uses the access token captured when the panel rendered; tokens last ≤5 min. Refresh the page (or restore the session) if a run starts after expiry.
 - Model down: existing golden path is kept; no OpenRouter or paid consent on this path.
 
 ### Rollback

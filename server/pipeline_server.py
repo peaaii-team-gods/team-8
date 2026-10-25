@@ -11,9 +11,6 @@ import time
 import urllib.request
 import uuid
 
-import jwt
-from jwt.algorithms import RSAAlgorithm
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -31,18 +28,29 @@ IDENTITY_ISS = 'https://identity.right-hand-man.space'
 IDENTITY_AUD = 'rhm-fleet'
 IDENTITY_JWKS = IDENTITY_ISS + '/.well-known/jwks.json'
 JWKS_TTL = 600
+JWKS_FAIL_BACKOFF = 60
 
 
 class IdentityUnavailable(Exception):
     pass
 
 
+def _load_jwt():
+    import jwt
+    from jwt.algorithms import RSAAlgorithm
+    return jwt, RSAAlgorithm
+
+
 class _JwksCache:
     def __init__(self):
-        self.payload, self.at = None, 0.0
+        self.payload, self.at, self.fail_until = None, 0.0, 0.0
 
     def get(self):
         now = time.monotonic()
+        if now < self.fail_until:
+            if self.payload is None:
+                raise IdentityUnavailable()
+            return self.payload
         if self.payload is None or now - self.at >= JWKS_TTL:
             try:
                 request = urllib.request.Request(IDENTITY_JWKS, headers={'Accept': 'application/json'})
@@ -50,9 +58,10 @@ class _JwksCache:
                     payload = json.loads(resp.read().decode())
                 if not isinstance(payload, dict) or not payload.get('keys'):
                     raise ValueError('jwks')
-                self.payload, self.at = payload, now
+                self.payload, self.at, self.fail_until = payload, now, 0.0
             except Exception as exc:
                 print(f'jwks_refresh_failed {type(exc).__name__}', file=sys.stderr)
+                self.fail_until = now + JWKS_FAIL_BACKOFF
                 if self.payload is None:
                     raise IdentityUnavailable() from exc
         return self.payload
@@ -62,6 +71,7 @@ _jwks = _JwksCache()
 
 
 def _signing_key(token):
+    jwt, RSAAlgorithm = _load_jwt()
     header = jwt.get_unverified_header(token)
     kid, keys = header.get('kid'), _jwks.get()['keys']
     jwk = next((item for item in keys if item.get('kid') == kid), None)
@@ -74,18 +84,23 @@ def _signing_key(token):
 
 def authenticate(headers):
     raw = headers.get('Authorization') or headers.get('authorization') or ''
-    if not raw.startswith('Bearer ') or not raw[7:].strip():
+    parts = raw.split(None, 1)
+    if len(parts) != 2 or parts[0].lower() != 'bearer' or not parts[1].strip():
         return 401, {'error': 'unauthorized'}
-    token = raw[7:].strip()
+    token = parts[1].strip()
     try:
+        jwt, _ = _load_jwt()
         claims = jwt.decode(token, _signing_key(token), algorithms=['RS256'], issuer=IDENTITY_ISS,
                             audience=IDENTITY_AUD, options={'require': ['exp', 'iss', 'aud', 'sub']})
     except IdentityUnavailable:
         return 503, {'error': 'identity_unavailable'}
+    except ModuleNotFoundError as exc:
+        print(f'auth_failed {type(exc).__name__}', file=sys.stderr)
+        return 503, {'error': 'identity_unavailable'}
     except Exception as exc:
         print(f'auth_failed {type(exc).__name__}', file=sys.stderr)
         return 401, {'error': 'unauthorized'}
-    if not claims.get('sub'):
+    if not claims.get('sub') or claims.get('token_type') != 'access' or claims.get('principal_type') != 'user':
         return 401, {'error': 'unauthorized'}
     return None, claims
 

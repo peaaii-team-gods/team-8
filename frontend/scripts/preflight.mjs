@@ -34,9 +34,11 @@ const LOCAL_DEMO = new Set(["pipeline", "frontend"]);
 export function classify(kind, observation) {
   const status = observation?.status;
   if (kind === "pipeline") {
-    return status === 404 && typeof observation?.json?.error === "string"
-      ? { level: "GREEN", detail: "up" }
-      : { level: "RED", detail: "down" };
+    if (status === 404 && typeof observation?.json?.error === "string")
+      return { level: "GREEN", detail: "up" };
+    if (status === 401 && observation?.json?.error === "unauthorized")
+      return { level: "GREEN", detail: "up (auth required)" };
+    return { level: "RED", detail: "down" };
   }
   if (kind === "frontend") {
     return status === 200 ? { level: "GREEN", detail: "up" } : { level: "RED", detail: "down" };

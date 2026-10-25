@@ -16,6 +16,11 @@ describe("preflight classify()", () => {
     expect(classify("pipeline", { status: 200, json: {} }).level).toBe("RED");
   });
 
+  it("marks pipeline 401 unauthorized JSON as up with auth required", () => {
+    expect(classify("pipeline", { status: 401, json: { error: "unauthorized" } })).toEqual({ level: "GREEN", detail: "up (auth required)" });
+    expect(classify("pipeline", { status: 401, json: { error: "other" } }).level).toBe("RED");
+  });
+
   it("marks public 530 as RED tunnel connector down", () => {
     expect(classify("public", { status: 530 })).toEqual({ level: "RED", detail: "tunnel connector down" });
     expect(classify("public", { status: 200 }).level).toBe("GREEN");
