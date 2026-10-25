@@ -5,6 +5,7 @@ import { useStore } from "../state/store";
 import { formatTokens, formatUsageCost } from "../run/telemetry";
 import { matchingSchemaId, parseSchemaText } from "../registry/schemas";
 import { attachmentById, mcpPosture } from "../registry/mcpLinkage";
+import { HOSPITAL_EXPORT_EVENT } from "../run/hospitalPipeline";
 
 const ACCENT: Record<string, string> = {
   emerald: "#34d399",
@@ -25,6 +26,10 @@ function Shell({ data, id, isLake }: { data: CanvasNode["data"]; id: string; isL
   const track = tracks.find((t) => t.nodeId === id);
   const busy = data.status === "processing" || data.status === "queued";
   const accent = ACCENT[data.color] ?? "#c084fc";
+  let hospitalView: Record<string, unknown> = {};
+  if (["hospital-store", "mrf-hospital-maintainer", "hospital-analyst"].includes(data.presetId)) {
+    try { const view = JSON.parse(data.output ?? "{}"); if (view && typeof view === "object" && !Array.isArray(view)) hospitalView = view; } catch { /* No run receipt yet. */ }
+  }
   const tethered = edges
     .filter((e) => e.target === id)
     .map((e) => nodes.find((n) => n.id === e.source && n.data.kind === "dataLake"))
@@ -77,6 +82,13 @@ function Shell({ data, id, isLake }: { data: CanvasNode["data"]; id: string; isL
       </div>
     )}
     {data.status && <div className="mt-2 text-xs capitalize">Status: {data.status}</div>}
+    {typeof hospitalView.goldenRepair === "string" && <p className="mt-2 text-xs">{hospitalView.goldenRepair}</p>}
+    {typeof hospitalView.modelRepair === "string" && <p className="text-xs text-white/60">{hospitalView.modelRepair}</p>}
+    {typeof hospitalView.analystText === "string" && <pre className="nodrag nowheel mt-2 max-h-32 overflow-auto whitespace-pre-wrap text-xs">{hospitalView.analystText}</pre>}
+    {typeof hospitalView.summaryNote === "string" && <p className="text-xs text-white/60">{hospitalView.summaryNote}</p>}
+    {data.presetId === "hospital-store" && hospitalView.hospitalComplete === true && <button type="button" className="nodrag mt-2 text-left text-xs underline disabled:opacity-50" disabled={hospitalView.exporting === true}
+      onClick={event => { event.stopPropagation(); window.dispatchEvent(new CustomEvent(HOSPITAL_EXPORT_EVENT, { detail: { runId: hospitalView.hospitalRunId } })); }}>Export to Google Drive (direct API, not MCP)</button>}
+    {typeof hospitalView.exportNote === "string" && <p className="text-xs text-white/60">{hospitalView.exportNote}</p>}
     <Handle type="source" position={Position.Right} />
     <NodeToolbar isVisible={uiState.kind === "menu" && uiState.nodeId === id} position={Position.Right}>
       <div className="glass flex gap-1 p-2">

@@ -10,6 +10,7 @@ export interface PipelineStep { node: string; status: string; counts: Record<str
 export interface PipelineRecord { status: string; steps: PipelineStep[]; report_md?: string }
 export interface ModelView { mapping?: { valid: boolean; matches_golden: boolean }; repair?: { valid: boolean }; matchesRepair?: boolean; summary?: string; rejected?: number; unavailable?: boolean }
 export const runPath = (id: string) => `/api/pipeline/runs/${encodeURIComponent(id)}`;
+export const HOSPITAL_EXPORT_EVENT = "hospital-run-export";
 export const hospitalModelAdapter = (adapter: RhmAdapter | null, inference: InferenceStatus | null, spendCap: string, paidConsent: boolean) =>
   adapter?.mode === "live" && inference?.host_models_authorized && !inference.configured && !liveProviderBlocked(inference, spendCap, paidConsent) ? adapter : null;
 export async function pipelineRequest(path: string, body?: unknown, signal?: AbortSignal) {

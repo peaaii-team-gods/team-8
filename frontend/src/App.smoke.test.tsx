@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
 import App from "./App";
 import { ToastProvider } from "./ui/toasts/ToastProvider";
 import { useStore } from "./state/store";
@@ -39,6 +39,40 @@ beforeEach(() => {
 });
 
 describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
+  it("exports from the actual completed Storage node and shows its neutral unavailable note", async () => {
+    const requests: { url: string; init?: RequestInit }[] = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      requests.push({ url, init });
+      const value = url.endsWith("/export") ? { status: "unavailable", reason: "Drive not configured" } : url.endsWith("/run") ? { run_id: "run-node" } : {
+        status: "completed", report_md: "Golden SQL report", steps: [
+          { node: "builder", status: "completed", counts: {}, telemetry: [{ type: "repair", label: "injected" }] },
+          { node: "store", status: "completed", counts: { row_count: 42 }, telemetry: [] },
+          { node: "analyst", status: "completed", counts: {}, telemetry: [] },
+        ],
+      };
+      return new Response(JSON.stringify(value), { headers: { "Content-Type": "application/json" } });
+    });
+    renderApp();
+    fireEvent.click(screen.getByRole("button", { name: /Enter canvas/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.click(screen.getByRole("button", { name: "Hospital source to SQL" }));
+    const storage = useStore.getState().nodes.find(node => node.data.presetId === "hospital-store")!;
+    const storageNode = () => screen.getByTestId(`node-${storage.id}`);
+    expect(within(storageNode()).queryByText("Export to Google Drive (direct API, not MCP)", { selector: "button" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
+    // React Flow hides unmeasured nodes in jsdom; inspect the actual button DOM.
+    const exportButton = await waitFor(() => within(storageNode()).getByText("Export to Google Drive (direct API, not MCP)", { selector: "button" }));
+    expect(requests.some(request => request.url.endsWith("/export"))).toBe(false);
+    fireEvent.click(exportButton);
+    await waitFor(() => within(storageNode()).getByText("Export unavailable: Drive not configured"));
+    expect(within(storageNode()).queryByRole("alert")).toBeNull();
+    expect(requests.find(request => request.url.endsWith("/export"))?.init?.body).toBeUndefined();
+    const analyst = useStore.getState().nodes.find(node => node.data.presetId === "hospital-analyst")!;
+    expect(within(screen.getByTestId(`node-${analyst.id}`)).getByText("Golden SQL report")).toBeTruthy();
+    const furnace = useStore.getState().nodes.find(node => node.data.presetId === "mrf-hospital-maintainer")!;
+    expect(within(screen.getByTestId(`node-${furnace.id}`)).getByText(/Golden repair: injected/)).toBeTruthy();
+  });
+
   it("loads the hospital canvas with public-source labels and its separate local run button", async () => {
     const modelRun = vi.spyOn(SimulatedAdapter.prototype, "run");
     renderApp();

@@ -134,6 +134,11 @@ describe("hospital canvas deterministic record", () => {
     expect(JSON.parse(model.workflows[1].inputs.failing_checks)).toEqual([{ name: "fields.rate", pass: false, expected: "standard_charge_dollar", actual: "missing" }]);
     expect(model.workflows[2].inputs.sql_rows).toContain("120");
     expect(model.requests.some(r => r.url.endsWith("/export"))).toBe(false);
+    const furnace = useStore.getState().nodes.find(node => node.data.presetId === "mrf-hospital-maintainer")!;
+    expect(JSON.parse(furnace.data.output!).modelRepair).toBe("Model repair: valid / matches golden");
+    const analyst = useStore.getState().nodes.find(node => node.data.presetId === "hospital-analyst")!;
+    expect(JSON.parse(analyst.data.output!).analystText).toBe(report);
+    expect(analyst.data.output).not.toContain("99999");
   });
 
   it("shows a model summary only after this run's guard accepts it", async () => {
@@ -145,6 +150,8 @@ describe("hospital canvas deterministic record", () => {
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
     await screen.findByText("Model summary · guard passed; recorded report remains golden");
     expect(screen.getByTestId("hospital-report").textContent).toBe("The selected rate is $120.");
+    const analyst = useStore.getState().nodes.find(node => node.data.presetId === "hospital-analyst")!;
+    expect(JSON.parse(analyst.data.output!).analystText).toBe("The selected rate is $120.");
     expect(model.requests.find(r => r.url.endsWith("/summary"))?.body).toEqual({ text: "The selected rate is $120." });
   });
 
