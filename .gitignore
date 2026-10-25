@@ -6,3 +6,4 @@ __pycache__
 .pilot-state*/
 pilot-result*.json
 work/
+data/
