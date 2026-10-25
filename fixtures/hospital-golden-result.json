@@ -1,0 +1,10 @@
+{
+  "counts": {
+    "flattened_row_count": 42,
+    "inserted_row_count": 42,
+    "nulls_repaired": 0,
+    "skipped_no_dollar_count": 0,
+    "quarantined_row_count": 1
+  },
+  "digest": "51adaef9ced58aafd9f1283ea61a45d31852ffe50cde94a14082f0e95a9142e5"
+}

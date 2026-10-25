@@ -21,6 +21,9 @@ def load_json(name):
 
 
 def parse_mapping(value):
+    if isinstance(value, dict) and value.get("schema_version") == "mrf.mapping.v2-hospital":
+        from hospital_mapping import parse_hospital_mapping
+        return parse_hospital_mapping(value)
     if not isinstance(value, dict) or value.get("schema_version") != MAPPING_VERSION:
         raise ValueError("unsupported mapping schema_version")
     fields = value.get("fields")
@@ -45,6 +48,9 @@ def _text(obj, key):
 
 def apply_mapping(fixture, mapping_input):
     mapping = parse_mapping(mapping_input)
+    if mapping["schema_version"] == "mrf.mapping.v2-hospital":
+        from hospital_mapping import apply_hospital_mapping
+        return apply_hospital_mapping(fixture, mapping)
     if not isinstance(fixture, dict):
         raise ValueError("fixture must be an object")
     lookup = fixture.get(mapping["standard_charge_lookup"]) or {}

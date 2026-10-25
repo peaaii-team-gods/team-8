@@ -1,0 +1,24 @@
+{
+  "schema_version": "mrf.mapping.v2-hospital",
+  "collection": "standard_charge_information",
+  "code_selector": {
+    "list": "code_information",
+    "type_field": "type",
+    "code_field": "code",
+    "accept_types": [
+      "HCPCS"
+    ],
+    "pattern": "^\\d{5}$"
+  },
+  "charge_list": "standard_charges",
+  "payer_list": "payers_information",
+  "fields": {
+    "description": "description",
+    "payer_name": "payer_name",
+    "plan_name": "plan_name",
+    "billing_class": "billing_class",
+    "rate": "standard_charge_dollar"
+  },
+  "gross_key": "gross_charge",
+  "cash_key": "discounted_cash"
+}
