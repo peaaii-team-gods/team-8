@@ -24,6 +24,8 @@
 | `mrf-maintainer` |
 | `mrf-hospital-builder` |
 | `mrf-hospital-maintainer` |
+| `hospital-store` |
+| `hospital-analyst` |
 
 ### Data lake presets
 
@@ -35,6 +37,7 @@
 | `commercial` |
 | `assay-plate` |
 | `hospital-mrf` |
+| `hospital-source` |
 
 ### Output schemas
 
@@ -49,6 +52,7 @@
 | `mrf.repair.v1` |
 | `mrf.mapping.v2-hospital` |
 | `mrf.repair.v2-hospital` |
+| `hospital.summary.v1` |
 | `custom.v1` |
 
 ### MCP attachments (declared, not executable)

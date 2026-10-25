@@ -7,6 +7,7 @@ export const DATA_LAKE_PRESETS: DataLakePreset[] = [
   { id: "commercial", kind: "dataLake", title: "Commercial Clearinghouse", description: "Synthetic commercial audit records", color: "rose", fixtureId: "commercial" },
   { id: "assay-plate", kind: "dataLake", title: "Assay Plate", description: "Synthetic well/compound concentration readouts", color: "lime", fixtureId: "assay-plate" },
   { id: "hospital-mrf", kind: "dataLake", title: "Hospital MRF excerpt", description: "Synthetic nested price-transparency sample (not the full file)", color: "blue", fixtureId: "hospital-mrf" },
+  { id: "hospital-source", kind: "dataLake", title: "Source", description: "Public South Shore hospital price file; fetch trace reports cached reuse", color: "blue", fixtureId: "hospital-source" },
 ];
 
 export const dataLakePreset = (id: string) => DATA_LAKE_PRESETS.find((p) => p.id === id);

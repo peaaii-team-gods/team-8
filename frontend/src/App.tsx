@@ -49,6 +49,8 @@ import { mrfDocument, recheckMapping, withDriftEvidence } from "./mrf/drift";
 import { failingChecks } from "./mrf/checks";
 import { bootDemo, demoPath, exitDemoPath, isDemoScenarioId, type DemoScenarioId } from "./demo/boot";
 import DemoBanner from "./demo/DemoBanner";
+import HospitalPipelinePanel from "./ui/HospitalPipelinePanel";
+import { hospitalModelAdapter } from "./run/hospitalPipeline";
 
 const nodeTypes: NodeTypes = { agent: AgentNode, dataLake: DataLakeNode };
 const edgeTypes = { packet: PacketEdge } as EdgeTypes;
@@ -182,6 +184,7 @@ export default function App() {
   };
 
   const toggleRun = async () => {
+    if (scenarioId === "hospital-pipeline") return;
     if (running) {
       stoppedRef.current = true;
       runEpoch.current += 1;
@@ -543,6 +546,7 @@ export default function App() {
   }}>
     <UserBar
       mode={shellMode}
+      publicSource={scenarioId === "hospital-pipeline"}
       username={identitySession?.user?.username ?? null}
       signedIn={!!liveAdapter}
       busy={running}
@@ -569,7 +573,7 @@ export default function App() {
     {snapshotNotice && (
       <p className="shrink-0 bg-amber-950/80 px-3 py-1 text-xs text-amber-100" role="alert" data-testid="snapshot-notice">{snapshotNotice}</p>
     )}
-    {demo.enabled && (
+    {demo.enabled && scenarioId !== "hospital-pipeline" && (
       <DemoBanner
         scenarioId={demo.scenarioId}
         onScenario={chooseScenario}
@@ -637,8 +641,8 @@ export default function App() {
         <ConversationPanel />
       </div>
     )}
-    {shellMode === "live" && !inference?.configured && !inference?.host_models_authorized && <p className="glass absolute bottom-20 left-2 z-20 max-w-sm p-2 text-xs">Open Account inference settings and select your provider before running. This account cannot use the operator's model automatically.</p>}
-    {edges.length > 0 && (
+    {scenarioId !== "hospital-pipeline" && shellMode === "live" && !inference?.configured && !inference?.host_models_authorized && <p className="glass absolute bottom-20 left-2 z-20 max-w-sm p-2 text-xs">Open Account inference settings and select your provider before running. This account cannot use the operator's model automatically.</p>}
+    {edges.length > 0 && scenarioId !== "hospital-pipeline" && (
       <div className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2">
         <button aria-label={running ? "Stop run" : "Run pipeline"} disabled={!running && (!adapter || (shellMode === "live" && providerBlocked))} title={!running && !adapter ? "Sign in before Run." : undefined} className="glass flex items-center gap-2 px-5 py-2 disabled:opacity-50" onClick={(e) => { e.stopPropagation(); void toggleRun(); }}>{running ? <Square size={14} /> : <Play size={14} />}{running ? "Stop" : "Run Pipeline"}</button>
         {scenarioId === "mrf-pipeline" && (
@@ -652,7 +656,7 @@ export default function App() {
       <div className="glass absolute left-1/2 top-4 z-10 max-w-md -translate-x-1/2 px-4 py-2 text-sm" data-testid="link-banner">
         <div>
           {nodes.find((n) => n.id === uiState.sourceId)?.data.kind === "dataLake"
-            ? "Click an agent. This lake becomes synthetic evidence. Several lakes can feed one agent."
+            ? scenarioId === "hospital-pipeline" ? "Click an agent. The source feeds bounded public hospital evidence." : "Click an agent. This lake becomes synthetic evidence. Several lakes can feed one agent."
             : "Click another agent to hand off. Lakes are not writable from an agent."}
         </div>
         <div className="text-[10px] opacity-60">Click empty space to cancel.</div>
@@ -669,12 +673,13 @@ export default function App() {
       <div className="glass flex flex-col gap-1 self-stretch px-3 py-2 text-xs">
         <div className="font-display text-sm text-fuchsia-100">Team 8 · Science canvas</div>
         <div className="flex flex-wrap items-center gap-2">
-          <SyntheticBadge />
+          {scenarioId !== "hospital-pipeline" && <SyntheticBadge />}
         </div>
         {shellMode === "simulated" && (
           <button type="button" disabled={running} className="mt-1 text-[10px] opacity-70 disabled:opacity-50" onClick={() => setView("landing")}>Back to landing</button>
         )}
       </div>
+      {scenarioId === "hospital-pipeline" && <HospitalPipelinePanel key={sessionId} adapter={hospitalModelAdapter(shellMode === "live" ? liveAdapter : null, inference, spendCap, paidConsent)} budget={Number(spendCap)} prepareLocalModel={() => liveAdapter?.setPaidInferenceConsent(false)} />}
       <HistoryPanel mode={shellMode} client={shellMode === "live" ? liveAdapter : null} />
       <ReadinessPanel
         mode={shellMode === "live" && liveAdapter ? "live" : "simulated"}

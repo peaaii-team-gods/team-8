@@ -262,6 +262,11 @@ export const OUTPUT_SCHEMAS: OutputSchema[] = [
     },
   },
   {
+    id: "hospital.summary.v1", title: "Hospital SQL summary", summary: "A short model proposal checked against this run's SQL figures.",
+    presetIds: ["hospital-analyst"], document: { type: "object", additionalProperties: false, required: ["summary"],
+      properties: { summary: { type: "string", minLength: 1, maxLength: 1200 } } },
+  },
+  {
     id: "custom.v1",
     title: "Custom object",
     summary: "Blank object. Replace this JSON with the shape you want back.",

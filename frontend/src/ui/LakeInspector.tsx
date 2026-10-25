@@ -16,9 +16,9 @@ export default function LakeInspector() {
   const nodes = useStore((s) => s.nodes);
   const edges = useStore((s) => s.edges);
   const inspectLake = useStore((s) => s.inspectLake);
+  const mrfSource = useStore((s) => s.mrfSource);
   const node = nodes.find((n) => n.id === inspectedLakeId && n.data.kind === "dataLake");
   if (!node) return null;
-  const mrfSource = useStore((s) => s.mrfSource);
   const preset = dataLakePreset(node.data.presetId);
   const fixtureId = node.data.presetId === "hospital-mrf" && mrfSource === "drift" ? "hospital-mrf-drift" : (preset?.fixtureId ?? node.data.presetId);
   const rows = fixtureFor(fixtureId).slice(0, 8);
@@ -32,7 +32,7 @@ export default function LakeInspector() {
         <div className="font-semibold">{node.data.title}</div>
         <button type="button" className="text-xs opacity-70" onClick={() => inspectLake(null)}>Close</button>
       </div>
-      <p className="mb-2 text-[10px] opacity-60">Synthetic sample rows · no PHI</p>
+      <p className="mb-2 text-[10px] opacity-60">{node.data.presetId === "hospital-source" ? "Public hospital source · see the pipeline run trace" : "Synthetic sample rows · no PHI"}</p>
       <p className="mb-2 text-[10px] opacity-70" data-testid="lake-link-copy">
         {targets.length
           ? `Tethered to ${targets.map((n) => n.data.title).join(", ")}. Inspecting does not change the link.`

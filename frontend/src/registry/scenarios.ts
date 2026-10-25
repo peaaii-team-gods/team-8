@@ -103,6 +103,15 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
       };
     },
   },
+  {
+    id: "hospital-pipeline", title: "Hospital source to SQL", blurb: "Source → Builder → Furnace → local SQLite → Analyst",
+    build: (nextId) => {
+      const nodes = [lakeNode(nextId, "hospital-source", 20, 120), agentNode(nextId, "mrf-hospital-builder", 320, 120),
+        agentNode(nextId, "mrf-hospital-maintainer", 620, 120), agentNode(nextId, "hospital-store", 920, 120), agentNode(nextId, "hospital-analyst", 1220, 120)];
+      nodes[2].data.title = "Furnace · Maintainer";
+      return { nodes, edges: nodes.slice(1).map((node, i) => ({ id: nextId("e"), source: nodes[i].id, target: node.id, type: "packet", data: { active: false } })) };
+    },
+  },
 ];
 
 export const scenarioById = (id: string) => DEMO_SCENARIOS.find((s) => s.id === id);

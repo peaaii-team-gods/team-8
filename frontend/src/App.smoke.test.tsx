@@ -39,6 +39,23 @@ beforeEach(() => {
 });
 
 describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
+  it("loads the hospital canvas with public-source labels and its separate local run button", async () => {
+    const modelRun = vi.spyOn(SimulatedAdapter.prototype, "run");
+    renderApp();
+    fireEvent.click(screen.getByRole("button", { name: /Enter canvas/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.click(screen.getByRole("button", { name: "Hospital source to SQL" }));
+    await waitFor(() => expect(useStore.getState().scenarioId).toBe("hospital-pipeline"));
+    expect(screen.getByRole("button", { name: "Run hospital pipeline" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Run pipeline" })).toBeNull();
+    expect(screen.queryByTestId("synthetic-badge")).toBeNull();
+    const source = useStore.getState().nodes.find(node => node.data.presetId === "hospital-source")!;
+    fireEvent.doubleClick(screen.getByTestId(`node-${source.id}`));
+    expect(screen.getByText("Public hospital source · see the pipeline run trace")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Enter", ctrlKey: true });
+    expect(modelRun).not.toHaveBeenCalled();
+  });
+
   it("keeps a normal load on the landing page", () => {
     renderApp();
     expect(screen.getByTestId("landing-page")).toBeTruthy();
