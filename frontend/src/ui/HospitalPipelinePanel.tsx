@@ -7,7 +7,7 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
   const [record, setRecord] = useState<PipelineRecord | null>(null), [id, setId] = useState("");
   const [inject, setInject] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [model, setModel] = useState<ModelView>({}), [exportNote, setExportNote] = useState(""), [exporting, setExporting] = useState(false);
-  const active = useRef<AbortController | null>(null), handles = useRef<RunHandle[]>([]);
+  const active = useRef<AbortController | null>(null), handles = useRef<RunHandle[]>([]), exportLink = useRef("");
   useEffect(() => () => { active.current?.abort(); for (const handle of handles.current) void adapter?.cancel(handle).catch(() => undefined); }, [adapter]);
   useEffect(() => {
     if (!record || !id) return;
@@ -26,7 +26,7 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
   const start = async () => {
     const controller = new AbortController(); active.current?.abort(); active.current = controller; handles.current = [];
     const signal = controller.signal, timeout = setTimeout(() => controller.abort(), 180_000);
-    setBusy(true); setError(""); setId(""); setRecord(null); setModel({}); setExportNote("");
+    setBusy(true); setError(""); setId(""); setRecord(null); setModel({}); setExportNote(""); exportLink.current = "";
     const store = useStore.getState(); store.resetRun(); store.markRunStart(); store.setPipelineStage("execute");
     try {
       const created = await pipelineRequest("/api/pipeline/run", { source: "south-shore", inject_error: inject }, signal);
@@ -54,11 +54,12 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
     finally { clearTimeout(timeout); if (active.current === controller) { setBusy(false); store.markRunEnd(); } }
   };
   const exportRun = async () => {
-    setExporting(true);
+    setExporting(true); exportLink.current = "";
     try {
       const response = await fetch(`${runPath(id)}/export`, { method: "POST", cache: "no-store", redirect: "error" });
       const result = await response.json();
-      setExportNote(result.status === "exported" ? `Exported: ${result.folder}` : `Export unavailable: ${result.reason ?? "run unavailable"}`);
+      exportLink.current = result.status === "exported" ? result.folder_link : "";
+      setExportNote(result.status === "exported" ? "Exported to Drive" : `Export unavailable: ${result.reason ?? "run unavailable"}`);
     } catch { setExportNote("Export unavailable: connection failed"); }
     finally { setExporting(false); }
   };
@@ -90,6 +91,6 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
     {record?.report_md && <pre className="max-h-64 overflow-auto whitespace-pre-wrap" data-testid="hospital-report">{model.summary ?? record.report_md}</pre>}
     {record?.status === "completed" && <><p>Recorded artifacts: {["rows.csv", "mrf.sqlite", "report.md"].map(file => <a className="mr-2 underline" key={file} href={`${runPath(id)}/artifacts/${file}`}>{file}</a>)}</p>
       <button className="glass p-2 disabled:opacity-50" disabled={exporting} onClick={() => void exportRun()}>Export to Google Drive (direct API, not MCP)</button></>}
-    {exportNote && <p className="text-white/60" role="status">{exportNote}</p>}
+    {exportNote && <p className="text-white/60" role="status">{exportLink.current ? <a className="underline" href={exportLink.current}>{exportNote}</a> : exportNote}</p>}
   </section>;
 }

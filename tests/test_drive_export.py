@@ -134,7 +134,8 @@ def test_refresh_multipart_upload_verification_and_duplicate_names(configured, m
     assert len(state['uploads']) == 6
     assert first['folder_id'] == second['folder_id'] == 'folder-1'
     assert {f['drive_id'] for f in first['files']}.isdisjoint(f['drive_id'] for f in second['files'])
-    assert set(first) == {'folder_id', 'files', 'events'}
+    assert set(first) == {'folder_id', 'folder_link', 'files', 'events'}
+    assert first['folder_link'] == second['folder_link'] == 'https://drive.google.com/drive/folders/folder-1'
     assert first['events'] == []
     for item, (metadata, payload) in zip(first['files'], state['uploads']):
         assert set(item) == {'name', 'drive_id', 'link', 'sha256', 'size', 'verified'}
@@ -204,9 +205,11 @@ def test_parent_folder_override(configured, monkeypatch):
     secrets_path.write_text(json.dumps(config))
     with fake_drive() as (base, state):
         use_server(monkeypatch, base)
-        drive_export.export_run(directory, 'run-example')
+        result = drive_export.export_run(directory, 'run-example')
     assert len(state['folders']) == 1
     assert state['folders'][0]['parents'] == ['configured-parent']
+    assert result['folder_id'] == 'folder-0'
+    assert result['folder_link'] == 'https://drive.google.com/drive/folders/folder-0'
 
 
 def test_cli_outputs_only_file_table_and_safe_failure(configured, monkeypatch):

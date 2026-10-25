@@ -187,7 +187,8 @@ def export_run(run_dir: Path, run_id: str):
         parent = parent or drive.folder('RHM Demo Exports', 'root')
         folder = drive.folder(run_id, parent)
         files = [drive.upload(name, payload, folder) for name, payload in zip(ARTIFACTS, payloads)]
-        result = {'folder_id': folder, 'files': files, 'events': []}
+        result = {'folder_id': folder, 'folder_link': 'https://drive.google.com/drive/folders/' + folder,
+                  'files': files, 'events': []}
         serialized = json.dumps(result)
         if any(config[key] in serialized for key in ('client_secret', 'refresh_token')) or drive.token in serialized:
             raise DriveExportError('invalid_drive_response')

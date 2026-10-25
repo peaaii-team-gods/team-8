@@ -157,7 +157,8 @@ class PipelineService:
                         from drive_export import export_run
                         exporter = export_run
                     uploaded = exporter(self.data_dir / 'runs' / run_id, run_id)
-                    result = {'status': 'exported', 'folder': 'RHM Demo Exports/' + run_id, 'files': uploaded['files']}
+                    result = {'status': 'exported', 'folder_id': uploaded['folder_id'],
+                              'folder_link': uploaded['folder_link'], 'files': uploaded['files']}
                 except Exception:
                     result = {'status': 'unavailable', 'reason': 'drive_export_unavailable'}
                     print(f'drive_export_unavailable run_id={run_id}', file=sys.stderr)

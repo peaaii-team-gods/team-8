@@ -92,12 +92,13 @@ describe("hospital canvas deterministic record", () => {
   });
 
   it("exports only on click and shows the returned folder", async () => {
-    const requests = setup({ status: "exported", folder: "RHM Demo Exports/run-test", files: ["rows.csv"] });
+    const requests = setup({ status: "exported", folder_id: "folder-test", folder_link: "https://drive.google.com/drive/folders/folder-test", files: ["rows.csv"] });
     render(<HospitalPipelinePanel adapter={null} budget={0} />);
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
     await screen.findByText(report);
     fireEvent.click(screen.getByRole("button", { name: "Export to Google Drive (direct API, not MCP)" }));
-    await screen.findByText(/RHM Demo Exports\/run-test/);
+    const driveLink = await screen.findByRole("link", { name: "Exported to Drive" });
+    expect(driveLink.getAttribute("href")).toBe("https://drive.google.com/drive/folders/folder-test");
     expect(requests.filter(r => r.url.endsWith("/export"))).toHaveLength(1);
   });
 
