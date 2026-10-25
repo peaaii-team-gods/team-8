@@ -1,6 +1,7 @@
 """Bounded public API calls and a credential/content-free submission journal."""
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import time
@@ -71,7 +72,24 @@ class Journal:
             json.dump(self.data, stream, indent=2)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temp, self.path)
+        original_error = None
+        try:
+            for attempt in range(1, 6):
+                try:
+                    os.replace(temp, self.path)
+                    break
+                except PermissionError as error:
+                    if os.name != "nt" or getattr(error, "winerror", None) not in (5, 32):
+                        raise
+                    if original_error is None:
+                        original_error = error
+                    if attempt == 5:
+                        raise original_error
+                    time.sleep((0.050, 0.100, 0.200, 0.400)[attempt - 1])
+        finally:
+            if attempt > 1:
+                logging.getLogger(__name__).warning(
+                    "Journal save retried: path=%s attempts=%d", str(self.path), attempt)
 
     def __exit__(self, *_):
         self.lock.close()
