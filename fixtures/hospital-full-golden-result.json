@@ -1,6 +1,6 @@
 {
   "source_sha256": "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd",
-  "producing_commit": "",
+  "producing_commit": "42231af52ea219e8be2d3b5e2d3e318e8ae20cf7",
   "parse_mode": "streamed",
   "counts": {
     "flattened_row_count": 183335,
