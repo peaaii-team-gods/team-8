@@ -132,6 +132,19 @@ def test_real_pipeline_offline_with_injected_repair(tmp_path):
                for check in event[3].get('checks', []))
 
 
+def test_source_path_repair_rejects_invalid_mapping(tmp_path, capsys):
+    service = PipelineService(data_dir=tmp_path)
+    source = tmp_path / 'source.json'
+    source.write_bytes((ROOT / 'fixtures' / 'hospital-v3-slice.json').read_bytes())
+    run_id = 'run_' + 'ab' * 16
+    service.runs[run_id] = {'status': 'completed', 'steps': [], 'report_md': '',
+                            '_source_path': str(source), '_inject_error': False, '_rows': [], '_top_rows': []}
+    status, result = route(service, 'POST', '/api/pipeline/runs/' + run_id + '/proposals', {'repair': {}})
+    assert status == 200 and result['repair'] == {'valid': False, 'fixed_rows': 0, 'remaining_errors': ['invalid_mapping']}
+    err = capsys.readouterr().err
+    assert 'proposal_repair_invalid' in err and 'SECRET' not in err
+
+
 def test_timeout_retries_then_cached_pipeline_run(tmp_path, monkeypatch):
     import hashlib
     import socket

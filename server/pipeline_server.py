@@ -367,8 +367,8 @@ class PipelineService:
                         valid = digest(parsed['rows']) == digest(run['_rows'])
                         result['repair'] = {'valid': valid, 'fixed_rows': len(parsed['rows']) if valid else 0,
                                             'remaining_errors': [] if valid else ['run_rows']}
-                    except (ValueError, TypeError, KeyError, AttributeError):
-                        result['repair'] = {'valid': False, 'fixed_rows': 0, 'remaining_errors': ['invalid_mapping']}
+                    except (ValueError, TypeError, KeyError, AttributeError) as exc:
+                        print(f'proposal_repair_invalid {type(exc).__name__}', file=sys.stderr); result['repair'] = {'valid': False, 'fixed_rows': 0, 'remaining_errors': ['invalid_mapping']}
                 else:
                     valid, fixed, errors = _proposal(repair, _load_source(run, drifted=True), run['_rows'])
                     result['repair'] = {'valid': valid, 'fixed_rows': fixed, 'remaining_errors': errors}
