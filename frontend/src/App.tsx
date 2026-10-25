@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Play, Square } from "lucide-react";
 import VoidBackground from "./ui/VoidBackground";
 import InferencePanel from "./ui/InferencePanel";
-import type { InferenceStatus } from "./adapters/inference";
+import { liveProviderBlocked, type InferenceStatus } from "./adapters/inference";
 import SessionPanel from "./ui/SessionPanel";
 import MetricsPanel from "./ui/MetricsPanel";
 import ConversationPanel from "./ui/ConversationPanel";
@@ -89,8 +89,7 @@ export default function App() {
   const [demo, setDemo] = useState(() => bootDemo(window.location.search));
   const shellMode = demo.enabled ? "simulated" : mode;
   const simulated = useMemo(() => new SimulatedAdapter(), []);
-  const requiresPaidConsent = !!inference?.configured;
-  const providerBlocked = !inference?.configured || !Number.isFinite(Number(spendCap)) || Number(spendCap) < 0 || (requiresPaidConsent && (!paidConsent || Number(spendCap) <= 0));
+  const providerBlocked = liveProviderBlocked(inference, spendCap, paidConsent);
   const adapter: RhmAdapter | null = shellMode === "live" ? liveAdapter : simulated;
   const readiness = useMemo(
     () => (shellMode === "live" && liveAdapter ? liveReadiness(liveAdapter) : simulatedReadiness),
@@ -638,12 +637,12 @@ export default function App() {
         <ConversationPanel />
       </div>
     )}
-    {shellMode === "live" && !inference?.configured && <p className="glass absolute bottom-20 left-2 z-20 max-w-sm p-2 text-xs">Open Account inference settings and select your provider before running. This account cannot use the operator's model automatically.</p>}
+    {shellMode === "live" && !inference?.configured && !inference?.host_models_authorized && <p className="glass absolute bottom-20 left-2 z-20 max-w-sm p-2 text-xs">Open Account inference settings and select your provider before running. This account cannot use the operator's model automatically.</p>}
     {edges.length > 0 && (
       <div className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2">
         <button aria-label={running ? "Stop run" : "Run pipeline"} disabled={!running && (!adapter || (shellMode === "live" && providerBlocked))} title={!running && !adapter ? "Sign in before Run." : undefined} className="glass flex items-center gap-2 px-5 py-2 disabled:opacity-50" onClick={(e) => { e.stopPropagation(); void toggleRun(); }}>{running ? <Square size={14} /> : <Play size={14} />}{running ? "Stop" : "Run Pipeline"}</button>
         {scenarioId === "mrf-pipeline" && (
-          <button type="button" aria-label="Upstream schema drift" disabled={running || !mrfMapping} className="glass px-4 py-2 text-xs disabled:opacity-50" onClick={(e) => { e.stopPropagation(); injectDrift(); }}>
+          <button type="button" aria-label="Upstream schema drift" disabled={running || !mrfMapping || (shellMode === "live" && providerBlocked)} className="glass px-4 py-2 text-xs disabled:opacity-50" onClick={(e) => { e.stopPropagation(); injectDrift(); }}>
             Upstream schema drift
           </button>
         )}

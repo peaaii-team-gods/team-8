@@ -1,4 +1,5 @@
 import type { RhmAdapter, RunHandle, RunOutcome } from "../adapters/RhmAdapter";
+import { displayRunOutput } from "../adapters/live";
 import type { WorkflowV1 } from "../compile/toWorkflow";
 import type { CanvasEdge, CanvasNode } from "../state/store";
 import type { CanvasNodeData } from "../registry/types";
@@ -76,7 +77,7 @@ export interface RunNodesHooks {
 
 /** Outputs are model proposals (agent_reported), never verification. */
 export const proposalLabel = (out: RunOutcome): string =>
-  `${out.output ?? ""} (model proposal, agent_reported — not verification)`.trim();
+  `${displayRunOutput(out.output ?? "")} (model proposal, agent_reported — not verification)`.trim();
 
 /**
  * Run each compiled agent workflow through the selected adapter.
@@ -164,9 +165,10 @@ export async function runNodes(
       let pendingEval: MrfEvaluation | null = null;
       if (mrfAgent && out.status === "succeeded") {
         let interpreted = interpretMrfReply(presetId, out.output);
-        if (!interpreted.ok && interpreted.error === "invalid_json") {
+        if (!interpreted.ok && (interpreted.error === "invalid_json" || interpreted.error === "invalid_proposal")) {
           retried = true;
-          const retryWf = { ...workflow, inputs: { ...workflow.inputs, retry: MRF_RETRY_HINT } };
+          const retryHint = interpreted.error === "invalid_proposal" ? interpreted.detail : MRF_RETRY_HINT;
+          const retryWf = { ...workflow, inputs: { ...workflow.inputs, retry: retryHint } };
           const retryOut = await runOnce(retryWf);
           if (!retryOut || hooks.shouldStop?.()) {
             if (feedEdges.length) hooks.onEdgeActive?.(feedEdges, false);

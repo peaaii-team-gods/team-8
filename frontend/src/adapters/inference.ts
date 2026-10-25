@@ -2,6 +2,15 @@ import type { IdentitySession } from "./identity";
 export type Provider = "openrouter" | "freellmapi" | "openai" | "local";
 export interface ProviderMetadata { provider: Provider; model_id: string; base_url: string }
 export interface InferenceStatus { configured: boolean; revision: string | null; provider?: Provider | null; model_id?: string | null; base_url?: string | null; helper?: ProviderMetadata | null; credential_lifetime: "backend_process" | "encrypted_vault"; host_models_authorized: boolean }
+/** Live Run/Drift are blocked only when the account has no provider and is not host-authorized. Configured accounts still need paid consent and a positive cap. */
+export function liveProviderBlocked(inference: InferenceStatus | null, spendCap: string, paidConsent: boolean): boolean {
+  const configured = !!inference?.configured;
+  const hostAuthorized = !!inference?.host_models_authorized;
+  if (!configured && !hostAuthorized) return true;
+  const cap = Number(spendCap);
+  if (!Number.isFinite(cap) || cap < 0) return true;
+  return configured && (!paidConsent || cap <= 0);
+}
 export interface ProviderInput { provider: Provider; model_id: string; base_url?: string; api_key: string }
 class InferenceSettingsError extends Error {}
 export class InferenceSettings {

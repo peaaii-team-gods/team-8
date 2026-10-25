@@ -74,6 +74,29 @@ describe("MRF apply/check after a bird reply", () => {
     expect(evaluated).toHaveBeenCalledWith("b", expect.objectContaining({ invalidProposal: true, retried: true }));
   });
 
+  it("retries a sample-value mapping once with a message that names the wrong field", async () => {
+    const a = adapter();
+    const bad = JSON.stringify({
+      ...MRF_GOLDEN_MAPPING,
+      fields: { ...MRF_GOLDEN_MAPPING.fields, billing_code: "99213" },
+    });
+    const replies = [bad, JSON.stringify(MRF_GOLDEN_MAPPING)];
+    a.run = vi.fn(async (nodeId) => ({ nodeId, runId: `r-${replies.length}` }));
+    a.poll = async (h) => ({ nodeId: h.nodeId, status: "succeeded", basis: "agent_reported", output: replies.shift() });
+    const evaluated = vi.fn();
+    await runNodes(a, [{ nodeId: "b", workflow: { inputs: { evidence: "excerpt" } } as unknown as WorkflowV1 }], {
+      onStatus: vi.fn(),
+      graph: { nodes: [mrfNode("b", "mrf-builder")], edges: [] },
+      mrf: { fixture: MRF_CHUNK, onEvaluated: evaluated },
+    }, { sleep: async () => undefined });
+    expect(a.run).toHaveBeenCalledTimes(2);
+    const retry = (a.run as ReturnType<typeof vi.fn>).mock.calls[1][1].inputs.retry as string;
+    expect(retry).toMatch(/fields\.billing_code/);
+    expect(retry).toMatch(/99213/);
+    expect(retry).not.toBe(MRF_RETRY_HINT);
+    expect(evaluated).toHaveBeenCalledWith("b", expect.objectContaining({ passed: true, retried: true, invalidProposal: false }));
+  });
+
   it("applies a valid mapping, runs pinned checks, and hands mapping+checks (not stuffed prompt) to Maintainer", async () => {
     const a = adapter();
     const workflows: WorkflowV1[] = [];

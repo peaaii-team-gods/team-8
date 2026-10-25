@@ -52,6 +52,11 @@ export const LAKE_FIXTURES: Record<string, unknown[]> = {
           },
         ],
       },
+      key_path_example: {
+        rule: "mapping fields are source KEY PATHS, never sample values",
+        wrong: { collection: "Synthetic Mercy Demo Hospital", billing_code: "99213", payer_name: "SynPayer A", rate: "string" },
+        right: { collection: "in_network", rate_groups: "negotiated_rates", prices: "negotiated_prices", rate: "negotiated_rate" },
+      },
     },
   ],
   "hospital-mrf-drift": [
@@ -72,6 +77,11 @@ export const LAKE_FIXTURES: Record<string, unknown[]> = {
             ],
           },
         ],
+      },
+      key_path_example: {
+        rule: "mapping fields are source KEY PATHS, never sample values",
+        wrong: { collection: "Synthetic Mercy Demo Hospital", billing_code: "99213", payer_name: "SynPayer A", rate: "string" },
+        right: { collection: "in_network", rate_groups: "negotiated_rates", prices: "negotiated_prices", rate: "negotiated_amount" },
       },
     },
   ],

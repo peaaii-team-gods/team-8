@@ -25,6 +25,11 @@ describe("MRF scenario registry", () => {
     expect(compiled.every((c) => c.workflow.allowed_tools.length === 0)).toBe(true);
     expect(JSON.stringify(compiled[0].workflow.inputs.evidence)).toContain("synthetic excerpt");
     expect(JSON.stringify(compiled[0].workflow.inputs.evidence)).not.toContain("Electrocardiogram");
+    expect(compiled[0].workflow.objective).toMatch(/key path/i);
+    expect(compiled[0].workflow.task_guidance.join(" ")).toMatch(/key path/i);
+    expect(compiled[0].workflow.inputs.evidence).toContain("in_network");
+    expect(compiled[0].workflow.inputs.evidence).toMatch(/99213/);
+    expect(compiled[0].workflow.inputs.evidence).toMatch(/SynPayer A/);
   });
 
   it("feeds birds a short excerpt rather than the full nested file", () => {

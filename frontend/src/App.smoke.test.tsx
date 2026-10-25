@@ -10,6 +10,8 @@ import { IdentitySession } from "./adapters/identity";
 import { InferenceSettings } from "./adapters/inference";
 import { LiveAdapter } from "./adapters/live";
 import type { RunOutcome } from "./adapters/RhmAdapter";
+import type { InferenceStatus } from "./adapters/inference";
+import { MRF_GOLDEN_MAPPING } from "./mrf/data";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
@@ -325,6 +327,71 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     expect(screen.queryByTestId("status-line")).toBeNull();
     expect(useStore.getState().nodes.length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /run pipeline/i })).toBeTruthy();
+  });
+});
+
+const liveInference = (status: InferenceStatus) => {
+  vi.stubEnv("VITE_RHM_MODE", "live");
+  vi.spyOn(IdentitySession.prototype, "restore").mockResolvedValue(true);
+  vi.spyOn(InferenceSettings.prototype, "request").mockResolvedValue(status);
+  vi.spyOn(LiveAdapter.prototype, "capabilities").mockResolvedValue(null);
+  vi.spyOn(LiveAdapter.prototype, "workspaces").mockResolvedValue([]);
+  const run = vi.spyOn(LiveAdapter.prototype, "run").mockImplementation(async (nodeId) => ({ nodeId, runId: "live-run" }));
+  vi.spyOn(LiveAdapter.prototype, "events").mockResolvedValue({ usage: emptyUsage("live"), workspace: [], messages: [], nextAfterSeq: 0 });
+  vi.spyOn(LiveAdapter.prototype, "poll").mockImplementation(async (h) => ({ nodeId: h.nodeId, status: "succeeded", basis: "agent_reported", usage: emptyUsage("live") }));
+  vi.spyOn(LiveAdapter.prototype, "cancel").mockResolvedValue();
+  return { run };
+};
+
+const configuredStatus: InferenceStatus = { configured: true, revision: "fixture", provider: "local", model_id: "fixture", credential_lifetime: "backend_process", host_models_authorized: false };
+const hostOnlyStatus: InferenceStatus = { configured: false, revision: null, credential_lifetime: "backend_process", host_models_authorized: true };
+const neitherStatus: InferenceStatus = { configured: false, revision: null, credential_lifetime: "backend_process", host_models_authorized: false };
+
+describe("live provider gate (configured / host-authorized / neither)", () => {
+  it("lets a configured account Run after paid consent and a positive cap", async () => {
+    liveInference(configuredStatus);
+    renderApp();
+    fireEvent.click((await screen.findAllByRole("button", { name: /Pilot storyboard/ }))[0]);
+    const runBtn = () => screen.getByRole("button", { name: /run pipeline/i }) as HTMLButtonElement;
+    await waitFor(() => expect(runBtn().disabled).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: /Account inference settings/ }));
+    fireEvent.change(screen.getByLabelText("USD admission budget per agent run"), { target: { value: "0.01" } });
+    fireEvent.click(screen.getByLabelText(/I permit paid inference/));
+    await waitFor(() => expect(runBtn().disabled).toBe(false));
+  });
+
+  it("lets a host-authorized account Run and Drift without its own provider", async () => {
+    const { run } = liveInference(hostOnlyStatus);
+    renderApp();
+    await screen.findAllByRole("button", { name: /Pilot storyboard/ });
+    fireEvent.click(screen.getByLabelText("Create"));
+    fireEvent.click(screen.getByRole("button", { name: /MRF price file/ }));
+    await waitFor(() => expect(useStore.getState().scenarioId).toBe("mrf-pipeline"));
+    const runBtn = () => screen.getByRole("button", { name: /run pipeline/i }) as HTMLButtonElement;
+    await waitFor(() => expect(runBtn().disabled).toBe(false));
+    expect(screen.queryByText(/cannot use the operator's model automatically/)).toBeNull();
+    useStore.setState({ mrfMapping: MRF_GOLDEN_MAPPING });
+    const driftBtn = () => screen.getByRole("button", { name: /Upstream schema drift/i }) as HTMLButtonElement;
+    await waitFor(() => expect(driftBtn().disabled).toBe(false));
+    fireEvent.click(driftBtn());
+    await waitFor(() => expect(useStore.getState().scienceReceipt?.oracleNote ?? "").toMatch(/Named check failed: nulls_repaired/));
+    fireEvent.click(runBtn());
+    await waitFor(() => expect(run).toHaveBeenCalled());
+  });
+
+  it("blocks Run and Drift when the account is neither configured nor host-authorized", async () => {
+    liveInference(neitherStatus);
+    renderApp();
+    await screen.findAllByRole("button", { name: /Pilot storyboard/ });
+    fireEvent.click(screen.getByLabelText("Create"));
+    fireEvent.click(screen.getByRole("button", { name: /MRF price file/ }));
+    await waitFor(() => expect(useStore.getState().scenarioId).toBe("mrf-pipeline"));
+    await waitFor(() => expect((screen.getByRole("button", { name: /run pipeline/i }) as HTMLButtonElement).disabled).toBe(true));
+    expect(screen.getByText(/cannot use the operator's model automatically/)).toBeTruthy();
+    useStore.setState({ mrfMapping: MRF_GOLDEN_MAPPING });
+    expect((screen.getByRole("button", { name: /Upstream schema drift/i }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /Upstream schema drift/i }));
+    expect(useStore.getState().scienceReceipt).toBeNull();
   });
 });
 

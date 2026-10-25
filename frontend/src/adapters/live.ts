@@ -8,6 +8,11 @@ import { contentFreeRunSummary, sortRuns, summarizeRun, type PublicRunSummary, t
 // workflows are created as {workflow}, runs as {workflow_id}; RunResponse
 // has no outputs — text outputs live on GET /v1/runs/{id}/outputs.
 const TERMINAL = ["succeeded", "failed", "cancelled", "halted_by_agent", "outcome_unknown", "halted_emergency", "context_limit_exceeded"];
+/** Parse uses the full joined output. Display may truncate at this floor. */
+export const DISPLAY_OUTPUT_LIMIT = 4000;
+export function displayRunOutput(text: string, limit = DISPLAY_OUTPUT_LIMIT): string {
+  return text.length <= limit ? text : text.slice(0, limit);
+}
 export class LiveAdapter implements RhmAdapter {
   mode = "live" as const;
   private paidConsent = false;
@@ -52,7 +57,7 @@ export class LiveAdapter implements RhmAdapter {
         const o = await fetch(`${this.apiBase}/v1/runs/${h.runId}/outputs`, { headers: this.headers() });
         if (o.ok) {
           const outs = ((await o.json()) as { outputs?: { content?: string }[] }).outputs ?? [];
-          output = outs.map((x) => x.content ?? "").join("\n").slice(0, 500) || undefined;
+          output = outs.map((x) => x.content ?? "").join("\n") || undefined;
         }
       } catch { /* outputs are best-effort; status/basis already known */ }
     }

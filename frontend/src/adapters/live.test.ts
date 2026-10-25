@@ -1,7 +1,9 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { LiveAdapter } from "./live";
+import { DISPLAY_OUTPUT_LIMIT, displayRunOutput, LiveAdapter } from "./live";
 import { IdentitySession } from "./identity";
 import { pollUntilTerminal, runNodes } from "../run/runNodes";
+import { MRF_GOLDEN_MAPPING } from "../mrf/data";
+import { interpretMrfReply } from "../mrf/validate";
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 const adapter = () => new LiveAdapter("http://api", new IdentitySession("http://id", "http://api"));
@@ -162,6 +164,35 @@ describe("LiveAdapter poll mapping", () => {
     expect(page.runs).toEqual([]);
     expect(page.note).toMatch(/workspace/i);
     expect(vi.mocked(fetch).mock.calls.some((c) => String(c[0]).includes("/v1/runs"))).toBe(false);
+  });
+
+  it("parses a 700-character valid mapping proposal without the old 500-char cap", async () => {
+    const body = JSON.stringify(MRF_GOLDEN_MAPPING);
+    const padded = `${body.slice(0, -1)}${" ".repeat(Math.max(1, 700 - body.length + 1))}}`;
+    expect(padded.length).toBeGreaterThanOrEqual(700);
+    installFetch({
+      polls: [{ status: "succeeded", completion_basis: "agent_reported" }],
+      outputs: { outputs: [{ content: padded }] },
+    });
+    const out = await adapter().poll({ nodeId: "a1", runId: "r1" });
+    expect(out.output).toBe(padded);
+    expect(out.output!.length).toBeGreaterThanOrEqual(700);
+    expect(interpretMrfReply("mrf-builder", out.output)).toMatchObject({ ok: true });
+  });
+
+  it("keeps display truncation at or above 4000 characters and does not apply it to parse", async () => {
+    expect(DISPLAY_OUTPUT_LIMIT).toBeGreaterThanOrEqual(4000);
+    const body = JSON.stringify(MRF_GOLDEN_MAPPING);
+    const padded = `${body.slice(0, -1)}${" ".repeat(DISPLAY_OUTPUT_LIMIT)} }`;
+    installFetch({
+      polls: [{ status: "succeeded", completion_basis: "agent_reported" }],
+      outputs: { outputs: [{ content: padded }] },
+    });
+    const out = await adapter().poll({ nodeId: "a1", runId: "r1" });
+    expect(out.output).toBe(padded);
+    expect(interpretMrfReply("mrf-builder", out.output)).toMatchObject({ ok: true });
+    expect(displayRunOutput(padded).length).toBe(DISPLAY_OUTPUT_LIMIT);
+    expect(displayRunOutput(padded)).not.toBe(padded);
   });
 
   it("pollUntilTerminal is bounded on timeout", async () => {

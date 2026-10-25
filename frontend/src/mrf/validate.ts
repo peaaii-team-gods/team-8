@@ -26,6 +26,36 @@ function extraKeys(rec: Record<string, unknown>, allowed: readonly string[]): st
   return Object.keys(rec).filter((k) => !allowed.includes(k));
 }
 
+const JSON_TYPE_NAMES = new Set(["string", "number", "boolean", "object", "array", "null", "integer"]);
+const WRONG_COLLECTION = new Set([
+  "hospital_name", "last_updated_on", "note", "top_level_keys", "price_object_keys",
+  "standard_charge_codes", "sample_item", "key_path_example",
+]);
+
+function isSampleValue(value: string): boolean {
+  return JSON_TYPE_NAMES.has(value) || /^\d+(\.\d+)?$/.test(value) || /\s/.test(value);
+}
+
+/** Names the first mapping field that holds a sample value or the hospital name instead of a source key path. */
+export function namedKeyPathError(mapping: MrfMapping): string | null {
+  const hits: string[] = [];
+  const check = (path: string, value: string) => {
+    if (isSampleValue(value) || (path === "collection" && WRONG_COLLECTION.has(value))) {
+      hits.push(`${path} uses ${JSON.stringify(value)}`);
+    }
+  };
+  check("collection", mapping.collection);
+  check("rate_groups", mapping.rate_groups);
+  check("prices", mapping.prices);
+  check("standard_charge_lookup", mapping.standard_charge_lookup);
+  check("null_policy.rate.fill_from", mapping.null_policy.rate.fill_from);
+  check("null_policy.rate.by", mapping.null_policy.rate.by);
+  for (const target of MRF_FIELD_TARGETS) check(`fields.${target}`, mapping.fields[target]);
+  mapping.dedupe_key.forEach((key, i) => check(`dedupe_key[${i}]`, key));
+  if (!hits.length) return null;
+  return `${hits[0]}; that field needs a source key path (in_network, negotiated_rates, negotiated_prices, negotiated_rate, collection/rate_groups), not a sample value.`;
+}
+
 export function validateMappingValue(value: unknown): { ok: true; mapping: MrfMapping } | { ok: false; error: string } {
   const rec = asRecord(value);
   if (!rec) return { ok: false, error: "mapping must be an object" };
@@ -33,7 +63,10 @@ export function validateMappingValue(value: unknown): { ok: true; mapping: MrfMa
   const fields = asRecord(rec.fields);
   if (!fields || extraKeys(fields, MRF_FIELD_TARGETS).length) return { ok: false, error: "mapping.fields has extra keys" };
   try {
-    return { ok: true, mapping: parseMapping(value) };
+    const mapping = parseMapping(value);
+    const named = namedKeyPathError(mapping);
+    if (named) return { ok: false, error: named };
+    return { ok: true, mapping };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "invalid_mapping" };
   }

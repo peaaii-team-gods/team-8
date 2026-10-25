@@ -25,6 +25,15 @@ describe("Account inference", () => {
     expect(document.body.textContent).not.toContain("secret-for-test");
     expect(onStatus).toHaveBeenLastCalledWith(null);
   });
+  it("does not tell a host-authorized account that live runs are blocked", async () => {
+    const hostOnly = { configured: false, revision: null, credential_lifetime: "backend_process", host_models_authorized: true };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(hostOnly))));
+    render(<InferencePanel apiBase="https://api.example" session={new IdentitySession("https://identity.example")} onStatus={vi.fn()} disabled={false} />);
+    expect((await screen.findByRole("status")).textContent).toMatch(/host model/i);
+    expect(document.body.textContent).not.toMatch(/Live runs are blocked/);
+    expect(document.body.textContent).not.toMatch(/no operator-key or operator-model fallback/i);
+  });
+
   it("ignores late metadata after unmount", async () => {
     let resolve!: (value: Response) => void;
     vi.stubGlobal("fetch", vi.fn(() => new Promise(done => { resolve = done; })));

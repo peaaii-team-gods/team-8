@@ -115,6 +115,9 @@ export function compileAgent(
       output_schema
         ? "Return only one JSON object that validates against inputs.output_schema, without Markdown fences."
         : "Return only the requested JSON object, without Markdown fences.",
+      ...(preset?.id === "mrf-builder"
+        ? ["Output source KEY PATHS only (in_network, negotiated_rates, negotiated_prices, negotiated_rate, collection/rate_groups). Never copy sample values such as 99213, SynPayer A, string, or the hospital name."]
+        : []),
     ],
     allowed_tools, model_preference: preset?.modelHint,
     loop_limits: { max_ticks: 2, max_tokens_per_tick: 512, max_tokens_total: 2048 },

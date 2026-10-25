@@ -44,10 +44,10 @@ export default function InferencePanel({ apiBase, session, onStatus, disabled }:
   </fieldset>;
   return <section className="glass m-2 grid gap-3 p-3 text-xs" aria-label="Account inference settings">
     <h2>Account inference</h2>
-    <p>This login shares its provider and key across RHM and the hackathon. Replacing or removing settings affects every teammate using this account. There is no operator-key or operator-model fallback.</p>
+    <p>This login shares its provider and key across RHM and the hackathon. Replacing or removing settings affects every teammate using this account. There is no operator-key fallback.{status?.host_models_authorized ? " This account may use the operator host model without its own provider." : " There is no operator-model fallback."}</p>
     <p>{status?.credential_lifetime === "encrypted_vault" ? "Keys are stored in the encrypted account vault across restarts." : "Keys stay in Backend memory until its process restarts. Re-enter them after a restart."} Keys are write-only and never returned here.</p>
     <p>Your endpoint must be reachable by Backend over public HTTPS. Browser localhost would refer to the server, not your PC. Do not expose an unauthenticated llama server.</p>
-    <p role="status">{status?.configured ? `Configured: ${status.provider}, ${status.model_id}. Helper: ${status.helper?.provider ?? "none"}.` : "No confirmed account provider. Live runs are blocked."}</p>
+    <p role="status">{status?.configured ? `Configured: ${status.provider}, ${status.model_id}. Helper: ${status.helper?.provider ?? "none"}.` : status?.host_models_authorized ? "No account provider. This login may use the operator host model." : "No confirmed account provider. Live runs are blocked."}</p>
     <button type="button" disabled={busy || disabled} onClick={() => { const attempt = ++operation.current; setBusy(true); setError(""); onStatus(null); void api.request().then(next => { if (live.current && attempt === operation.current) apply(next); }).catch(() => { if (live.current && attempt === operation.current) setError("Refresh failed. Live runs remain blocked."); }).finally(() => { if (live.current && attempt === operation.current) setBusy(false); }); }}>Refresh settings</button>
     {fields(primary, setPrimary, "Primary")}
     <label><input type="checkbox" checked={useHelper} disabled={busy || disabled} onChange={e => setUseHelper(e.target.checked)} />Configure a separate helper provider</label>
