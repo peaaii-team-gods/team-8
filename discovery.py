@@ -11,10 +11,11 @@ from pathlib import Path
 
 
 class DiscoveryError(Exception):
-    def __init__(self, code, bytes_read=0):
+    def __init__(self, code, bytes_read=0, locations=()):
         self.code = code
         self.bytes_read = bytes_read
-        super().__init__(code)
+        self.locations = tuple(locations)
+        super().__init__(f"{code}: {', '.join(self.locations)}" if self.locations else code)
 
 
 class _Links(html.parser.HTMLParser):
@@ -49,7 +50,8 @@ def _blocks(text):
         for line in chunk.splitlines():
             match = re.match(r"\s*([^:=]+?)\s*[:=]\s*(.*?)\s*$", line)
             if match:
-                fields[match.group(1).strip().casefold()] = match.group(2).strip()
+                key = re.sub(r"[-_\s]+", "-", match.group(1).strip().casefold())
+                fields[key] = match.group(2).strip()
         if fields:
             yield fields
 
@@ -69,6 +71,7 @@ def _cached(cache_dir, key, trace):
 
 def discover(domain, location_hint, *, cache_dir="data", max_bytes=60 * 1024 * 1024, opener=None):
     """Discover and download a hospital MRF. Cache files are named by SHA-256."""
+    location_hint = " ".join(location_hint.split()).casefold()
     if not domain or not location_hint or max_bytes <= 0:
         raise ValueError("domain, location_hint and positive max_bytes are required")
     domain = domain.strip().removeprefix("https://").removeprefix("http://").rstrip("/")
@@ -105,9 +108,13 @@ def discover(domain, location_hint, *, cache_dir="data", max_bytes=60 * 1024 * 1
     try:
         listing = fetch(urllib.parse.urljoin(base, "cms-hpt.txt"), min(max_bytes, 2 * 1024 * 1024))
         blocks = list(_blocks(listing.decode("utf-8-sig")))
-        selected = next((b for b in blocks if location_hint.casefold() in " ".join(b.values()).casefold()), None)
-        if selected is None:
-            raise DiscoveryError("no_location_match")
+        names = [" ".join(b.get("location-name", "").split()) for b in blocks]
+        matches = [(b, name) for b, name in zip(blocks, names) if location_hint in name.casefold()]
+        if not matches:
+            raise DiscoveryError("no_location_match", locations=[name for name in names if name])
+        if len(matches) > 1:
+            raise DiscoveryError("ambiguous_location", locations=[name for _, name in matches])
+        selected = matches[0][0]
         target = selected.get("mrf-url") or selected.get("mrf_url")
         if not target and selected.get("source-page-url"):
             source_page = urllib.parse.urljoin(base, selected["source-page-url"])
@@ -118,6 +125,7 @@ def discover(domain, location_hint, *, cache_dir="data", max_bytes=60 * 1024 * 1
             target = next((link for link in links if urllib.parse.urlparse(link).path.casefold().endswith(".json")), None)
             if not target:
                 raise DiscoveryError("no_json_link")
+            target = urllib.parse.urljoin(source_page, target)
         if not target:
             raise DiscoveryError("no_mrf_url")
         target_url = urllib.parse.urljoin(base, target)
@@ -155,7 +163,7 @@ def main(argv=None):
     try:
         result = discover(args.domain, args.location_hint, max_bytes=args.max_bytes)
     except DiscoveryError as exc:
-        parser.error(exc.code)
+        parser.error(str(exc))
     print(json.dumps({key: result[key] for key in ("path", "source_url", "sha256", "label", "trace")}, indent=2))
     return 0
 
