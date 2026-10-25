@@ -22,6 +22,8 @@
 | `custom-agent` |
 | `mrf-builder` |
 | `mrf-maintainer` |
+| `mrf-hospital-builder` |
+| `mrf-hospital-maintainer` |
 
 ### Data lake presets
 
@@ -45,6 +47,8 @@
 | `assay_qc.v1` |
 | `mrf.mapping.v1` |
 | `mrf.repair.v1` |
+| `mrf.mapping.v2-hospital` |
+| `mrf.repair.v2-hospital` |
 | `custom.v1` |
 
 ### MCP attachments (declared, not executable)

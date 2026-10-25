@@ -20,6 +20,22 @@ const mapping: Record<string, unknown> = {
   },
 };
 
+const sourcePaths = (names: string[]) => ({ type: "object", additionalProperties: false, required: names,
+  properties: Object.fromEntries(names.map(name => [name, { type: "string", minLength: 1 }])) });
+const hospitalMapping: Record<string, unknown> = {
+  type: "object", additionalProperties: false,
+  required: ["schema_version", "collection", "code_selector", "charge_list", "payer_list", "fields", "gross_key", "cash_key"],
+  properties: {
+    schema_version: { const: "mrf.mapping.v2-hospital" },
+    ...sourcePaths(["collection", "charge_list", "payer_list", "gross_key", "cash_key"]).properties,
+    code_selector: { ...sourcePaths(["list", "type_field", "code_field", "accept_types", "pattern"]), properties: {
+      ...sourcePaths(["list", "type_field", "code_field"]).properties,
+      accept_types: { const: ["HCPCS"] }, pattern: { const: "^\\d{5}$" },
+    } },
+    fields: sourcePaths(["description", "payer_name", "plan_name", "billing_class", "rate"]),
+  },
+};
+
 export const OUTPUT_SCHEMAS: OutputSchema[] = [
   {
     id: "mapping.v1",
@@ -228,6 +244,21 @@ export const OUTPUT_SCHEMAS: OutputSchema[] = [
           },
         },
       },
+    },
+  },
+  {
+    id: "mrf.mapping.v2-hospital", title: "Hospital v3 mapping", summary: "Builder names hospital v3 source keys.",
+    presetIds: ["mrf-hospital-builder"], document: hospitalMapping,
+  },
+  {
+    id: "mrf.repair.v2-hospital", title: "Hospital v3 repair", summary: "Maintainer proposes one injected-drift repair or declines.",
+    presetIds: ["mrf-hospital-maintainer"], document: {
+      oneOf: [
+        { type: "object", additionalProperties: false, required: ["action", "mapping"],
+          properties: { action: { const: "replace_mapping" }, mapping: hospitalMapping } },
+        { type: "object", additionalProperties: false, required: ["action", "reason_code"],
+          properties: { action: { const: "fail" }, reason_code: { enum: ["unsupported_schema", "insufficient_evidence"] } } },
+      ],
     },
   },
   {
