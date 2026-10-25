@@ -1,9 +1,11 @@
 import gzip
 import hashlib
 import html.parser
+import http.client
 import io
 import json
 import re
+import socket
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -16,6 +18,31 @@ class DiscoveryError(Exception):
         self.bytes_read = bytes_read
         self.locations = tuple(locations)
         super().__init__(f"{code}: {', '.join(self.locations)}" if self.locations else code)
+
+
+def _require_http(url):
+    if urllib.parse.urlsplit(url).scheme.lower() not in {"http", "https"}:
+        raise DiscoveryError("unsupported_scheme")
+
+
+class _HTTPRedirect(urllib.request.HTTPRedirectHandler):
+    def http_error_302(self, req, fp, code, msg, headers):
+        target = headers.get("location", headers.get("uri"))
+        if target is not None:
+            _require_http(urllib.parse.urljoin(req.full_url, target))
+        return super().http_error_302(req, fp, code, msg, headers)
+
+    http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302
+
+
+def _http_opener():
+    # build_opener silently installs file, FTP and data protocol handlers.
+    client = urllib.request.OpenerDirector()
+    for handler in (urllib.request.HTTPHandler(), urllib.request.HTTPSHandler(),
+                    urllib.request.HTTPDefaultErrorHandler(), _HTTPRedirect(),
+                    urllib.request.HTTPErrorProcessor()):
+        client.add_handler(handler)
+    return client
 
 
 class _Links(html.parser.HTMLParser):
@@ -80,14 +107,17 @@ def discover(domain, location_hint, *, cache_dir="data", max_bytes=60 * 1024 * 1
     cache.mkdir(parents=True, exist_ok=True)
     key = f"{domain.casefold()}|{location_hint.casefold()}"
     trace = []
-    client = opener or urllib.request.build_opener()
+    client = opener or _http_opener()
 
     def fetch(url, limit=max_bytes):
+        _require_http(url)
+        status = "error"
         req = urllib.request.Request(url, headers={"Accept-Encoding": "gzip", "User-Agent": "RHM-Hospital-MRF-Discovery/1.0"})
         try:
             response = client.open(req, timeout=30)
             with response:
-                status = getattr(response, "status", response.getcode())
+                status = response.getcode()
+                _require_http(response.geturl())
                 headers = response.headers
                 body = _bounded_body(response, limit, headers)
             trace.append({"url": url, "status": status, "bytes": len(body)})
@@ -99,10 +129,10 @@ def discover(domain, location_hint, *, cache_dir="data", max_bytes=60 * 1024 * 1
             raise DiscoveryError("http_error") from exc
         except DiscoveryError as exc:
             if not trace or trace[-1]["url"] != url:
-                trace.append({"url": url, "status": locals().get("status", "error"), "bytes": exc.bytes_read})
+                trace.append({"url": url, "status": status, "bytes": exc.bytes_read})
             raise
-        except Exception as exc:
-            trace.append({"url": url, "status": "error", "bytes": 0})
+        except (urllib.error.URLError, socket.timeout, TimeoutError, http.client.HTTPException, OSError) as exc:
+            trace.append({"url": url, "status": status, "bytes": 0})
             raise DiscoveryError("network_error") from exc
 
     try:

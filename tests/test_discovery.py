@@ -24,6 +24,9 @@ class FakeResponse:
     def getcode(self):
         return self.status
 
+    def geturl(self):
+        return "https://fixture.test/"
+
 
 class FakeSite:
     def __init__(self, routes):
@@ -146,3 +149,133 @@ def test_network_failure_uses_sha_cache_with_cached_label(tmp_path):
     assert second["label"] == "cached"
     assert second["trace"][-1]["status"] == "error"
     assert (tmp_path / f"{first['sha256']}.mrf").read_bytes() == payload
+
+@pytest.mark.parametrize("target", ["file:///must-not-read.json", "ftp://fixture.test/file.json", "data:application/json,blocked.json"])
+@pytest.mark.parametrize("field", ["mrf-url", "source-page-url", "source-link"])
+def test_non_http_urls_refused_before_open(tmp_path, target, field):
+    listing_field = "source-page-url" if field == "source-link" else field
+    listing_value = "/prices.html" if field == "source-link" else target
+    site = FakeSite({
+        "/cms-hpt.txt": (200, {}, f"location-name: Campus\n{listing_field}: {listing_value}\n".encode()),
+        "/prices.html": (200, {}, f'<a href="{target}">download</a>'.encode()),
+    })
+    with pytest.raises(DiscoveryError, match="unsupported_scheme"):
+        discover(site.domain, "campus", cache_dir=tmp_path, opener=site)
+    assert site.requests == (["/cms-hpt.txt", "/prices.html"] if field == "source-link" else ["/cms-hpt.txt"])
+    assert not list(tmp_path.iterdir())
+
+
+def test_programming_error_surfaces_even_with_valid_cache(tmp_path):
+    class BrokenSite(FakeSite):
+        def open(self, request, timeout=30):
+            raise RuntimeError("programming defect")
+
+    site = FakeSite({"/cms-hpt.txt": (200, {}, b"location-name: Campus\nmrf-url: /file.json\n"), "/file.json": (200, {}, b"{}")})
+    discover(site.domain, "campus", cache_dir=tmp_path, opener=site)
+    with pytest.raises(RuntimeError, match="programming defect"):
+        discover(site.domain, "campus", cache_dir=tmp_path, opener=BrokenSite({}))
+
+
+@pytest.mark.parametrize("scheme", ["http", "https"])
+@pytest.mark.parametrize("target", ["file:///must-not-read.json", "ftp://fixture.test/file.json", "data:application/json,blocked.json"])
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_redirect_rejected_before_follow_or_body_read(scheme, target, status):
+    import urllib.request
+    import discovery
+
+    class UnreadResponse:
+        def read(self, *_args):
+            pytest.fail("redirect body must not be read")
+
+    handler = next(h for h in discovery._http_opener().handlers if isinstance(h, urllib.request.HTTPRedirectHandler))
+    method = getattr(handler, f"http_error_{status}")
+    request = urllib.request.Request(f"{scheme}://fixture.test/start")
+    with pytest.raises(DiscoveryError, match="unsupported_scheme"):
+        method(request, UnreadResponse(), status, "redirect", {"location": target})
+
+
+@pytest.mark.parametrize("target", ["file:///must-not-read.json", "ftp://fixture.test/file.json", "data:application/json,blocked.json"])
+def test_injected_opener_final_url_checked_before_body(tmp_path, target):
+    class RedirectedResponse(FakeResponse):
+        def geturl(self):
+            return target
+
+        def read(self, *_args):
+            pytest.fail("unsafe final response must not be read")
+
+    class RedirectedSite:
+        def open(self, request, timeout=30):
+            return RedirectedResponse(200, {}, b"secret")
+
+    with pytest.raises(DiscoveryError, match="unsupported_scheme"):
+        discover("fixture.test", "campus", cache_dir=tmp_path, opener=RedirectedSite())
+    assert not list(tmp_path.iterdir())
+
+
+def test_default_opener_has_only_http_protocol_support():
+    import discovery
+    client = discovery._http_opener()
+    assert set(client.handle_open) == {"http", "https"}
+
+
+@pytest.mark.parametrize("failure_kind", ["open", "enter", "status", "body"])
+def test_network_cache_trace_always_has_explicit_status(tmp_path, failure_kind):
+    import urllib.error
+
+    site = FakeSite({"/cms-hpt.txt": (200, {}, b"location-name: Campus\nmrf-url: /file.json\n"), "/file.json": (200, {}, b"{}")})
+    discover(site.domain, "campus", cache_dir=tmp_path, opener=site)
+
+    class FailedResponse(FakeResponse):
+        def __enter__(self):
+            if failure_kind == "enter":
+                raise OSError("enter failure")
+            return super().__enter__()
+
+        def getcode(self):
+            if failure_kind == "status":
+                raise OSError("status failure")
+            return super().getcode()
+
+        def read(self, *_args):
+            raise OSError("read failure")
+
+    class FailedSite:
+        def open(self, request, timeout=30):
+            if failure_kind == "open":
+                raise urllib.error.URLError("open failure")
+            return FailedResponse(200, {}, b"")
+
+    result = discover(site.domain, "campus", cache_dir=tmp_path, opener=FailedSite())
+    assert result["label"] == "cached"
+    assert result["trace"] == [{"url": "https://fixture.test/cms-hpt.txt", "status": 200 if failure_kind == "body" else "error", "bytes": 0}]
+
+@pytest.mark.parametrize("target", ["file:///must-not-read.json", "ftp://127.0.0.1/file.json", "data:application/json,blocked.json"])
+def test_real_http_redirect_refuses_non_http_target(target):
+    import http.server
+    import threading
+    import urllib.request
+    import discovery
+
+    requests = []
+
+    class RedirectServer(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            requests.append(self.path)
+            self.send_response(302)
+            self.send_header("Location", target)
+            self.end_headers()
+
+        def log_message(self, *_args):
+            pass
+
+    with http.server.ThreadingHTTPServer(("127.0.0.1", 0), RedirectServer) as server:
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            request = urllib.request.Request(f"http://127.0.0.1:{server.server_port}/redirect")
+            with pytest.raises(DiscoveryError, match="unsupported_scheme"):
+                discovery._http_opener().open(request, timeout=3)
+            assert requests == ["/redirect"]
+        finally:
+            server.shutdown()
+            thread.join(timeout=3)
