@@ -156,9 +156,8 @@ class PipelineService:
                             raise RuntimeError('drive_unavailable')
                         from drive_export import export_run
                         exporter = export_run
-                    result = exporter(self.data_dir / 'runs' / run_id, run_id)
-                    if result.get('status') != 'exported':
-                        raise RuntimeError('export_failed')
+                    uploaded = exporter(self.data_dir / 'runs' / run_id, run_id)
+                    result = {'status': 'exported', 'folder': 'RHM Demo Exports/' + run_id, 'files': uploaded['files']}
                 except Exception:
                     result = {'status': 'unavailable', 'reason': 'drive_export_unavailable'}
                     print(f'drive_export_unavailable run_id={run_id}', file=sys.stderr)

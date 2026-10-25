@@ -88,14 +88,18 @@ def test_bad_bodies_and_incomplete_export(tmp_path):
 
 def test_export_once_even_concurrently_and_missing_config_keeps_artifacts(tmp_path, monkeypatch):
     calls = []
+    files = [{'name': name, 'drive_id': 'file-' + str(index), 'link': 'https://drive.google.com/file/d/test',
+              'sha256': '0' * 64, 'size': 123, 'verified': True}
+             for index, name in enumerate(('rows.csv', 'mrf.sqlite', 'report.md'))]
     def exporter(directory, run_id):
         calls.append((directory, run_id))
-        return {'status': 'exported', 'folder': 'RHM Demo Exports/' + run_id, 'files': ['rows.csv', 'mrf.sqlite', 'report.md']}
+        return {'folder_id': 'drive-folder', 'files': files, 'events': []}
     service, run_id = ready(tmp_path / 'one', exporter)
     path = '/api/pipeline/runs/' + run_id + '/export'
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(lambda _: route(service, 'POST', path), range(4)))
     assert len(calls) == 1 and all(value == results[0] for value in results)
+    assert results[0] == (200, {'status': 'exported', 'folder': 'RHM Demo Exports/' + run_id, 'files': files})
     monkeypatch.delenv('DRIVE_SECRETS_FILE', raising=False)
     service, run_id = ready(tmp_path / 'two')
     status, result = route(service, 'POST', '/api/pipeline/runs/' + run_id + '/export')
