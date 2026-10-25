@@ -2,7 +2,31 @@ import { useEffect, useRef, useState } from "react";
 import type { RhmAdapter, RunHandle } from "../adapters/RhmAdapter";
 import { useStore } from "../state/store";
 import { HOSPITAL_EXPORT_EVENT, hospitalModels, pipelineRequest, runPath, type ModelView, type PipelineRecord } from "../run/hospitalPipeline";
+import { openHospitalReportDialog } from "./HospitalReportTable";
 const presets: Record<string, string[]> = { source: ["hospital-source"], builder: ["mrf-hospital-builder", "mrf-hospital-maintainer"], store: ["hospital-store"], analyst: ["hospital-analyst"] };
+const eventsFor = (step: PipelineRecord["steps"][number], type: string) => step.telemetry.filter(event => event.type === type);
+const failureLine = (step: PipelineRecord["steps"][number]) => {
+  const checks = eventsFor(step, "checks").flatMap(event => Array.isArray(event.checks) ? event.checks as Record<string, unknown>[] : []);
+  const rate = checks.find(check => check.name === "fields.rate" && check.pass === false);
+  const inserted = checks.find(check => check.name === "inserted_row_count");
+  return rate && typeof inserted?.actual === "number" && typeof inserted.expected === "number"
+    ? `Injected error: fields.rate expected ${String(rate.expected)}, got ${String(rate.actual)} - ${inserted.actual}/${inserted.expected} rows` : "";
+};
+const repairLine = (step: PipelineRecord["steps"][number]) => {
+  const repair = eventsFor(step, "repair").find(event => event.label === "injected");
+  const inserted = Array.isArray(repair?.checks) ? (repair.checks as Record<string, unknown>[]).find(check => check.name === "inserted_row_count") : undefined;
+  return repair && inserted?.pass === true ? `Golden repair: ${String(inserted.actual)}/${String(inserted.expected)} rows restored` : "";
+};
+const humanSummary = (step: PipelineRecord["steps"][number]) => {
+  if (step.node === "store") return typeof step.counts.row_count === "number" ? `${step.counts.row_count} rows - local SQLite` : "Waiting for row count";
+  if (step.node === "builder") return repairLine(step) || failureLine(step) || `Builder ${step.status}`;
+  if (step.node === "source") {
+    const trace = eventsFor(step, "trace")[0];
+    return trace?.label === "cached" ? "Source fetch cached" : "Source files fetched";
+  }
+  if (step.node === "analyst") return `${String(step.counts.row_count ?? 0)} SQL report rows ready`;
+  return `${step.node} ${step.status}`;
+};
 export default function HospitalPipelinePanel({ adapter, budget, prepareLocalModel }: { adapter: RhmAdapter | null; budget: number; prepareLocalModel?: () => void }) {
   const [record, setRecord] = useState<PipelineRecord | null>(null), [id, setId] = useState("");
   const [inject, setInject] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState("");
@@ -11,15 +35,16 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
   useEffect(() => () => { active.current?.abort(); for (const handle of handles.current) void adapter?.cancel(handle).catch(() => undefined); }, [adapter]);
   useEffect(() => {
     if (!record || !id) return;
-    const store = useStore.getState(), repaired = record.steps.flatMap(step => step.telemetry).some(event => event.type === "repair" && event.label === "injected");
+    const store = useStore.getState();
     const repairNote = model.repair ? `Model repair: ${model.repair.valid ? "valid" : "invalid"} / ${model.matchesRepair ? "matches golden" : "differs from golden"}` : model.unavailable ? "model unavailable, golden path used" : "";
     for (const node of store.nodes) {
-      const view = node.data.presetId === "hospital-store" ? { hospitalRunId: id, hospitalComplete: record.status === "completed", exportNote, exporting }
-        : node.data.presetId === "mrf-hospital-maintainer" ? { goldenRepair: repaired ? "Golden repair: injected · checks recorded" : "", modelRepair: repairNote }
-        : node.data.presetId === "hospital-analyst" ? { analystText: model.summary ?? record.report_md ?? "", summaryNote: model.rejected !== undefined ? `Summary rejected by guard: ${model.rejected} unsupported figures` : model.summary ? "Model summary · guard passed" : model.unavailable ? "model unavailable, golden path used" : "" } : null;
+      const step = record.steps.find(step => presets[step.node]?.includes(node.data.presetId));
+      const telemetry = step?.telemetry.filter(event => event.type !== "evidence") ?? [];
+      const view = node.data.presetId === "hospital-store" ? { counts: step?.counts, telemetry, hospitalRunId: id, hospitalComplete: record.status === "completed", exportNote, exporting }
+        : node.data.presetId === "mrf-hospital-maintainer" ? { counts: step?.counts, telemetry, modelRepair: repairNote }
+        : node.data.presetId === "hospital-analyst" ? { counts: step?.counts, telemetry, analystText: record.report_md ?? "", summaryNote: model.rejected !== undefined ? `Summary rejected by guard: ${model.rejected} unsupported figures` : model.summary ? "Model summary · guard passed" : model.unavailable ? "model unavailable, golden path used" : "" } : null;
       if (view) {
-        const step = record.steps.find(step => presets[step.node]?.includes(node.data.presetId));
-        store.setNodeStatus(node.id, node.data.status, JSON.stringify({ counts: step?.counts, telemetry: step?.telemetry.filter(event => event.type !== "evidence"), ...view }), node.data.verification);
+        store.setNodeStatus(node.id, node.data.status, JSON.stringify(view), node.data.verification);
       }
     }
   }, [record, id, model, exportNote, exporting]);
@@ -59,7 +84,7 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
       const response = await fetch(`${runPath(id)}/export`, { method: "POST", cache: "no-store", redirect: "error" });
       const result = await response.json();
       exportLink.current = result.status === "exported" ? result.folder_link : "";
-      setExportNote(result.status === "exported" ? "Exported to Drive" : `Export unavailable: ${result.reason ?? "run unavailable"}`);
+      setExportNote(result.status === "exported" ? "Exported to Drive" : result.reason === "drive_export_unavailable" ? "Drive not configured" : `Export unavailable: ${result.reason ?? "run unavailable"}`);
     } catch { setExportNote("Export unavailable: connection failed"); }
     finally { setExporting(false); }
   };
@@ -76,21 +101,25 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
     {busy && <p role="status">Pipeline / model proposals running…</p>}
     {error && <p role="alert">{error}</p>}
     {record?.steps.map(step => <div key={step.node}>
-      <strong>{step.node === "store" ? "Store · local SQLite" : step.node}</strong>: {step.status} {JSON.stringify(step.counts)}
-      {step.telemetry.filter(event => !["evidence", "top10"].includes(event.type)).map((event, index) => <details key={index}>
-        <summary>{event.type === "repair" ? "Furnace · golden repair" : event.type} {String(event.label ?? "")}</summary><pre className="max-h-32 overflow-auto whitespace-pre-wrap">{JSON.stringify(event, null, 2)}</pre>
-      </details>)}
+      <strong>{step.node === "store" ? "Store · local SQLite" : step.node}</strong>: {step.status}
+      <span className="ml-1 text-white/70">· {humanSummary(step)}</span>
+      <details className="mt-1"><summary>Show details</summary><pre className="max-h-56 overflow-auto whitespace-pre-wrap">{JSON.stringify(step.telemetry.filter(event => !["evidence", "top10"].includes(event.type)), null, 2)}</pre></details>
       {step.node === "builder" && model.repair && <p>Model repair: {model.repair.valid ? "valid" : "invalid"} / {model.matchesRepair ? "matches golden" : "differs from golden"}</p>}
     </div>)}
     {model.mapping && <p>Model mapping: {model.mapping.valid ? "valid" : "invalid"} / {model.mapping.matches_golden ? "matches golden" : "differs from golden"}</p>}
     {model.unavailable && <p className="text-white/60">model unavailable, golden path used</p>}
-    {top && <><p>{String(top.baseline_label)}</p><p>{Array.isArray(top.rows) ? top.rows.length : 0} eligible SQL groups (up to 10)</p>
-      <pre className="max-h-44 overflow-auto whitespace-pre-wrap">{JSON.stringify(top.rows, null, 2)}</pre></>}
+    {top && <section aria-label="Golden SQL report" className="space-y-2">
+      <h3 className="font-semibold">Golden SQL report</h3>
+      <p>Commercial vs Medicare Managed Care Plan median, this hospital's file</p>
+      <p className="text-white/60">{String(top.baseline_label)}</p>
+      <p className="text-white/60">{Array.isArray(top.rows) ? top.rows.length : 0} comparison groups with 11 reported fields</p>
+      <button type="button" className="glass rounded-lg px-3 py-1 text-sm" onClick={openHospitalReportDialog}>Open full report</button>
+    </section>}
+    {model.summary && <p data-testid="hospital-report-summary">{model.summary}</p>}
     {model.rejected !== undefined && <p>Summary rejected by guard: {model.rejected} unsupported figures</p>}
     {model.summary && <p>Model summary · guard passed; recorded report remains golden</p>}
-    {record?.report_md && <pre className="max-h-64 overflow-auto whitespace-pre-wrap" data-testid="hospital-report">{model.summary ?? record.report_md}</pre>}
     {record?.status === "completed" && <><p>Recorded artifacts: {["rows.csv", "mrf.sqlite", "report.md"].map(file => <a className="mr-2 underline" key={file} href={`${runPath(id)}/artifacts/${file}`}>{file}</a>)}</p>
       <button className="glass p-2 disabled:opacity-50" disabled={exporting} onClick={() => void exportRun()}>Export to Google Drive (direct API, not MCP)</button></>}
-    {exportNote && <p className="text-white/60" role="status">{exportLink.current ? <a className="underline" href={exportLink.current}>{exportNote}</a> : exportNote}</p>}
+    {exportNote && <p className="text-white/50" role="status">{exportLink.current ? <a className="underline" href={exportLink.current}>{exportNote}</a> : exportNote === "Export unavailable: drive_export_unavailable" ? "Drive not configured" : exportNote}</p>}
   </section>;
 }

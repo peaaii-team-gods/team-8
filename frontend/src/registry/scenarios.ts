@@ -106,9 +106,11 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
   {
     id: "hospital-pipeline", title: "Hospital source to SQL", blurb: "Source → Builder → Furnace → local SQLite → Analyst",
     build: (nextId) => {
-      const nodes = [lakeNode(nextId, "hospital-source", 20, 120), agentNode(nextId, "mrf-hospital-builder", 320, 120),
-        agentNode(nextId, "mrf-hospital-maintainer", 620, 120), agentNode(nextId, "hospital-store", 920, 120), agentNode(nextId, "hospital-analyst", 1220, 120)];
+      const nodes = [lakeNode(nextId, "hospital-source", 20, 40), agentNode(nextId, "mrf-hospital-builder", 360, 40),
+        agentNode(nextId, "mrf-hospital-maintainer", 20, 350), agentNode(nextId, "hospital-store", 360, 350), agentNode(nextId, "hospital-analyst", 20, 660)];
       nodes[2].data.title = "Furnace · Maintainer";
+      nodes[4].data.title = "Golden SQL report";
+      nodes[4].data.description = "Commercial vs Medicare Managed Care Plan median, this hospital's file";
       return { nodes, edges: nodes.slice(1).map((node, i) => ({ id: nextId("e"), source: nodes[i].id, target: node.id, type: "packet", data: { active: false } })) };
     },
   },

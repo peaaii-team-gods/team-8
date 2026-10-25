@@ -12,6 +12,8 @@ import { readFileSync } from "node:fs";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const report = "Recorded SQL report: 5 eligible groups";
+// Captured from actual PipelineService.route POST /run then GET /runs/<id> on fresh-main 605e6f0e; public-network source fetch, inject_error=true, completed GET. No CMS contacts or downloaded source body are included.
+const realResult = JSON.parse(readFileSync("src/ui/fixtures/hospital-run.real.json", "utf8"));
 const result = { status: "completed", report_md: report, steps: [
   { node: "source", status: "completed", counts: {}, telemetry: [{ type: "trace", label: "cached", trace: [] }] },
   { node: "builder", status: "completed", counts: {}, telemetry: [{ type: "repair", label: "injected", checks: [] }] },
@@ -42,12 +44,12 @@ function modelSetup(summary: string, broken = false) {
     poll: async (handle: RunHandle) => ({ nodeId: handle.nodeId, status: "succeeded", basis: "agent_reported", output: JSON.stringify(outputs[Number(handle.runId)]) }), cancel: async () => undefined };
   return { adapter, workflows, requests, mapping, repair };
 }
-const setup = (exported: unknown = { status: "unavailable", reason: "Drive credentials unavailable" }) => {
+const setup = (exported: unknown = { status: "unavailable", reason: "drive_export_unavailable" }, runResult = result) => {
   const requests: { url: string; init?: RequestInit }[] = [];
   vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
     requests.push({ url, init });
     if (url === "/api/pipeline/run") return response({ run_id: "run-test" });
-    if (url === "/api/pipeline/runs/run-test") return response(result);
+    if (url === "/api/pipeline/runs/run-test") return response(runResult);
     if (url === "/api/pipeline/runs/run-test/export") return response(exported);
     throw new Error("Unexpected request");
   });
@@ -59,7 +61,7 @@ describe("hospital canvas deterministic record", () => {
     const scenario = scenarioById("hospital-pipeline");
     expect(scenario).toBeDefined();
     const graph = scenario!.build((prefix) => `${prefix}-${Math.random()}`);
-    expect(graph.nodes.map(n => n.data.title)).toEqual(["Source", "Hospital MRF Builder", "Furnace · Maintainer", "Store · local SQLite", "Analyst"]);
+    expect(graph.nodes.map(n => n.data.title)).toEqual(["Source", "Hospital MRF Builder", "Furnace · Maintainer", "Store · local SQLite", "Golden SQL report"]);
     expect(graph.edges).toHaveLength(4);
     for (const edge of graph.edges) {
       const from = graph.nodes.find(n => n.id === edge.source)!, to = graph.nodes.find(n => n.id === edge.target)!;
@@ -74,7 +76,7 @@ describe("hospital canvas deterministic record", () => {
     render(<HospitalPipelinePanel adapter={null} budget={0} />);
     expect(screen.queryByRole("button", { name: "Export to Google Drive (direct API, not MCP)" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
-    await screen.findByText(report);
+    await screen.findByRole("heading", { name: "Golden SQL report" });
     expect(requests.every(r => r.url.startsWith("/api/pipeline/"))).toBe(true);
     expect(JSON.parse(requests[0].init!.body as string)).toEqual({ source: "south-shore", inject_error: false });
     expect(requests.some(r => r.url.endsWith("/export"))).toBe(false);
@@ -84,18 +86,50 @@ describe("hospital canvas deterministic record", () => {
     expect(screen.getByRole("link", { name: "rows.csv" }).getAttribute("href")).toBe("/api/pipeline/runs/run-test/artifacts/rows.csv");
     expect(screen.getByText("model unavailable, golden path used")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Export to Google Drive (direct API, not MCP)" }));
-    await screen.findByText(/Drive credentials unavailable/);
+    await screen.findByText("Drive not configured");
     const exportRequest = requests.find(r => r.url.endsWith("/export"))!;
     expect(exportRequest.init?.method).toBe("POST");
     expect(exportRequest.init?.body).toBeUndefined();
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it("renders the real run's source trace, ordered furnace checks, SQLite count, and complete SQL report", async () => {
+    useStore.getState().loadScenario("hospital-pipeline");
+    setup(undefined, realResult);
+    render(<HospitalPipelinePanel adapter={null} budget={0} />);
+    fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
+    await screen.findByText(/42 rows - local SQLite/);
+    const sourceSummary = screen.getByText(/Source files fetched/);
+    const sourceDetails = sourceSummary.parentElement?.querySelector("details");
+    expect(sourceDetails?.open).toBe(false);
+    expect(sourceDetails?.querySelector("pre")?.textContent).toContain("https://www.southshorehealth.org/cms-hpt.txt");
+    expect(sourceDetails?.querySelector("pre")?.textContent).toContain("https://zencloud-southshorehealth.s3.us-east-1.amazonaws.com/www.southshorehealth.org/assets/2026-03/042769210_south-shore-hospital_standardcharges.json");
+    expect(sourceDetails?.querySelector("pre")?.textContent).toContain("0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd");
+    expect(screen.getByText(/Golden repair: 42\/42 rows restored/)).toBeTruthy();
+    expect(screen.getByText("Golden SQL report")).toBeTruthy();
+    expect(screen.getByText("Commercial vs Medicare Managed Care Plan median, this hospital's file")).toBeTruthy();
+    expect(screen.getByText("5 comparison groups with 11 reported fields")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open full report" })).toBeTruthy();
+    const detailSummaries = screen.getAllByText("Show details");
+    expect(detailSummaries).toHaveLength(4);
+    expect(detailSummaries.every(summary => summary.closest("details")?.open === false)).toBe(true);
+    expect(screen.getByText("model unavailable, golden path used")).toBeTruthy();
+    const source = useStore.getState().nodes.find(node => node.data.presetId === "hospital-source")!;
+    expect(JSON.parse(source.data.output!).telemetry.find((event: { type: string }) => event.type === "trace").trace.map((item: { url: string }) => item.url)).toEqual([
+      "https://www.southshorehealth.org/cms-hpt.txt",
+      "https://zencloud-southshorehealth.s3.us-east-1.amazonaws.com/www.southshorehealth.org/assets/2026-03/042769210_south-shore-hospital_standardcharges.json",
+    ]);
+    const furnace = useStore.getState().nodes.find(node => node.data.presetId === "mrf-hospital-maintainer")!;
+    const furnaceTelemetry = JSON.parse(furnace.data.output!).telemetry;
+    expect(furnaceTelemetry.find((event: { type: string }) => event.type === "checks").checks.find((check: { name: string }) => check.name === "fields.rate")).toMatchObject({ pass: false, expected: "standard_charge_dollar", actual: "missing" });
+    expect(furnaceTelemetry.find((event: { type: string }) => event.type === "repair").checks.find((check: { name: string }) => check.name === "inserted_row_count")).toMatchObject({ pass: true, expected: 42, actual: 42 });
+  });
+
   it("exports only on click and shows the returned folder", async () => {
     const requests = setup({ status: "exported", folder_id: "folder-test", folder_link: "https://drive.google.com/drive/folders/folder-test", files: ["rows.csv"] });
     render(<HospitalPipelinePanel adapter={null} budget={0} />);
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
-    await screen.findByText(report);
+    await screen.findByRole("heading", { name: "Golden SQL report" });
     fireEvent.click(screen.getByRole("button", { name: "Export to Google Drive (direct API, not MCP)" }));
     const driveLink = await screen.findByRole("link", { name: "Exported to Drive" });
     expect(driveLink.getAttribute("href")).toBe("https://drive.google.com/drive/folders/folder-test");
@@ -113,7 +147,7 @@ describe("hospital canvas deterministic record", () => {
     render(<HospitalPipelinePanel adapter={null} budget={0} />);
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
-    await screen.findByText(report, {}, { timeout: 2500 });
+    await screen.findByRole("heading", { name: "Golden SQL report" }, { timeout: 2500 });
     expect(submitted).toEqual({ source: "south-shore", inject_error: true });
     expect(polls).toHaveLength(2);
     expect(polls[1] - polls[0]).toBeGreaterThanOrEqual(990);
@@ -124,7 +158,7 @@ describe("hospital canvas deterministic record", () => {
     render(<HospitalPipelinePanel adapter={model.adapter} budget={0} />);
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
     await screen.findByText("Summary rejected by guard: 1 unsupported figures");
-    expect(screen.getByTestId("hospital-report").textContent).toBe(report);
+    expect(screen.getByRole("button", { name: "Open full report" })).toBeTruthy();
     expect(screen.getByText("Model repair: valid / matches golden")).toBeTruthy();
     expect(model.requests.filter(r => r.url.endsWith("/proposals")).map(r => r.body))
       .toEqual([{ mapping: model.mapping }, { repair: { action: "replace_mapping", mapping: model.repair } }]);
@@ -150,9 +184,10 @@ describe("hospital canvas deterministic record", () => {
     render(<HospitalPipelinePanel adapter={model.adapter} budget={0} prepareLocalModel={() => { prepared = true; }} />);
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
     await screen.findByText("Model summary · guard passed; recorded report remains golden");
-    expect(screen.getByTestId("hospital-report").textContent).toBe("The selected rate is $120.");
+    expect(screen.getByTestId("hospital-report-summary").textContent).toBe("The selected rate is $120.");
+    expect(screen.getByRole("button", { name: "Open full report" })).toBeTruthy();
     const analyst = useStore.getState().nodes.find(node => node.data.presetId === "hospital-analyst")!;
-    expect(JSON.parse(analyst.data.output!).analystText).toBe("The selected rate is $120.");
+    expect(JSON.parse(analyst.data.output!).analystText).toBe(report);
     expect(model.requests.find(r => r.url.endsWith("/summary"))?.body).toEqual({ text: "The selected rate is $120." });
   });
 
@@ -161,7 +196,7 @@ describe("hospital canvas deterministic record", () => {
     render(<HospitalPipelinePanel adapter={model.adapter} budget={0} />);
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
     await screen.findByText("model unavailable, golden path used");
-    expect(screen.getByTestId("hospital-report").textContent).toBe(report);
+    expect(screen.getByRole("button", { name: "Open full report" })).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(useStore.getState().pipelineStage).toBe("complete");
   });

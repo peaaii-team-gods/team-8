@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ReactFlow, Background, Controls, type NodeTypes, type EdgeTypes } from "@xyflow/react";
+import { ReactFlow, Background, Controls, useReactFlow, type NodeTypes, type EdgeTypes } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Play, Square } from "lucide-react";
@@ -54,6 +54,23 @@ import { hospitalModelAdapter } from "./run/hospitalPipeline";
 
 const nodeTypes: NodeTypes = { agent: AgentNode, dataLake: DataLakeNode };
 const edgeTypes = { packet: PacketEdge } as EdgeTypes;
+
+function FitHospitalRun() {
+  const { fitView } = useReactFlow();
+  const scenario = useStore(state => state.scenarioId), ended = useStore(state => state.runEndedAt);
+  const nodes = useStore(state => state.nodes);
+  const contentVersion = nodes.filter(node => ["hospital-source", "mrf-hospital-builder", "mrf-hospital-maintainer", "hospital-store", "hospital-analyst"].includes(node.data.presetId))
+    .map(node => `${node.id}:${node.data.status}:${node.data.output?.length ?? 0}`).join("|");
+  useEffect(() => {
+    if (scenario !== "hospital-pipeline" || !ended) return;
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => { void fitView({ padding: 0.12, duration: 350, maxZoom: 1.15 }); });
+    });
+    return () => { cancelAnimationFrame(firstFrame); if (secondFrame) cancelAnimationFrame(secondFrame); };
+  }, [scenario, ended, contentVersion, fitView]);
+  return null;
+}
 
 type ShellView = "landing" | "signin" | "canvas";
 
@@ -611,14 +628,14 @@ export default function App() {
     {nodes.length > 0 && uiState.kind !== "hub" && (
       <button aria-label="Create" disabled={running} className="glass absolute bottom-6 right-6 z-10 p-3 text-fuchsia-300 disabled:opacity-50" onClick={(e) => { e.stopPropagation(); openHub(); }}><Plus size={20} /></button>
     )}
-    <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} fitView fitViewOptions={{ padding: 0.28 }} maxZoom={1.05}
+    <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} fitView fitViewOptions={{ padding: scenarioId === "hospital-pipeline" ? 0.12 : 0.28 }} maxZoom={scenarioId === "hospital-pipeline" ? 1.15 : 1.05}
       deleteKeyCode={running ? null : ["Backspace", "Delete"]}
       onNodesChange={onNodesChange}
       onNodeClick={(_, n) => {
         if (uiState.kind === "linking") completeLink(n.id);
         else setUiState({ kind: "menu", nodeId: n.id });
       }}>
-      <Background /><Controls position="top-left" />
+      <Background /><Controls position="top-left" /><FitHospitalRun />
     </ReactFlow>
     <AnimatePresence>{uiState.kind === "hub" && (
       <motion.div layoutId="hub" initial={{ opacity: 0, scale: .9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="glass absolute left-1/2 top-1/2 z-10 w-[min(560px,92vw)] -translate-x-1/2 -translate-y-1/2 p-5" onClick={(e) => e.stopPropagation()}>
@@ -636,7 +653,7 @@ export default function App() {
         <button className="text-sm opacity-70" onClick={() => setUiState({ kind: "void" })}>Close</button>
       </motion.div>)}
     </AnimatePresence>
-    {tracks.length > 0 && (
+    {tracks.length > 0 && scenarioId !== "hospital-pipeline" && (
       <div className="pointer-events-none absolute bottom-20 left-4 z-10 [&>*]:pointer-events-auto">
         <ConversationPanel />
       </div>
@@ -669,7 +686,7 @@ export default function App() {
     <McpWindow />
     <LakeInspector />
     </div>
-    <div className="flex h-full w-[320px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-white/10 bg-[#070312]/80 p-3">
+    <div className={`flex h-full shrink-0 flex-col gap-3 overflow-y-auto border-l border-white/10 bg-[#070312]/80 p-3 ${scenarioId === "hospital-pipeline" ? "w-[min(384px,32vw)]" : "w-[320px]"}`}>
       <div className="glass flex flex-col gap-1 self-stretch px-3 py-2 text-xs">
         <div className="font-display text-sm text-fuchsia-100">Team 8 · Science canvas</div>
         <div className="flex flex-wrap items-center gap-2">

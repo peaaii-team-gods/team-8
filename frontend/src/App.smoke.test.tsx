@@ -12,6 +12,8 @@ import { LiveAdapter } from "./adapters/live";
 import type { RunOutcome } from "./adapters/RhmAdapter";
 import type { InferenceStatus } from "./adapters/inference";
 import { MRF_GOLDEN_MAPPING } from "./mrf/data";
+// @ts-ignore -- test-only Node builtin; fixture is the exact public GET captured from a real run.
+import { readFileSync } from "node:fs";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
@@ -39,17 +41,12 @@ beforeEach(() => {
 });
 
 describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
-  it("exports from the actual completed Storage node and shows its neutral unavailable note", async () => {
+  it("renders every actual captured pipeline node, opens the complete SQL report, and exports only on click", async () => {
     const requests: { url: string; init?: RequestInit }[] = [];
+    const realRun = JSON.parse(readFileSync("src/ui/fixtures/hospital-run.real.json", "utf8"));
     vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
       requests.push({ url, init });
-      const value = url.endsWith("/export") ? { status: "unavailable", reason: "Drive not configured" } : url.endsWith("/run") ? { run_id: "run-node" } : {
-        status: "completed", report_md: "Golden SQL report", steps: [
-          { node: "builder", status: "completed", counts: {}, telemetry: [{ type: "repair", label: "injected" }] },
-          { node: "store", status: "completed", counts: { row_count: 42 }, telemetry: [] },
-          { node: "analyst", status: "completed", counts: {}, telemetry: [] },
-        ],
-      };
+      const value = url.endsWith("/export") ? { status: "unavailable", reason: "drive_export_unavailable" } : url.endsWith("/run") ? { run_id: "run-node" } : realRun;
       return new Response(JSON.stringify(value), { headers: { "Content-Type": "application/json" } });
     });
     renderApp();
@@ -59,18 +56,64 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     const storage = useStore.getState().nodes.find(node => node.data.presetId === "hospital-store")!;
     const storageNode = () => screen.getByTestId(`node-${storage.id}`);
     expect(within(storageNode()).queryByText("Export to Google Drive (direct API, not MCP)", { selector: "button" })).toBeNull();
+    const injector = screen.getByRole("checkbox");
+    expect((injector as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(injector);
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
     // React Flow hides unmeasured nodes in jsdom; inspect the actual button DOM.
     const exportButton = await waitFor(() => within(storageNode()).getByText("Export to Google Drive (direct API, not MCP)", { selector: "button" }));
+    expect(JSON.parse(requests.find(request => request.url.endsWith("/run"))!.init!.body as string)).toEqual({ source: "south-shore", inject_error: true });
+    const source = useStore.getState().nodes.find(node => node.data.presetId === "hospital-source")!;
+    const sourceNode = screen.getByTestId(`node-${source.id}`);
+    const cmsUrl = "https://www.southshorehealth.org/cms-hpt.txt";
+    const mrfUrl = "https://zencloud-southshorehealth.s3.us-east-1.amazonaws.com/www.southshorehealth.org/assets/2026-03/042769210_south-shore-hospital_standardcharges.json";
+    expect(sourceNode.textContent).toContain(cmsUrl);
+    expect(sourceNode.textContent).toContain(mrfUrl);
+    expect(sourceNode.textContent!.indexOf(cmsUrl)).toBeLessThan(sourceNode.textContent!.indexOf(mrfUrl));
+    expect(sourceNode.textContent).toContain("374 bytes");
+    expect(sourceNode.textContent).toContain("36771540 bytes");
+    expect(sourceNode.textContent).toContain("MRF SHA-256: 0ba485a4");
+    expect(sourceNode.textContent!.match(/MRF SHA-256:/g)).toHaveLength(1);
+    expect(within(storageNode()).getByText("42 rows - local SQLite")).toBeTruthy();
     expect(requests.some(request => request.url.endsWith("/export"))).toBe(false);
     fireEvent.click(exportButton);
-    await waitFor(() => within(storageNode()).getByText("Export unavailable: Drive not configured"));
+    const driveNote = await waitFor(() => within(storageNode()).getByText("Drive not configured"));
+    expect(driveNote.className).toContain("text-white/50");
     expect(within(storageNode()).queryByRole("alert")).toBeNull();
     expect(requests.find(request => request.url.endsWith("/export"))?.init?.body).toBeUndefined();
     const analyst = useStore.getState().nodes.find(node => node.data.presetId === "hospital-analyst")!;
-    expect(within(screen.getByTestId(`node-${analyst.id}`)).getByText("Golden SQL report")).toBeTruthy();
+    const analystElement = screen.getByTestId(`node-${analyst.id}`);
+    const analystNode = within(analystElement);
+    expect(analystElement.textContent).toContain("Golden SQL report");
+    expect(analystElement.textContent).toContain("Commercial vs Medicare Managed Care Plan median, this hospital's file");
+    expect(analystNode.getByText("model unavailable, golden path used")).toBeTruthy();
+    const openReportButton = [...analystElement.querySelectorAll("button")].find(button => button.textContent?.includes("Open full report"))!;
+    fireEvent.click(openReportButton);
+    const dialog = analystElement.querySelector("dialog") as HTMLDialogElement;
+    expect(dialog.open).toBe(true);
+    expect([...dialog.querySelectorAll("thead th")].map(header => header.textContent)).toEqual(["Code", "Class", "Description", "Commercial median", "MA median", "Difference", "Ratio", "n commercial", "n MA", "Gross", "Cash"]);
+    expect(dialog.querySelectorAll("tbody tr")).toHaveLength(5);
+    expect(dialog.className).toContain("m-auto");
+    expect(dialog.querySelector("table")?.className).toContain("text-sm");
+    expect(dialog.textContent).toContain("Small-n medians (some groups contain one plan) are indicative only.");
+    expect(dialog.textContent).toContain("Percent/algorithm prices are never converted into dollar rates.");
+    expect(dialog.textContent).toContain("Excluded non-dollar payer entries: 0.");
+    expect(dialog.textContent).toContain("Quarantined source items: 1.");
     const furnace = useStore.getState().nodes.find(node => node.data.presetId === "mrf-hospital-maintainer")!;
-    expect(within(screen.getByTestId(`node-${furnace.id}`)).getByText(/Golden repair: injected/)).toBeTruthy();
+    const furnaceNode = within(screen.getByTestId(`node-${furnace.id}`));
+    const errorLine = furnaceNode.getByText("Injected error: fields.rate expected standard_charge_dollar, got missing - 0/42 rows");
+    const repairLine = furnaceNode.getByText("Golden repair: 42/42 rows restored");
+    expect(errorLine.className).toContain("text-rose-200");
+    expect(repairLine.className).toContain("text-emerald-200");
+    expect(Boolean(errorLine.compareDocumentPosition(repairLine) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+  });
+
+  it("declares a valid SVG favicon in the page head", () => {
+    const page = new DOMParser().parseFromString(readFileSync("index.html", "utf8"), "text/html");
+    expect(page.head.querySelector('link[rel="icon"]')?.getAttribute("href")).toBe("/favicon.svg");
+    const icon = new DOMParser().parseFromString(readFileSync("public/favicon.svg", "utf8"), "image/svg+xml");
+    expect(icon.documentElement.localName).toBe("svg");
+    expect(icon.documentElement.namespaceURI).toBe("http://www.w3.org/2000/svg");
   });
 
   it("loads the hospital canvas with public-source labels and its separate local run button", async () => {
