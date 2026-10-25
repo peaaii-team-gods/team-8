@@ -116,14 +116,13 @@ def discover(domain, location_hint, *, cache_dir="data", max_bytes=60 * 1024 * 1
     def _timeout(exc):
         if isinstance(exc, (socket.timeout, TimeoutError)):
             return True
-        reason = getattr(exc, "reason", None)
-        return isinstance(reason, (socket.timeout, TimeoutError)) or "timed out" in str(exc).lower()
+        return isinstance(getattr(exc, "reason", None), (socket.timeout, TimeoutError))
 
     def fetch(url, limit=max_bytes):
         _require_http(url)
         req = urllib.request.Request(url, headers={"Accept-Encoding": "gzip", "User-Agent": "RHM-Hospital-MRF-Discovery/1.0"})
-        last = None
         for attempt in range(FETCH_RETRIES + 1):
+            retry = attempt < FETCH_RETRIES
             status = "error"
             try:
                 response = client.open(req, timeout=30)
@@ -132,11 +131,10 @@ def discover(domain, location_hint, *, cache_dir="data", max_bytes=60 * 1024 * 1
                     _require_http(response.geturl())
                     if isinstance(status, int) and 500 <= status <= 599:
                         trace.append({"url": url, "status": status, "bytes": 0})
-                        last = DiscoveryError("http_error")
-                        if attempt < FETCH_RETRIES:
+                        if retry:
                             time.sleep(FETCH_BACKOFF_S)
                             continue
-                        raise last
+                        raise DiscoveryError("http_error")
                     headers = response.headers
                     body = _bounded_body(response, limit, headers)
                 trace.append({"url": url, "status": status, "bytes": len(body)})
@@ -145,23 +143,20 @@ def discover(domain, location_hint, *, cache_dir="data", max_bytes=60 * 1024 * 1
                 return body
             except urllib.error.HTTPError as exc:
                 trace.append({"url": url, "status": exc.code, "bytes": 0})
-                last = DiscoveryError("http_error")
-                if 500 <= exc.code <= 599 and attempt < FETCH_RETRIES:
+                if 500 <= exc.code <= 599 and retry:
                     time.sleep(FETCH_BACKOFF_S)
                     continue
-                raise last from exc
+                raise DiscoveryError("http_error") from exc
             except DiscoveryError as exc:
                 if not trace or trace[-1]["url"] != url:
                     trace.append({"url": url, "status": status, "bytes": exc.bytes_read})
                 raise
             except (urllib.error.URLError, socket.timeout, TimeoutError, http.client.HTTPException, OSError) as exc:
                 trace.append({"url": url, "status": status, "bytes": 0})
-                last = DiscoveryError("network_error")
-                if _timeout(exc) and attempt < FETCH_RETRIES:
+                if _timeout(exc) and retry:
                     time.sleep(FETCH_BACKOFF_S)
                     continue
-                raise last from exc
-        raise last
+                raise DiscoveryError("network_error") from exc
 
     try:
         listing = fetch(urllib.parse.urljoin(base, "cms-hpt.txt"), min(max_bytes, 2 * 1024 * 1024))

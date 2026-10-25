@@ -177,6 +177,77 @@ def test_timeout_retries_twice_then_uses_sha_cache(tmp_path, monkeypatch):
     assert second["sha256"] == first["sha256"]
     assert second["data"] == payload
 
+
+def test_five_xx_retries_then_download_or_cache(tmp_path, monkeypatch):
+    import time
+    import urllib.error
+
+    listing = b"location-name: Campus\nmrf-url: /file.json\n"
+    payload = b'{"cached":true}'
+    sleeps = []
+    monkeypatch.setattr(time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    class StatusSite:
+        def __init__(self, listing_statuses):
+            self.listing_statuses = list(listing_statuses)
+            self.calls = 0
+
+        def open(self, request, timeout=30):
+            path = urllib.parse.urlparse(request.full_url).path
+            self.calls += 1
+            if path.endswith("/cms-hpt.txt"):
+                status = self.listing_statuses.pop(0)
+                body = listing if status == 200 else b""
+                return FakeResponse(status, {}, body)
+            return FakeResponse(200, {}, payload)
+
+    recovered = StatusSite([503, 503, 200])
+    downloaded = discover("fixture.test", "campus", cache_dir=tmp_path / "ok", opener=recovered)
+    assert downloaded["label"] == "downloaded"
+    assert recovered.calls == 4
+    assert sleeps == [1, 1]
+
+    first = discover("fixture.test", "campus", cache_dir=tmp_path / "cache", opener=FakeSite({
+        "/cms-hpt.txt": (200, {}, listing), "/file.json": (200, {}, payload),
+    }))
+    sleeps.clear()
+    cached_site = StatusSite([503, 503, 503])
+    cached = discover("fixture.test", "campus", cache_dir=tmp_path / "cache", opener=cached_site)
+    assert cached_site.calls == 3
+    assert sleeps == [1, 1]
+    assert cached["label"] == "cached"
+    assert cached["sha256"] == first["sha256"]
+
+    sleeps.clear()
+    missing = FakeSite({"/cms-hpt.txt": (404, {}, b"missing")})
+    with pytest.raises(DiscoveryError, match="http_error"):
+        discover("fixture.test", "campus", cache_dir=tmp_path / "miss", opener=missing)
+    assert missing.requests == ["/cms-hpt.txt"]
+    assert sleeps == []
+
+    class HttpErrorSite:
+        def __init__(self, codes):
+            self.codes = list(codes)
+            self.calls = 0
+
+        def open(self, request, timeout=30):
+            path = urllib.parse.urlparse(request.full_url).path
+            self.calls += 1
+            if path.endswith("/cms-hpt.txt") and self.codes:
+                code = self.codes.pop(0)
+                if code >= 500:
+                    raise urllib.error.HTTPError(request.full_url, code, "error", {}, io.BytesIO(b""))
+            if path.endswith("/cms-hpt.txt"):
+                return FakeResponse(200, {}, listing)
+            return FakeResponse(200, {}, payload)
+
+    sleeps.clear()
+    http_err = HttpErrorSite([503, 503])
+    recovered_http = discover("fixture.test", "campus", cache_dir=tmp_path / "http", opener=http_err)
+    assert recovered_http["label"] == "downloaded"
+    assert http_err.calls == 4
+    assert sleeps == [1, 1]
+
 @pytest.mark.parametrize("target", ["file:///must-not-read.json", "ftp://fixture.test/file.json", "data:application/json,blocked.json"])
 @pytest.mark.parametrize("field", ["mrf-url", "source-page-url", "source-link"])
 def test_non_http_urls_refused_before_open(tmp_path, target, field):

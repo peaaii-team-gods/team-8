@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Read-only demo preflight. Never starts services. Never prints env or secret contents.
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";

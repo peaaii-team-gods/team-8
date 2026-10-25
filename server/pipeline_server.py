@@ -253,7 +253,8 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 code, value, content = self.service.route(self.command, self.path, self.rfile.read(length))
             body = value if isinstance(value, bytes) else json.dumps(value, allow_nan=False).encode('utf-8')
-        except Exception:
+        except Exception as exc:
+            print(f'handler_failed {self.command} {type(exc).__name__}', file=sys.stderr)
             code, content = 500, 'application/json'
             body = b'{"error":"internal_error"}'
         self.send_response(code)

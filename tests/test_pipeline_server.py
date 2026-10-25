@@ -163,7 +163,7 @@ def test_timeout_retries_then_cached_pipeline_run(tmp_path, monkeypatch):
     assert (tmp_path / 'runs' / 'retry-cache' / 'mrf.sqlite').exists()
 
 
-def test_handler_exceptions_return_json_error_not_html():
+def test_handler_exceptions_return_json_error_not_html(capsys):
     handler = Handler.__new__(Handler)
     handler.headers = {'Content-Length': '0'}
     handler.rfile, handler.wfile = BytesIO(), BytesIO()
@@ -180,9 +180,12 @@ def test_handler_exceptions_return_json_error_not_html():
     handler.end_headers = lambda: None
     handler._handle()
     raw = handler.wfile.getvalue()
+    err = capsys.readouterr().err
     assert codes == [500]
     assert json.loads(raw) == {'error': 'internal_error'}
     assert b'SECRET' not in raw and b'<html' not in raw.lower()
+    assert 'handler_failed GET RuntimeError' in err
+    assert 'SECRET' not in err
 
 
 def test_http_handler_rejects_oversize_before_reading_body():
