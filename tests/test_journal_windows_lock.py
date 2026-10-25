@@ -80,6 +80,7 @@ def retry_warning(caplog, journal, attempts):
 
 def test_save_recovers_when_real_target_lock_releases_after_150ms(tmp_path, caplog):
     with journal_at(tmp_path) as journal:
+        caplog.clear()
         journal.data["stages"] = {"private": PRIVATE_MARKER}
         with held_target(journal.path, release_after=0.150) as (start, released):
             started = time.monotonic()
@@ -87,7 +88,7 @@ def test_save_recovers_when_real_target_lock_releases_after_150ms(tmp_path, capl
             journal.save()
             elapsed = time.monotonic() - started
             assert released.is_set()
-        assert 0.120 <= elapsed < 2
+        assert 0.120 <= elapsed < 1
         assert json.loads(journal.path.read_text(encoding="utf-8")) == journal.data
         warning = [record for record in caplog.records if record.name == "resources"]
         assert len(warning) == 1
@@ -101,6 +102,7 @@ def test_save_recovers_when_real_target_lock_releases_after_150ms(tmp_path, capl
 
 def test_save_reraises_original_error_when_real_target_lock_outlasts_budget(tmp_path, caplog):
     with journal_at(tmp_path) as journal:
+        caplog.clear()
         original = journal.path.read_bytes()
         journal.data["stages"] = {"private": PRIVATE_MARKER}
         errors = []
@@ -127,7 +129,7 @@ def test_save_reraises_original_error_when_real_target_lock_outlasts_budget(tmp_
             assert caught.value is errors[0]
             assert len({id(error) for error in errors}) == 5
             assert caught.value.winerror in (5, 32)
-            assert 0.650 <= elapsed < 2
+            assert 0.650 <= elapsed < 1
             assert journal.path.read_bytes() == original
             retry_warning(caplog, journal, 5)
         assert journal.path.read_bytes() == original
