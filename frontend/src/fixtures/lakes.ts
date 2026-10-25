@@ -53,8 +53,9 @@ export const LAKE_FIXTURES: Record<string, unknown[]> = {
         ],
       },
       key_path_example: {
-        rule: "mapping fields are source KEY PATHS, never sample values",
+        rule: "mapping fields are source KEY PATHS in sample_item/top_level_keys, never sample values or excerpt labels; dedupe_key must include payer and billing_class",
         wrong: { collection: "Synthetic Mercy Demo Hospital", billing_code: "99213", payer_name: "SynPayer A", rate: "string" },
+        wrong_excerpt_labels: { billing_code: "standard_charge_codes", description: "note" },
         right: { collection: "in_network", rate_groups: "negotiated_rates", prices: "negotiated_prices", rate: "negotiated_rate" },
       },
     },
@@ -79,8 +80,9 @@ export const LAKE_FIXTURES: Record<string, unknown[]> = {
         ],
       },
       key_path_example: {
-        rule: "mapping fields are source KEY PATHS, never sample values",
+        rule: "mapping fields are source KEY PATHS in sample_item/top_level_keys, never sample values or excerpt labels; dedupe_key must include payer and billing_class",
         wrong: { collection: "Synthetic Mercy Demo Hospital", billing_code: "99213", payer_name: "SynPayer A", rate: "string" },
+        wrong_excerpt_labels: { billing_code: "standard_charge_codes", description: "note" },
         right: { collection: "in_network", rate_groups: "negotiated_rates", prices: "negotiated_prices", rate: "negotiated_amount" },
       },
     },

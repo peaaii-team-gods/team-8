@@ -1,5 +1,6 @@
 import { parseMapping } from "./apply";
-import { MRF_FIELD_TARGETS, MRF_MAPPING_VERSION, type MrfMapping } from "./types";
+import { MRF_FIELD_TARGETS, type MrfMapping } from "./types";
+import { LAKE_FIXTURES } from "../fixtures/lakes";
 
 const MAPPING_KEYS = [
   "schema_version", "collection", "rate_groups", "prices", "fields",
@@ -26,34 +27,43 @@ function extraKeys(rec: Record<string, unknown>, allowed: readonly string[]): st
   return Object.keys(rec).filter((k) => !allowed.includes(k));
 }
 
-const JSON_TYPE_NAMES = new Set(["string", "number", "boolean", "object", "array", "null", "integer"]);
-const WRONG_COLLECTION = new Set([
-  "hospital_name", "last_updated_on", "note", "top_level_keys", "price_object_keys",
-  "standard_charge_codes", "sample_item", "key_path_example",
-]);
+/** Source scopes come from the supplied synthetic excerpts, including the injected drift. */
+const excerpts = ["hospital-mrf", "hospital-mrf-drift"]
+  .flatMap((id) => LAKE_FIXTURES[id]).map(asRecord).filter((r) => r !== null);
+const items = excerpts.map((excerpt) => asRecord(excerpt.sample_item)).filter((r) => r !== null);
+const arrayChildren = (records: Record<string, unknown>[]) => records.flatMap((record) =>
+  Object.values(record).filter(Array.isArray).flat().map(asRecord).filter((r) => r !== null));
+const groups = arrayChildren(items);
+const prices = arrayChildren(groups);
+const keys = (records: Record<string, unknown>[], arrays = false): string[] =>
+  [...new Set(records.flatMap((record) => Object.keys(record)
+    .filter((key) => arrays ? Array.isArray(record[key]) : !Array.isArray(record[key]))))];
+const topKeys = [...new Set(excerpts.flatMap((excerpt) => excerpt.top_level_keys as string[]))];
+const outputKeys = ["billing_code", "description", "payer_name", "billing_class", "negotiated_type", "negotiated_rate"];
 
-function isSampleValue(value: string): boolean {
-  return JSON_TYPE_NAMES.has(value) || /^\d+(\.\d+)?$/.test(value) || /\s/.test(value);
-}
-
-/** Names the first mapping field that holds a sample value or the hospital name instead of a source key path. */
+/** Name every mapping path absent from its actual source scope; excerpt labels are not source keys. */
 export function namedKeyPathError(mapping: MrfMapping): string | null {
   const hits: string[] = [];
-  const check = (path: string, value: string) => {
-    if (isSampleValue(value) || (path === "collection" && WRONG_COLLECTION.has(value))) {
-      hits.push(`${path} uses ${JSON.stringify(value)}`);
+  const check = (path: string, value: string, allowed: readonly string[]) => {
+    if (!allowed.includes(value)) {
+      hits.push(`${path} uses ${JSON.stringify(value)}; expected a source key path from ${allowed.join(", ")}`);
     }
   };
-  check("collection", mapping.collection);
-  check("rate_groups", mapping.rate_groups);
-  check("prices", mapping.prices);
-  check("standard_charge_lookup", mapping.standard_charge_lookup);
-  check("null_policy.rate.fill_from", mapping.null_policy.rate.fill_from);
-  check("null_policy.rate.by", mapping.null_policy.rate.by);
-  for (const target of MRF_FIELD_TARGETS) check(`fields.${target}`, mapping.fields[target]);
-  mapping.dedupe_key.forEach((key, i) => check(`dedupe_key[${i}]`, key));
-  if (!hits.length) return null;
-  return `${hits[0]}; that field needs a source key path (in_network, negotiated_rates, negotiated_prices, negotiated_rate, collection/rate_groups), not a sample value.`;
+  check("collection", mapping.collection, topKeys.filter((key) => !["hospital_name", "last_updated_on"].includes(key)));
+  check("rate_groups", mapping.rate_groups, keys(items, true));
+  check("prices", mapping.prices, keys(groups, true));
+  check("standard_charge_lookup", mapping.standard_charge_lookup, topKeys);
+  check("null_policy.rate.fill_from", mapping.null_policy.rate.fill_from, topKeys);
+  check("null_policy.rate.by", mapping.null_policy.rate.by, keys(items));
+  for (const target of MRF_FIELD_TARGETS) {
+    const scope = target === "billing_code" || target === "description" ? items : target === "payer_name" ? groups : prices;
+    check(`fields.${target}`, mapping.fields[target], keys(scope));
+  }
+  mapping.dedupe_key.forEach((key, i) => check(`dedupe_key[${i}]`, key, outputKeys));
+  if (!["payer_name", "billing_class"].every((key) => mapping.dedupe_key.includes(key))) {
+    hits.push("dedupe_key must include payer_name and billing_class (payer and billing_class)");
+  }
+  return hits.length ? hits.join("; ") : null;
 }
 
 export function validateMappingValue(value: unknown): { ok: true; mapping: MrfMapping } | { ok: false; error: string } {

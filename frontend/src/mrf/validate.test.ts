@@ -72,4 +72,45 @@ describe("MRF proposal validation", () => {
     expect(validateMappingValue(MRF_GOLDEN_MAPPING)).toMatchObject({ ok: true });
     expect(validateMappingValue(MRF_GOLDEN_REPAIR).ok).toBe(true);
   });
+
+  it("rejects the live excerpt-label mapping with every named error", () => {
+    const result = validateMappingValue({
+      ...MRF_GOLDEN_MAPPING,
+      fields: { ...MRF_GOLDEN_MAPPING.fields, billing_code: "standard_charge_codes", description: "note" },
+      standard_charge_lookup: "standard_charge_codes",
+      dedupe_key: ["billing_code", "payer_name"],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected named errors");
+    for (const name of ["fields.billing_code", "fields.description", "standard_charge_lookup", "dedupe_key"]) {
+      expect(result.error).toContain(name);
+    }
+  });
+
+  it.each([
+    ["collection", { collection: "missing" }],
+    ["rate_groups", { rate_groups: "missing" }],
+    ["prices", { prices: "missing" }],
+    ["standard_charge_lookup", { standard_charge_lookup: "note" }],
+    ["null_policy.rate.fill_from", { null_policy: { rate: { fill_from: "note", by: "billing_code" } } }],
+    ["null_policy.rate.by", { null_policy: { rate: { fill_from: "standard_charges", by: "note" } } }],
+    ["dedupe_key", { dedupe_key: ["billing_code", "billing_class"] }],
+    ["dedupe_key[3]", { dedupe_key: ["billing_code", "payer_name", "billing_class", "missing"] }],
+  ])("checks %s against its source scope", (name, patch) => {
+    const result = validateMappingValue({ ...MRF_GOLDEN_MAPPING, ...patch });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected named error");
+    expect(result.error).toContain(name);
+  });
+
+  it.each(["billing_code", "description", "payer_name", "billing_class", "negotiated_type", "rate"])(
+    "checks fields.%s against its source scope", (target) => {
+      const result = validateMappingValue({
+        ...MRF_GOLDEN_MAPPING, fields: { ...MRF_GOLDEN_MAPPING.fields, [target]: "note" },
+      });
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("expected named error");
+      expect(result.error).toContain(`fields.${target}`);
+    },
+  );
 });
