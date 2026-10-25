@@ -19,6 +19,8 @@
 | `policy-audit` |
 | `assay-qc` |
 | `custom-agent` |
+| `mrf-builder` |
+| `mrf-maintainer` |
 
 ### Data lake presets
 
@@ -29,6 +31,7 @@
 | `medicaid` |
 | `commercial` |
 | `assay-plate` |
+| `hospital-mrf` |
 
 ### Output schemas
 
@@ -39,6 +42,8 @@
 | `denial.v1` |
 | `policy.v1` |
 | `assay_qc.v1` |
+| `mrf.mapping.v1` |
+| `mrf.repair.v1` |
 | `custom.v1` |
 
 ### MCP attachments (declared, not executable)

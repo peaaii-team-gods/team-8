@@ -22,6 +22,48 @@ export const LAKE_FIXTURES: Record<string, unknown[]> = {
     { record_id: "syn-com-002", claim_type: "synthetic", amount_band: "high", denial_code: "N95" },
     { record_id: "syn-com-003", claim_type: "synthetic", amount_band: "mid", denial_code: null },
   ],
+  "hospital-mrf": [
+    {
+      note: "synthetic excerpt — not the full file",
+      hospital_name: "Synthetic Mercy Demo Hospital",
+      top_level_keys: ["hospital_name", "last_updated_on", "standard_charges", "in_network"],
+      price_object_keys: ["negotiated_rate", "billing_class", "negotiated_type"],
+      standard_charge_codes: ["99213", "99214", "80053", "93000"],
+      sample_item: {
+        billing_code: "99213",
+        description: "Office visit established",
+        negotiated_rates: [
+          {
+            payer_name: "SynPayer A",
+            negotiated_prices: [
+              { negotiated_rate: 150, billing_class: "professional", negotiated_type: "negotiated" },
+            ],
+          },
+        ],
+      },
+    },
+  ],
+  "hospital-mrf-drift": [
+    {
+      note: "synthetic excerpt — not the full file",
+      hospital_name: "Synthetic Mercy Demo Hospital",
+      top_level_keys: ["hospital_name", "last_updated_on", "standard_charges", "in_network"],
+      price_object_keys: ["negotiated_amount", "billing_class", "negotiated_type"],
+      standard_charge_codes: ["99213", "99214", "80053", "93000"],
+      sample_item: {
+        billing_code: "99213",
+        description: "Office visit established",
+        negotiated_rates: [
+          {
+            payer_name: "SynPayer A",
+            negotiated_prices: [
+              { negotiated_amount: 150, billing_class: "professional", negotiated_type: "negotiated" },
+            ],
+          },
+        ],
+      },
+    },
+  ],
   "assay-plate": [
     { well_id: "A01", compound_code: "CMP-100", concentration_uM: 10, readout: 0.42 },
     { well_id: "A02", compound_code: "CMP-100", concentration_uM: 1, readout: 0.11 },

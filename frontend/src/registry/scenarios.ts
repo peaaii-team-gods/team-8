@@ -86,6 +86,23 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
       };
     },
   },
+  {
+    id: "mrf-pipeline",
+    title: "MRF price file",
+    blurb: "Hospital MRF excerpt → Builder → warehouse table → Maintainer",
+    build: (nextId) => {
+      const lake = lakeNode(nextId, "hospital-mrf", 40, 160);
+      const builder = agentNode(nextId, "mrf-builder", 360, 80);
+      const maintainer = agentNode(nextId, "mrf-maintainer", 360, 280);
+      return {
+        nodes: [lake, builder, maintainer],
+        edges: [
+          { id: nextId("e"), source: lake.id, target: builder.id, type: "packet", data: { active: false } },
+          { id: nextId("e"), source: builder.id, target: maintainer.id, type: "packet", data: { active: false } },
+        ],
+      };
+    },
+  },
 ];
 
 export const scenarioById = (id: string) => DEMO_SCENARIOS.find((s) => s.id === id);

@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { defaultSchema, defaultSchemaText, matchingSchemaId, outputSchemaInput, parseSchemaText } from "./schemas";
 
 describe("predefined output schemas", () => {
+  it("prefills MRF Builder with the flatten-mapping contract", () => {
+    expect(defaultSchema("mrf-builder").id).toBe("mrf.mapping.v1");
+    expect(defaultSchema("mrf-maintainer").id).toBe("mrf.repair.v1");
+  });
+
   it("prefills Builder with the mapping contract", () => {
     expect(defaultSchema("builder").id).toBe("mapping.v1");
     expect(defaultSchemaText("builder")).toContain('"schema_version"');

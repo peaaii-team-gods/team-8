@@ -109,6 +109,128 @@ export const OUTPUT_SCHEMAS: OutputSchema[] = [
     },
   },
   {
+    id: "mrf.mapping.v1",
+    title: "MRF flatten mapping",
+    summary: "Builder names nested paths, field sources, a null fill, and a dedupe key.",
+    presetIds: ["mrf-builder"],
+    document: {
+      title: "MRF flatten mapping",
+      type: "object",
+      additionalProperties: false,
+      required: ["schema_version", "collection", "rate_groups", "prices", "fields", "standard_charge_lookup", "null_policy", "dedupe_key"],
+      properties: {
+        schema_version: { const: "mrf.mapping.v1" },
+        collection: { type: "string" },
+        rate_groups: { type: "string" },
+        prices: { type: "string" },
+        fields: {
+          type: "object",
+          additionalProperties: false,
+          required: ["billing_code", "description", "payer_name", "billing_class", "negotiated_type", "rate"],
+          properties: {
+            billing_code: { type: "string" },
+            description: { type: "string" },
+            payer_name: { type: "string" },
+            billing_class: { type: "string" },
+            negotiated_type: { type: "string" },
+            rate: { type: "string" },
+          },
+        },
+        standard_charge_lookup: { type: "string" },
+        null_policy: {
+          type: "object",
+          additionalProperties: false,
+          required: ["rate"],
+          properties: {
+            rate: {
+              type: "object",
+              additionalProperties: false,
+              required: ["fill_from", "by"],
+              properties: {
+                fill_from: { type: "string" },
+                by: { type: "string" },
+              },
+            },
+          },
+        },
+        dedupe_key: { type: "array", minItems: 1, items: { type: "string" } },
+      },
+    },
+  },
+  {
+    id: "mrf.repair.v1",
+    title: "MRF mapping repair",
+    summary: "Maintainer may replace the MRF mapping once, or fail with a reason code.",
+    presetIds: ["mrf-maintainer"],
+    document: {
+      title: "One bounded MRF maintenance decision",
+      oneOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["action", "mapping"],
+          properties: {
+            action: { const: "replace_mapping" },
+            mapping: { $ref: "#/definitions/mrfMapping" },
+          },
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["action", "reason_code"],
+          properties: {
+            action: { const: "fail" },
+            reason_code: { enum: ["unsupported_schema", "insufficient_evidence"] },
+          },
+        },
+      ],
+      definitions: {
+        mrfMapping: {
+          type: "object",
+          additionalProperties: false,
+          required: ["schema_version", "collection", "rate_groups", "prices", "fields", "standard_charge_lookup", "null_policy", "dedupe_key"],
+          properties: {
+            schema_version: { const: "mrf.mapping.v1" },
+            collection: { type: "string" },
+            rate_groups: { type: "string" },
+            prices: { type: "string" },
+            fields: {
+              type: "object",
+              additionalProperties: false,
+              required: ["billing_code", "description", "payer_name", "billing_class", "negotiated_type", "rate"],
+              properties: {
+                billing_code: { type: "string" },
+                description: { type: "string" },
+                payer_name: { type: "string" },
+                billing_class: { type: "string" },
+                negotiated_type: { type: "string" },
+                rate: { type: "string" },
+              },
+            },
+            standard_charge_lookup: { type: "string" },
+            null_policy: {
+              type: "object",
+              additionalProperties: false,
+              required: ["rate"],
+              properties: {
+                rate: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["fill_from", "by"],
+                  properties: {
+                    fill_from: { type: "string" },
+                    by: { type: "string" },
+                  },
+                },
+              },
+            },
+            dedupe_key: { type: "array", minItems: 1, items: { type: "string" } },
+          },
+        },
+      },
+    },
+  },
+  {
     id: "custom.v1",
     title: "Custom object",
     summary: "Blank object. Replace this JSON with the shape you want back.",
