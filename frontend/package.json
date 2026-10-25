@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "pipeline:serve": "python ../server/pipeline_server.py",
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "docs:gen": "node scripts/gen-docs.mjs",

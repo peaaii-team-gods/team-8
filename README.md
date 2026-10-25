@@ -10,6 +10,10 @@ There are no provider key CLI arguments or key environment variables.
 
 # Two-role data pipeline pilot
 
+Local hospital pipeline: from `frontend/`, run `npm run pipeline:serve` (loopback port 8787; optional `PIPELINE_PORT`).
+In another terminal in `frontend/`, run `npm run dev`; the same-origin `/api/pipeline` proxy uses port 8787.
+Golden mapping, injected repair, and the guarded local SQLite report remain the output of record; Drive export is explicit.
+
 Builder and Validator/Maintainer collaborate through two sequential RHM public
 workflow/run submissions. Builder selects a strictly bounded field mapping. Fixed
 local Python ingests a tiny CSV, doubles its readings, and validates every output.
