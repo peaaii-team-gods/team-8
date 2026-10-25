@@ -11,7 +11,8 @@
     "docs:gen": "node scripts/gen-docs.mjs",
     "docs:check": "node scripts/gen-docs.mjs --check",
     "smoke:live": "node scripts/live-smoke.mjs",
-    "rehearse:mrf": "node scripts/rehearse-mrf.mjs"
+    "rehearse:mrf": "node scripts/rehearse-mrf.mjs",
+    "preflight": "node scripts/preflight.mjs"
   },
   "dependencies": {
     "@xyflow/react": "^12.3.6",

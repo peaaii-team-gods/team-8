@@ -150,6 +150,33 @@ def test_network_failure_uses_sha_cache_with_cached_label(tmp_path):
     assert second["trace"][-1]["status"] == "error"
     assert (tmp_path / f"{first['sha256']}.mrf").read_bytes() == payload
 
+
+def test_timeout_retries_twice_then_uses_sha_cache(tmp_path, monkeypatch):
+    import socket
+    import time
+
+    payload = b'{"cached":true}'
+    site = FakeSite({"/cms-hpt.txt": (200, {}, b"location-name: Campus\nmrf-url: /file.json\n"), "/file.json": (200, {}, payload)})
+    first = discover(site.domain, "campus", cache_dir=tmp_path, opener=site)
+    sleeps = []
+    monkeypatch.setattr(time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    class TimeoutSite:
+        def __init__(self):
+            self.calls = 0
+
+        def open(self, request, timeout=30):
+            self.calls += 1
+            raise socket.timeout("timed out")
+
+    opener = TimeoutSite()
+    second = discover(site.domain, "campus", cache_dir=tmp_path, opener=opener)
+    assert opener.calls == 3
+    assert sleeps == [1, 1]
+    assert second["label"] == "cached"
+    assert second["sha256"] == first["sha256"]
+    assert second["data"] == payload
+
 @pytest.mark.parametrize("target", ["file:///must-not-read.json", "ftp://fixture.test/file.json", "data:application/json,blocked.json"])
 @pytest.mark.parametrize("field", ["mrf-url", "source-page-url", "source-link"])
 def test_non_http_urls_refused_before_open(tmp_path, target, field):

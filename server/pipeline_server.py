@@ -242,16 +242,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle(self):
         try:
-            length = int(self.headers.get('Content-Length', '0'))
-            if length < 0:
-                raise ValueError()
-        except ValueError:
-            length = LIMIT + 1
-        if length > LIMIT:
-            code, value, content = 413, {'error': 'body_too_large'}, 'application/json'
-        else:
-            code, value, content = self.service.route(self.command, self.path, self.rfile.read(length))
-        body = value if isinstance(value, bytes) else json.dumps(value, allow_nan=False).encode('utf-8')
+            try:
+                length = int(self.headers.get('Content-Length', '0'))
+                if length < 0:
+                    raise ValueError()
+            except ValueError:
+                length = LIMIT + 1
+            if length > LIMIT:
+                code, value, content = 413, {'error': 'body_too_large'}, 'application/json'
+            else:
+                code, value, content = self.service.route(self.command, self.path, self.rfile.read(length))
+            body = value if isinstance(value, bytes) else json.dumps(value, allow_nan=False).encode('utf-8')
+        except Exception:
+            code, content = 500, 'application/json'
+            body = b'{"error":"internal_error"}'
         self.send_response(code)
         self.send_header('Content-Type', content)
         self.send_header('Content-Length', str(len(body)))

@@ -128,6 +128,63 @@ def test_real_pipeline_offline_with_injected_repair(tmp_path):
                for check in event[3].get('checks', []))
 
 
+def test_timeout_retries_then_cached_pipeline_run(tmp_path, monkeypatch):
+    import hashlib
+    import socket
+    import time
+    import discovery
+
+    monkeypatch.setattr(time, "sleep", lambda *_: None)
+    payload = (ROOT / 'fixtures' / 'hospital-v3-slice.json').read_bytes()
+    digest = hashlib.sha256(payload).hexdigest()
+    cache = tmp_path / 'hpt-cache'
+    cache.mkdir()
+    (cache / f'{digest}.mrf').write_bytes(payload)
+    (cache / 'index.json').write_text(json.dumps({'www.southshorehealth.org|south shore hospital': digest}), encoding='utf-8')
+
+    class TimeoutOpener:
+        def __init__(self):
+            self.calls = 0
+
+        def open(self, request, timeout=30):
+            self.calls += 1
+            raise socket.timeout('timed out')
+
+    opener = TimeoutOpener()
+
+    def discoverer(domain, location_hint, **kwargs):
+        return discovery.discover(domain, location_hint, cache_dir=kwargs['cache_dir'], opener=opener)
+
+    events = []
+    run_pipeline('retry-cache', lambda *args: events.append(args), tmp_path, discoverer=discoverer)
+    assert opener.calls == 3
+    trace = next(event[3] for event in events if event[3].get('type') == 'trace')
+    assert trace['label'] == 'cached' and trace['sha256'] == digest
+    assert (tmp_path / 'runs' / 'retry-cache' / 'mrf.sqlite').exists()
+
+
+def test_handler_exceptions_return_json_error_not_html():
+    handler = Handler.__new__(Handler)
+    handler.headers = {'Content-Length': '0'}
+    handler.rfile, handler.wfile = BytesIO(), BytesIO()
+    handler.command, handler.path = 'GET', '/api/pipeline/runs/preflight-probe'
+
+    class Boom:
+        def route(self, *_args):
+            raise RuntimeError('SECRET must never escape')
+
+    handler.service = Boom()
+    codes, headers = [], []
+    handler.send_response = codes.append
+    handler.send_header = lambda *args: headers.append(args)
+    handler.end_headers = lambda: None
+    handler._handle()
+    raw = handler.wfile.getvalue()
+    assert codes == [500]
+    assert json.loads(raw) == {'error': 'internal_error'}
+    assert b'SECRET' not in raw and b'<html' not in raw.lower()
+
+
 def test_http_handler_rejects_oversize_before_reading_body():
     handler = Handler.__new__(Handler)
     handler.headers = {'Content-Length': str(256 * 1024 + 1)}

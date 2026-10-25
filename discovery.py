@@ -6,10 +6,14 @@ import io
 import json
 import re
 import socket
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+FETCH_RETRIES = 2
+FETCH_BACKOFF_S = 1
 
 
 class DiscoveryError(Exception):
@@ -109,31 +113,55 @@ def discover(domain, location_hint, *, cache_dir="data", max_bytes=60 * 1024 * 1
     trace = []
     client = opener or _http_opener()
 
+    def _timeout(exc):
+        if isinstance(exc, (socket.timeout, TimeoutError)):
+            return True
+        reason = getattr(exc, "reason", None)
+        return isinstance(reason, (socket.timeout, TimeoutError)) or "timed out" in str(exc).lower()
+
     def fetch(url, limit=max_bytes):
         _require_http(url)
-        status = "error"
         req = urllib.request.Request(url, headers={"Accept-Encoding": "gzip", "User-Agent": "RHM-Hospital-MRF-Discovery/1.0"})
-        try:
-            response = client.open(req, timeout=30)
-            with response:
-                status = response.getcode()
-                _require_http(response.geturl())
-                headers = response.headers
-                body = _bounded_body(response, limit, headers)
-            trace.append({"url": url, "status": status, "bytes": len(body)})
-            if status < 200 or status >= 300:
-                raise DiscoveryError("http_error")
-            return body
-        except urllib.error.HTTPError as exc:
-            trace.append({"url": url, "status": exc.code, "bytes": 0})
-            raise DiscoveryError("http_error") from exc
-        except DiscoveryError as exc:
-            if not trace or trace[-1]["url"] != url:
-                trace.append({"url": url, "status": status, "bytes": exc.bytes_read})
-            raise
-        except (urllib.error.URLError, socket.timeout, TimeoutError, http.client.HTTPException, OSError) as exc:
-            trace.append({"url": url, "status": status, "bytes": 0})
-            raise DiscoveryError("network_error") from exc
+        last = None
+        for attempt in range(FETCH_RETRIES + 1):
+            status = "error"
+            try:
+                response = client.open(req, timeout=30)
+                with response:
+                    status = response.getcode()
+                    _require_http(response.geturl())
+                    if isinstance(status, int) and 500 <= status <= 599:
+                        trace.append({"url": url, "status": status, "bytes": 0})
+                        last = DiscoveryError("http_error")
+                        if attempt < FETCH_RETRIES:
+                            time.sleep(FETCH_BACKOFF_S)
+                            continue
+                        raise last
+                    headers = response.headers
+                    body = _bounded_body(response, limit, headers)
+                trace.append({"url": url, "status": status, "bytes": len(body)})
+                if status < 200 or status >= 300:
+                    raise DiscoveryError("http_error")
+                return body
+            except urllib.error.HTTPError as exc:
+                trace.append({"url": url, "status": exc.code, "bytes": 0})
+                last = DiscoveryError("http_error")
+                if 500 <= exc.code <= 599 and attempt < FETCH_RETRIES:
+                    time.sleep(FETCH_BACKOFF_S)
+                    continue
+                raise last from exc
+            except DiscoveryError as exc:
+                if not trace or trace[-1]["url"] != url:
+                    trace.append({"url": url, "status": status, "bytes": exc.bytes_read})
+                raise
+            except (urllib.error.URLError, socket.timeout, TimeoutError, http.client.HTTPException, OSError) as exc:
+                trace.append({"url": url, "status": status, "bytes": 0})
+                last = DiscoveryError("network_error")
+                if _timeout(exc) and attempt < FETCH_RETRIES:
+                    time.sleep(FETCH_BACKOFF_S)
+                    continue
+                raise last from exc
+        raise last
 
     try:
         listing = fetch(urllib.parse.urljoin(base, "cms-hpt.txt"), min(max_bytes, 2 * 1024 * 1024))
