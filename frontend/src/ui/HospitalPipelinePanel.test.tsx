@@ -61,7 +61,7 @@ describe("hospital canvas deterministic record", () => {
     const scenario = scenarioById("hospital-pipeline");
     expect(scenario).toBeDefined();
     const graph = scenario!.build((prefix) => `${prefix}-${Math.random()}`);
-    expect(graph.nodes.map(n => n.data.title)).toEqual(["Source", "Hospital MRF Builder", "Furnace · Maintainer", "Store · local SQLite", "Golden SQL report"]);
+    expect(graph.nodes.map(n => n.data.title)).toEqual(["Scout", "Architect", "Refinery", "Ledger", "Analyst"]);
     expect(graph.edges).toHaveLength(4);
     for (const edge of graph.edges) {
       const from = graph.nodes.find(n => n.id === edge.source)!, to = graph.nodes.find(n => n.id === edge.target)!;
@@ -99,7 +99,7 @@ describe("hospital canvas deterministic record", () => {
     render(<HospitalPipelinePanel adapter={null} budget={0} />);
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
     await screen.findByText(/42 rows - local SQLite/);
-    const sourceSummary = screen.getByText(/Source files fetched/);
+    const sourceSummary = screen.getByText(/Scout files fetched/);
     const sourceDetails = sourceSummary.parentElement?.querySelector("details");
     expect(sourceDetails?.open).toBe(false);
     expect(sourceDetails?.querySelector("pre")?.textContent).toContain("https://www.southshorehealth.org/cms-hpt.txt");

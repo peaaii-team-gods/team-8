@@ -121,7 +121,7 @@ function Shell({ data, id, isLake }: { data: CanvasNode["data"]; id: string; isL
     {typeof hospitalView.summaryNote === "string" && <p className="text-sm text-white/60">{hospitalView.summaryNote}</p>}
     {data.presetId === "hospital-store" && hospitalView.hospitalComplete === true && <button type="button" className="nodrag mt-2 text-left text-xs underline disabled:opacity-50" disabled={hospitalView.exporting === true}
       onClick={event => { event.stopPropagation(); window.dispatchEvent(new CustomEvent(HOSPITAL_EXPORT_EVENT, { detail: { runId: hospitalView.hospitalRunId } })); }}>Export to Google Drive (direct API, not MCP)</button>}
-    {typeof hospitalView.exportNote === "string" && <p className="text-sm text-white/50">{hospitalView.exportNote}</p>}
+    {typeof hospitalView.exportNote === "string" && <p className="text-sm text-white/80">{hospitalView.exportNote}</p>}
     <Handle type="source" position={Position.Right} />
     <NodeToolbar isVisible={uiState.kind === "menu" && uiState.nodeId === id}
       position={data.presetId === "mrf-hospital-maintainer" ? Position.Left : data.presetId === "hospital-store" ? Position.Right : Position.Top}>

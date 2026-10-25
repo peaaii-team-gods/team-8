@@ -41,6 +41,34 @@ beforeEach(() => {
 });
 
 describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
+  it("shows the hospital's presentation labels and keeps unavailable capabilities in a closed disclosure", async () => {
+    renderApp();
+    fireEvent.click(screen.getByRole("button", { name: /Enter canvas/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.click(screen.getByRole("button", { name: "Hospital source to SQL" }));
+
+    const expected: Array<[string, string]> = [
+      ["Scout", "Research agent finds data sources and passes verified URLs to the next agent"],
+      ["Architect", "Data engineer ingests raw. Outputs a streaming data pipe and a target schema contract"],
+      ["Refinery", "Transforms and cleans data. Outputs perfectly clean, validated, normalized JSON objects"],
+      ["Ledger", "Connects to database MCPs or other data storage locations. Outputs a fully searchable, structured relational database"],
+      ["Analyst", "Finds data patterns through plaintext queries. Outputs Clean Markdown reports, delivered directly in the UI"],
+    ];
+    for (const [title, description] of expected) {
+      expect(await screen.findByText(title, { selector: ".react-flow__node .font-semibold" })).toBeTruthy();
+      expect(screen.getByText(description)).toBeTruthy();
+    }
+    expect(screen.queryByText("Mode: simulated")).toBeNull();
+    expect(screen.getByText("Pipeline: local server · Model: golden path")).toBeTruthy();
+    expect(await screen.findByText("RHM live stack: not connected - golden path used")).toBeTruthy();
+    const unavailable = await screen.findAllByText("unavailable");
+    expect(unavailable.length).toBeGreaterThan(0);
+    expect(unavailable.every(chip => chip.closest("details") && !chip.closest("details")!.open)).toBe(true);
+    expect(document.querySelector(".react-flow__attribution")).toBeTruthy();
+    const css = readFileSync("src/index.css", "utf8");
+    expect(css).toMatch(/\.react-flow__attribution\s*\{[^}]*background:\s*rgba\(7,\s*3,\s*18,/s);
+  });
+
   it("renders every actual captured pipeline node, opens the complete SQL report, and exports only on click", async () => {
     const requests: { url: string; init?: RequestInit }[] = [];
     const realRun = JSON.parse(readFileSync("src/ui/fixtures/hospital-run.real.json", "utf8"));
@@ -78,14 +106,14 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     expect(requests.some(request => request.url.endsWith("/export"))).toBe(false);
     fireEvent.click(exportButton);
     const driveNote = await waitFor(() => within(storageNode()).getByText("Drive not configured"));
-    expect(driveNote.className).toContain("text-white/50");
+    expect(driveNote.className).toContain("text-white/80");
     expect(within(storageNode()).queryByRole("alert")).toBeNull();
     expect(requests.find(request => request.url.endsWith("/export"))?.init?.body).toBeUndefined();
     const analyst = useStore.getState().nodes.find(node => node.data.presetId === "hospital-analyst")!;
     const analystElement = screen.getByTestId(`node-${analyst.id}`);
     const analystNode = within(analystElement);
-    expect(analystElement.textContent).toContain("Golden SQL report");
-    expect(analystElement.textContent).toContain("Commercial vs Medicare Managed Care Plan median, this hospital's file");
+    expect(analystElement.textContent).toContain("Analyst");
+    expect(analystElement.textContent).toContain("Finds data patterns through plaintext queries.");
     expect(analystNode.getByText("model unavailable, golden path used")).toBeTruthy();
     const openReportButton = [...analystElement.querySelectorAll("button")].find(button => button.textContent?.includes("Open full report"))!;
     fireEvent.click(openReportButton);

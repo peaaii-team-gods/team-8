@@ -4,6 +4,7 @@ import { useStore } from "../state/store";
 import { HOSPITAL_EXPORT_EVENT, hospitalModels, pipelineRequest, runPath, type ModelView, type PipelineRecord } from "../run/hospitalPipeline";
 import { openHospitalReportDialog } from "./HospitalReportTable";
 const presets: Record<string, string[]> = { source: ["hospital-source"], builder: ["mrf-hospital-builder", "mrf-hospital-maintainer"], store: ["hospital-store"], analyst: ["hospital-analyst"] };
+const stepNames: Record<string, string> = { source: "Scout", builder: "Architect", store: "Ledger", analyst: "Analyst" };
 const eventsFor = (step: PipelineRecord["steps"][number], type: string) => step.telemetry.filter(event => event.type === type);
 const failureLine = (step: PipelineRecord["steps"][number]) => {
   const checks = eventsFor(step, "checks").flatMap(event => Array.isArray(event.checks) ? event.checks as Record<string, unknown>[] : []);
@@ -19,10 +20,10 @@ const repairLine = (step: PipelineRecord["steps"][number]) => {
 };
 const humanSummary = (step: PipelineRecord["steps"][number]) => {
   if (step.node === "store") return typeof step.counts.row_count === "number" ? `${step.counts.row_count} rows - local SQLite` : "Waiting for row count";
-  if (step.node === "builder") return repairLine(step) || failureLine(step) || `Builder ${step.status}`;
+  if (step.node === "builder") return repairLine(step) || failureLine(step) || `Architect ${step.status}`;
   if (step.node === "source") {
     const trace = eventsFor(step, "trace")[0];
-    return trace?.label === "cached" ? "Source fetch cached" : "Source files fetched";
+    return trace?.label === "cached" ? "Scout fetch cached" : "Scout files fetched";
   }
   if (step.node === "analyst") return `${String(step.counts.row_count ?? 0)} SQL report rows ready`;
   return `${step.node} ${step.status}`;
@@ -101,7 +102,7 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
     {busy && <p role="status">Pipeline / model proposals running…</p>}
     {error && <p role="alert">{error}</p>}
     {record?.steps.map(step => <div key={step.node}>
-      <strong>{step.node === "store" ? "Store · local SQLite" : step.node}</strong>: {step.status}
+      <strong>{stepNames[step.node] ?? step.node}</strong>: {step.status}
       <span className="ml-1 text-white/70">· {humanSummary(step)}</span>
       <details className="mt-1"><summary>Show details</summary><pre className="max-h-56 overflow-auto whitespace-pre-wrap">{JSON.stringify(step.telemetry.filter(event => !["evidence", "top10"].includes(event.type)), null, 2)}</pre></details>
       {step.node === "builder" && model.repair && <p>Model repair: {model.repair.valid ? "valid" : "invalid"} / {model.matchesRepair ? "matches golden" : "differs from golden"}</p>}
@@ -120,6 +121,6 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
     {model.summary && <p>Model summary · guard passed; recorded report remains golden</p>}
     {record?.status === "completed" && <><p>Recorded artifacts: {["rows.csv", "mrf.sqlite", "report.md"].map(file => <a className="mr-2 underline" key={file} href={`${runPath(id)}/artifacts/${file}`}>{file}</a>)}</p>
       <button className="glass p-2 disabled:opacity-50" disabled={exporting} onClick={() => void exportRun()}>Export to Google Drive (direct API, not MCP)</button></>}
-    {exportNote && <p className="text-white/50" role="status">{exportLink.current ? <a className="underline" href={exportLink.current}>{exportNote}</a> : exportNote === "Export unavailable: drive_export_unavailable" ? "Drive not configured" : exportNote}</p>}
+    {exportNote && <p className="text-white/80" role="status">{exportLink.current ? <a className="underline" href={exportLink.current}>{exportNote}</a> : exportNote === "Export unavailable: drive_export_unavailable" ? "Drive not configured" : exportNote}</p>}
   </section>;
 }

@@ -7,6 +7,8 @@ html, body, #root { height: 100%; margin: 0; background: #070312; color: #f3efff
 .react-flow__controls-button { width: 30px; height: 30px; background: #170d27; border-bottom: 1px solid rgba(255,255,255,.12); }
 .react-flow__controls-button:hover { background: #342044; }
 .react-flow__controls-button svg { fill: #f3efff; }
+.react-flow__attribution { background: rgba(7,3,18,.88); color: #f3efff; border: 1px solid rgba(255,255,255,.16); }
+.react-flow__attribution a { color: #f3efff; }
 .react-flow__node-toolbar { z-index: 50; }
 .packet-chip {
   background: rgba(12, 6, 24, 0.92);

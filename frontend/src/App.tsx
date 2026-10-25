@@ -564,6 +564,7 @@ export default function App() {
     <UserBar
       mode={shellMode}
       publicSource={scenarioId === "hospital-pipeline"}
+      hospitalModelLive={!!hospitalModelAdapter(shellMode === "live" ? liveAdapter : null, inference, spendCap, paidConsent)}
       username={identitySession?.user?.username ?? null}
       signedIn={!!liveAdapter}
       busy={running}

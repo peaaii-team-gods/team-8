@@ -6,6 +6,7 @@ interface Props {
   signedIn: boolean;
   busy: boolean;
   publicSource?: boolean;
+  hospitalModelLive?: boolean;
   onSignIn: () => void;
   onSignOut: () => void;
   onClear: () => void;
@@ -14,7 +15,7 @@ interface Props {
   onImport: (file: File) => void;
 }
 
-export default function UserBar({ mode, username, signedIn, busy, publicSource, onSignIn, onSignOut, onClear, onPilot, onExport, onImport }: Props) {
+export default function UserBar({ mode, username, signedIn, busy, publicSource, hospitalModelLive, onSignIn, onSignOut, onClear, onPilot, onExport, onImport }: Props) {
   return (
     <header
       className="flex h-12 shrink-0 items-center gap-3 overflow-x-auto border-b border-white/10 bg-[#070312]/90 px-3 text-xs"
@@ -23,7 +24,7 @@ export default function UserBar({ mode, username, signedIn, busy, publicSource, 
     >
       <span className="font-display text-sm text-fuchsia-100">Team 8</span>
       {publicSource ? <span>Public hospital source</span> : <SyntheticBadge />}
-      <span data-testid="mode-label">Mode: {mode}{mode === "live" && !signedIn ? " — sign in required" : ""}</span>
+      <span data-testid="mode-label">{publicSource ? `Pipeline: local server · Model: ${hospitalModelLive ? "live" : "golden path"}` : `Mode: ${mode}${mode === "live" && !signedIn ? " — sign in required" : ""}`}</span>
       <span className="ml-auto flex items-center gap-2">
         {mode === "live" && signedIn && <span data-testid="user-name">{username ?? "Signed in"}</span>}
         {mode === "live" && !signedIn && (

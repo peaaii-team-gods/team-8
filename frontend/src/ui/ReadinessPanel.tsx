@@ -3,6 +3,7 @@ import type { WorkspaceBinding } from "../compile/toWorkflow";
 import { selectBinding } from "../compile/toWorkflow";
 import type { ReadinessPort } from "../adapters/readiness";
 import { SERVICE_FEATURES, featureChip } from "../registry/services.manifest";
+import { useStore } from "../state/store";
 
 const CHIP: Record<string, string> = {
   live: "bg-emerald-400/20 text-emerald-100",
@@ -21,6 +22,7 @@ export default function ReadinessPanel({
   selectedWorkspaceId: string | null;
   onSelectWorkspace: (workspaceId: string) => void;
 }) {
+  const hospitalScenario = useStore((state) => state.scenarioId === "hospital-pipeline");
   const [capabilities, setCapabilities] = useState<Record<string, unknown> | null>(null);
   const [workspaces, setWorkspaces] = useState<WorkspaceBinding[]>([]);
   const [capsError, setCapsError] = useState<string | null>(null);
@@ -47,6 +49,10 @@ export default function ReadinessPanel({
 
   const ready = workspaces.filter((workspace) => workspace.status === "ready" && workspace.workspace_id && workspace.project_id && workspace.task_id);
   const bound = selectBinding(workspaces, selectedWorkspaceId ?? undefined);
+  const unavailableFeatures = SERVICE_FEATURES.filter((feature) => featureChip(feature, capabilities) === "unavailable");
+  const visibleFeatures = hospitalScenario
+    ? SERVICE_FEATURES.filter((feature) => featureChip(feature, capabilities) !== "unavailable")
+    : SERVICE_FEATURES;
 
   return (
     <aside className="glass w-full p-3 text-xs" data-testid="readiness-panel" onClick={(e) => e.stopPropagation()}>
@@ -60,10 +66,11 @@ export default function ReadinessPanel({
       {mode === "live" && (
         <p className="mb-2 opacity-60">A green chip is a fetched capability. Run still emits tools only through the hosted gate plus a bound workspace.</p>
       )}
+      {hospitalScenario && <p className="mb-2" data-testid="hospital-readiness-summary">RHM live stack: not connected - golden path used</p>}
       {loading && <p className="mb-2 opacity-60">Reading readiness…</p>}
       {capsError && <p className="mb-2 text-amber-100" role="alert">{capsError}</p>}
       <ul className="mb-3 space-y-1">
-        {SERVICE_FEATURES.map((feature) => {
+        {visibleFeatures.map((feature) => {
           const chip = featureChip(feature, capabilities);
           return (
             <li key={feature.id} className="flex items-center justify-between gap-2">
@@ -73,6 +80,19 @@ export default function ReadinessPanel({
           );
         })}
       </ul>
+      {hospitalScenario && unavailableFeatures.length > 0 && (
+        <details className="mb-3">
+          <summary>Unavailable capabilities ({unavailableFeatures.length})</summary>
+          <ul className="mt-1 space-y-1">
+            {unavailableFeatures.map((feature) => (
+              <li key={feature.id} className="flex items-center justify-between gap-2">
+                <span>{feature.feature}</span>
+                <span data-testid={`cap-${feature.id}`} className={`rounded-full px-2 py-0.5 uppercase ${CHIP.unavailable}`}>unavailable</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       <div className="mb-1 font-semibold">Workspaces</div>
       {wsError && <p className="mb-2 text-rose-200" role="alert">{wsError}</p>}
       {!wsError && ready.length === 0 && (
