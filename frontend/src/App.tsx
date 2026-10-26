@@ -560,6 +560,7 @@ export default function App() {
     if (target?.closest(".react-flow__node, .react-flow__edge")) return;
     cancelLink();
   }}>
+    <a href="#main" className="skip-link">Skip to main content</a>
     <UserBar
       mode={shellMode}
       publicSource={scenarioId === "hospital-pipeline"}
@@ -599,7 +600,7 @@ export default function App() {
       />
     )}
     <div className="flex min-h-0 flex-1">
-    <div className="relative h-full min-w-0 flex-1">
+    <main id="main" tabIndex={-1} className="relative h-full min-w-0 flex-1">
     <VoidBackground />
     {shellMode === "live" && identitySession && <button ref={settingsButton} type="button" aria-label="Settings" disabled={running} className="glass absolute bottom-6 left-4 z-20 flex items-center gap-2 p-2 text-xs disabled:opacity-50" onClick={() => setSettingsOpen(true)}><Settings size={16} /><span className="hidden sm:inline">Settings</span></button>}
     {shellMode === "live" && identitySession && <SettingsDialog open={settingsOpen}
@@ -688,7 +689,7 @@ export default function App() {
     <SchemaWindow />
     <McpWindow />
     <LakeInspector />
-    </div>
+    </main>
     <div className={`flex h-full shrink-0 flex-col gap-3 overflow-y-auto border-l border-white/10 bg-[#070312]/80 p-3 ${scenarioId === "hospital-pipeline" ? "w-[min(384px,32vw)]" : "w-[320px]"}`}>
       <div className="glass flex flex-col gap-1 self-stretch px-3 py-2 text-xs">
         <div className="font-display text-sm text-fuchsia-100">Team 8 · Science canvas</div>

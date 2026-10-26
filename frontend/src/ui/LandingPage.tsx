@@ -23,8 +23,9 @@ interface Props {
 export default function LandingPage({ mode, onSignIn, onEnterCanvas, onLoadMrf, sessionError }: Props) {
   return (
     <div className="relative min-h-full overflow-hidden" data-testid="landing-page">
+      <a href="#main" className="skip-link">Skip to main content</a>
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_30%_20%,#3b1470_0%,transparent_55%),radial-gradient(ellipse_at_80%_80%,#150826_0%,#070312_70%)]" />
-      <div className="relative z-10 mx-auto flex min-h-full max-w-3xl flex-col justify-center px-6 py-16">
+      <main id="main" tabIndex={-1} className="relative z-10 mx-auto flex min-h-full max-w-3xl flex-col justify-center px-6 py-16">
         {sessionError && <p role="alert" className="mb-4 text-sm text-red-300">{sessionError}</p>}
         <motion.p
           initial={{ opacity: 0, y: 8 }}
@@ -100,7 +101,7 @@ export default function LandingPage({ mode, onSignIn, onEnterCanvas, onLoadMrf, 
             </tbody>
           </table>
         </section>}
-      </div>
+      </main>
     </div>
   );
 }

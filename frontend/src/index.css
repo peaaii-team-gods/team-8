@@ -3,6 +3,11 @@
 html, body, #root { height: 100%; margin: 0; background: #070312; color: #f3efff; font-family: "IBM Plex Sans", system-ui, sans-serif; }
 .font-display { font-family: Syne, "IBM Plex Sans", system-ui, sans-serif; letter-spacing: -0.02em; }
 .glass { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.16); backdrop-filter: blur(14px); border-radius: 18px; }
+:focus-visible { outline: 2px solid #f0abfc; outline-offset: 2px; }
+.glass:focus-visible { border-radius: 18px; }
+#main:focus-visible { outline: none; }
+.skip-link { position: absolute; left: -9999px; top: 8px; z-index: 100; padding: 8px 14px; border-radius: 8px; background: #070312; color: #f5d0fe; border: 1px solid rgba(232,121,249,.55); }
+.skip-link:focus { left: 8px; }
 .react-flow__controls { overflow: hidden; border: 1px solid rgba(255,255,255,.2); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
 .react-flow__controls-button { width: 30px; height: 30px; background: #170d27; border-bottom: 1px solid rgba(255,255,255,.12); }
 .react-flow__controls-button:hover { background: #342044; }
