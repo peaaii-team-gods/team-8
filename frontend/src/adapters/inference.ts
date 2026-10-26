@@ -18,6 +18,18 @@ export interface ProviderInput { provider: Provider; model_id: string; base_url?
 class InferenceSettingsError extends Error {}
 export class InferenceSettings {
   constructor(private base: string, private session: IdentitySession) {}
+  async listModels(): Promise<InferenceModel[]> {
+    const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(`${this.base}/v1/inference/models`, { headers: { "content-type": "application/json", authorization: `Bearer ${this.session.token ?? ""}` }, cache: "no-store", redirect: "error", credentials: "omit", signal: controller.signal });
+      if (!response.ok) throw new Error("Model list unavailable");
+      const body = await response.json();
+      if (!Array.isArray(body?.models) || body.models.some((model: InferenceModel) => !model || typeof model.id !== "string" || !model.id || typeof model.label !== "string" || typeof model.provider !== "string" || typeof model.is_free !== "boolean" || typeof model.tool_capable !== "boolean" ||
+        ![model.price_in_per_m, model.price_out_per_m].every(value => value === null || (typeof value === "number" && Number.isFinite(value))) ||
+        !(model.context === null || (Number.isInteger(model.context))) || !(model.band === null || typeof model.band === "string"))) throw new Error("Invalid model list");
+      return body.models;
+    } finally { clearTimeout(timeout); }
+  }
   async request(method = "GET", body?: unknown): Promise<InferenceStatus> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
@@ -72,3 +84,7 @@ export async function runSelection(base: string, session: IdentitySession) {
   }
   return { mode: "auto", tier };
 }
+
+export interface InferenceModel { id: string; label: string; provider: string; is_free: boolean; price_in_per_m: number | null; price_out_per_m: number | null; context: number | null; tool_capable: boolean; band: string | null }
+export const modelPrice = (model?: InferenceModel) => model ? `${model.price_in_per_m === null ? "unknown" : `$${model.price_in_per_m}`} in / ${model.price_out_per_m === null ? "unknown" : `$${model.price_out_per_m}`} out per M` : "price unavailable";
+export function writeOverride(value: ModelOverride) { localStorage.setItem(MODEL_OVERRIDE_KEY, JSON.stringify(value)); }

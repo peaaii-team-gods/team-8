@@ -22,13 +22,14 @@ const renderDialog = (inference: InferenceStatus | null, disabled = false) => {
   return setters;
 };
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); localStorage.clear(); });
 
 describe("SettingsDialog", () => {
   it("is a named modal with Free selected and the provider section", () => {
     renderDialog(configured);
     expect(screen.getByRole("dialog", { name: "Settings" }).getAttribute("aria-modal")).toBe("true");
     expect((screen.getByRole("radio", { name: "Free" }) as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByText("Provider connection"));
     expect(screen.getByRole("region", { name: "Account inference settings" })).toBeTruthy();
   });
 
@@ -38,15 +39,15 @@ describe("SettingsDialog", () => {
     expect(screen.getByLabelText("USD admission budget per agent run")).toBeTruthy();
     expect(screen.getByLabelText(/I permit paid inference/)).toBeTruthy();
     fireEvent.click(screen.getByRole("radio", { name: "Free" }));
-    expect(screen.queryByLabelText("USD admission budget per agent run")).toBeNull();
+    expect(screen.getByLabelText("USD admission budget per agent run")).toBeTruthy();
     expect(setters.setPaidConsent).toHaveBeenCalledWith(false);
     expect(setters.setSpendCap).toHaveBeenCalledWith("0");
     expect(document.querySelector('[value="0.01"]')).toBeNull();
   });
 
-  it.each([hostOnly, { ...hostOnly, host_models_authorized: false }, null])("disables Premium without a configured provider", (status) => {
+  it.each([hostOnly, { ...hostOnly, host_models_authorized: false }, null])("allows the saved tier selector without enabling host pins", (status) => {
     renderDialog(status);
-    expect((screen.getByRole("radio", { name: /Premium.*Add your own provider to use Premium/ }) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("radio", { name: "Premium" }) as HTMLInputElement).disabled).toBe(false);
   });
 
   it("closes from Escape, the close button and the backdrop", () => {
@@ -80,9 +81,10 @@ describe("SettingsDialog", () => {
   it("wraps Tab in both directions and skips disabled controls", async () => {
     renderDialog(null);
     const close = screen.getByRole("button", { name: "Close settings" });
+    fireEvent.click(screen.getByText("Provider connection"));
     await waitFor(() => expect((screen.getByLabelText("Primary API key") as HTMLInputElement).disabled).toBe(false));
     const dialog = screen.getByRole("dialog");
-    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'));
+    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>('summary,a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'));
     const enabled = focusable.filter(element => !(element as HTMLInputElement).disabled);
     enabled[enabled.length - 1].focus();
     fireEvent.keyDown(enabled[enabled.length - 1], { key: "Tab" });
@@ -90,6 +92,67 @@ describe("SettingsDialog", () => {
     close.focus();
     fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
     expect(document.activeElement).toBe(enabled[enabled.length - 1]);
-    expect(enabled).not.toContain(screen.getByRole("radio", { name: /Premium/ }));
+    expect(enabled).toContain(screen.getByRole("radio", { name: /Premium/ }));
   });
+});
+
+ describe("catalog model picker", () => {
+   afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); });
+   const model = {id:"paid/model",label:"Paid reasoning",provider:"openrouter",is_free:false,price_in_per_m:1,price_out_per_m:2,context:1000,tool_capable:true,band:"premium"};
+   const respond = (models:unknown[], status=200) => vi.stubGlobal("fetch", vi.fn(async (url:string) => new Response(JSON.stringify(url.endsWith("/models") ? {models} : configured), {status:url.endsWith("/models") ? status : 200})));
+   it("loads Auto first, prices and tier, and persists only the approved choice", async () => {
+     respond([{...model,id:"free",label:"Free reasoning",is_free:true,price_in_per_m:0,price_out_per_m:0},model]);
+     renderDialog(configured);
+     const picker = await screen.findByRole("combobox", {name:"Run model"}) as HTMLSelectElement;
+     await screen.findByRole("option", {name:"Paid reasoning - Paid - $1 in / $2 out per M"});
+     expect(picker.options[0].text).toBe("Auto (recommended)");
+     expect(screen.getByRole("option", {name:"Free reasoning - Free - $0 in / $0 out per M"})).toBeTruthy();
+     fireEvent.change(picker,{target:{value:model.id}});
+     fireEvent.click(screen.getByRole("radio",{name:"Cheaper slow"}));
+     expect(JSON.parse(localStorage.getItem("crucible.modelOverride.v1")!)).toEqual({v:1,tier:"cheaper_slow",pin:{model_id:model.id,is_free:false}});
+     expect(screen.getByText("This run may use a paid model (Paid reasoning - $1 in / $2 out per M).")).toBeTruthy();
+     expect(document.querySelector('input[aria-label="Primary model"]')).toBeNull();
+   });
+   it("shows loading with only Auto selectable", async () => {
+     vi.stubGlobal("fetch", vi.fn((url:string)=>url.endsWith("/models") ? new Promise(()=>{}) : Promise.resolve(new Response(JSON.stringify(configured)))));
+     renderDialog(configured);
+     expect(screen.getByText("Loading models" + String.fromCharCode(8230))).toBeTruthy();
+     expect((screen.getByRole("combobox",{name:"Run model"}) as HTMLSelectElement).options).toHaveLength(1);
+   });
+   it.each([[503,"Model list unavailable"],[200,"No matching models"]])("fails to Auto only for %s", async (status,text) => {
+     respond([],status);renderDialog(configured);
+     await screen.findByText(new RegExp(text));
+     expect((screen.getByRole("combobox",{name:"Run model"}) as HTMLSelectElement).options).toHaveLength(1);
+   });
+   it("keeps host users on Auto even when catalog models and an old pin exist", async () => {
+     respond([model]); localStorage.setItem("crucible.modelOverride.v1",JSON.stringify({v:1,tier:"premium",pin:{model_id:model.id,is_free:false}}));
+     renderDialog(hostOnly);
+     expect((screen.getByRole("combobox",{name:"Run model"}) as HTMLSelectElement).options).toHaveLength(1);
+     expect((screen.getByRole("combobox",{name:"Run model"}) as HTMLSelectElement).value).toBe("");
+   });
+ });
+
+it("restores a saved tier and pin across remounts with unknown prices explicit", async () => {
+ const model={id:"saved",label:"Saved model",provider:"openrouter",is_free:true,price_in_per_m:null,price_out_per_m:null,context:null,tool_capable:true,band:null};
+ vi.stubGlobal("fetch",vi.fn(async (url:string)=>new Response(JSON.stringify(url.endsWith("/models") ? {models:[model]} : configured))));
+ localStorage.setItem("crucible.modelOverride.v1",JSON.stringify({v:1,tier:"cheap_fast",pin:{model_id:model.id,is_free:true}}));
+ renderDialog(configured);
+ await screen.findByRole("option",{name:"Saved model - Free - unknown in / unknown out per M"});
+ expect((screen.getByRole("combobox",{name:"Run model"}) as HTMLSelectElement).value).toBe("saved");
+ expect((screen.getByRole("radio",{name:"Cheap fast"}) as HTMLInputElement).checked).toBe(true);
+ cleanup();renderDialog(configured);
+ await screen.findByRole("option",{name:/Saved model - Free/});
+ expect((screen.getByRole("combobox",{name:"Run model"}) as HTMLSelectElement).value).toBe("saved");
+ vi.unstubAllGlobals();
+});
+
+it("includes the collapsed provider summary in the focus trap and skips its fields", async () => {
+ renderDialog(configured);
+ const summary=screen.getByText("Provider connection");
+ expect(summary.closest("details")?.open).toBe(false);
+ const close=screen.getByRole("button",{name:"Close settings"});
+ close.focus();fireEvent.keyDown(close,{key:"Tab",shiftKey:true});
+ expect(document.activeElement).toBe(summary);
+ fireEvent.keyDown(summary,{key:"Tab"});expect(document.activeElement).toBe(close);
+ expect(document.activeElement).not.toBe(screen.getByLabelText("Primary API key"));
 });

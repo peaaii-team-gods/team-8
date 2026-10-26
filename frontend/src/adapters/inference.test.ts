@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { liveProviderBlocked, liveRunBlocked, readOverride, type InferenceStatus } from "./inference";
+import { IdentitySession } from "./identity";
+import { describe, expect, it, vi } from "vitest";
+import { InferenceSettings, liveProviderBlocked, liveRunBlocked, readOverride, type InferenceStatus } from "./inference";
 
 const configured: InferenceStatus = {
   configured: true, revision: "r1", provider: "local", model_id: "m",
@@ -56,3 +57,15 @@ describe("liveRunBlocked", () => {
    expect(readOverride()).toEqual({v:1,tier:"cheap_fast",pin:{model_id:"m",is_free:false}});
    localStorage.clear();
  });
+
+it("reads the catalog with account headers and rejects malformed responses", async () => {
+ const session = new IdentitySession("https://id.example");
+ const fetcher = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({models:[]}))).mockResolvedValueOnce(new Response(JSON.stringify({models:[{id:"bad"}]})));
+ vi.stubGlobal("fetch",fetcher);
+ try {
+   const api = new InferenceSettings("https://api.example",session);
+   expect(await api.listModels()).toEqual([]);
+   expect(fetcher.mock.calls[0]).toEqual(["https://api.example/v1/inference/models",expect.objectContaining({headers:{"content-type":"application/json",authorization:"Bearer "},credentials:"omit",cache:"no-store",redirect:"error"})]);
+   await expect(api.listModels()).rejects.toThrow("Invalid model list");
+ } finally { vi.unstubAllGlobals(); }
+});

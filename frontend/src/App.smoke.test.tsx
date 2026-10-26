@@ -32,6 +32,7 @@ window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListene
 const renderApp = () => render(<ToastProvider><App /></ToastProvider>);
 
 beforeEach(() => {
+  localStorage.clear();
   window.history.replaceState({}, "", "/");
   useStore.setState({
   nodes: [], edges: [], uiState: { kind: "void" },
@@ -654,8 +655,8 @@ describe("live provider gate (configured / host-authorized / neither)", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Premium" }));
     fireEvent.change(screen.getByLabelText("USD admission budget per agent run"), { target: { value: "0.5" } });
     fireEvent.click(screen.getByLabelText(/I permit paid inference/));
+    fireEvent.click(screen.getByText("Provider connection"));
     fireEvent.change(screen.getByLabelText("Primary provider"), { target: { value: "freellmapi" } });
-    fireEvent.change(screen.getByLabelText("Primary model"), { target: { value: "fixture-model" } });
     fireEvent.change(screen.getByLabelText("Primary API key"), { target: { value: "fixture-key" } });
     fireEvent.click(screen.getByLabelText(/I approve changing this shared account/));
     fireEvent.click(screen.getByRole("button", { name: "Save account provider" }));
@@ -723,3 +724,22 @@ describe("MRF drift + one repair (jsdom)", () => {
   });
 });
 
+
+it("blocks a hidden stale pin until the user explicitly chooses Auto", async () => {
+  const {run} = liveInference(configuredStatus);
+  vi.spyOn(InferenceSettings.prototype,"listModels").mockRejectedValue(new Error("Unavailable"));
+  localStorage.setItem("crucible.modelOverride.v1",JSON.stringify({v:1,tier:"free",pin:{model_id:"old-model",is_free:false}}));
+  renderApp();fireEvent.click((await screen.findAllByRole("button",{name:/Pilot storyboard/}))[0]);
+  fireEvent.click(screen.getByRole("button",{name:"Settings"}));
+  await screen.findByText(/Model list unavailable/);
+  expect((screen.getByRole("combobox",{name:"Run model"}) as HTMLSelectElement).options).toHaveLength(1);
+  fireEvent.change(screen.getByLabelText("USD admission budget per agent run"),{target:{value:"1"}});
+  fireEvent.click(screen.getByLabelText(/I permit paid inference/));
+  expect((screen.getByRole("button",{name:/run pipeline/i}) as HTMLButtonElement).disabled).toBe(true);
+  expect(run).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button",{name:"Use Auto"}));
+  expect(JSON.parse(localStorage.getItem("crucible.modelOverride.v1")!).pin).toBeNull();
+  expect((screen.getByLabelText(/I permit paid inference/) as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(screen.getByLabelText(/I permit paid inference/));
+  await waitFor(()=>expect((screen.getByRole("button",{name:/run pipeline/i}) as HTMLButtonElement).disabled).toBe(false));
+});
