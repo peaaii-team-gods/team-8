@@ -1,10 +1,12 @@
 """Loopback-only local hospital demo. Golden artifacts never depend on proposals."""
 import copy
+import gc
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
 import re
+import shutil
 import sys
 import threading
 import time
@@ -14,16 +16,17 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from analyze import summary_violations, write_ledger_artifacts
+import sqlite3
+from analyze import analyze, analyze_full, summary_violations, write_ledger_artifacts
 from discovery import discover
-from hospital_mapping import generate_row_model
 from ingest import ingest_file
-from mrf_apply import apply_mapping, load_json
+from mrf_apply import load_json
 from resources import digest
 
 PREFIX = '/api/pipeline'
 LIMIT = 256 * 1024
-KEEP_RUNS = 2
+RETAIN_IDLE_S = 1800
+TOP_PREVIEW = 10
 ARTIFACTS = {'rows.csv': 'text/csv', 'report.csv': 'text/csv', 'mrf.sqlite': 'application/vnd.sqlite3',
              'report.md': 'text/markdown; charset=utf-8'}
 STAGE = ('bytes_streamed', 'items_parsed', 'rows_emitted', 'rows_quarantined', 'rows_repaired',
@@ -109,12 +112,11 @@ def authenticate(headers):
     return None, claims
 
 
-def _checks(result, expected):
-    counts = result['counts'] if 'rows' in result else result
+def _checks(counts, digest_value, expected):
     return [{'name': key, 'pass': counts[key] == value, 'expected': value, 'actual': counts[key]}
             for key, value in expected['counts'].items()] + [
-                {'name': 'digest', 'pass': digest(result['rows']) == expected['digest'],
-                 'expected': expected['digest'], 'actual': digest(result['rows'])}]
+                {'name': 'digest', 'pass': digest_value == expected['digest'],
+                 'expected': expected['digest'], 'actual': digest_value}]
 
 
 def _excerpt(fixture):
@@ -150,44 +152,63 @@ def _metrics(parsed):
 
 
 def run_pipeline(run_id, emit, data_dir, *, inject_error=False, discoverer=discover):
+    golden_path = ROOT / 'fixtures' / 'hospital-full-golden-result.json'
+    loaded = json.loads(golden_path.read_text(encoding='utf-8')) if golden_path.is_file() else None
+    golden_fp = loaded.get('source_sha256') if isinstance(loaded, dict) else None
     emit('source', 'running', {}, {'type': 'start'})
     fetched = discoverer('www.southshorehealth.org', 'South Shore Hospital', cache_dir=data_dir / 'hpt-cache')
-    emit('source', 'running', {}, {'type': 'trace', **{k: fetched[k] for k in ('trace', 'label', 'sha256')}})
+    emit('source', 'running', {}, {'type': 'trace', **{k: fetched[k] for k in ('trace', 'label', 'sha256')},
+                                   'golden_source_sha256': golden_fp})
     baseline = ingest_file(fetched['path'], inject_error=False)
     source_counts, source_metrics = _metrics(baseline)
     emit('source', 'completed', source_counts, {'type': 'ingest', 'parse_mode': baseline['parse_mode'], **source_metrics})
     mapping, repair = load_json('hospital-golden-mapping.json'), load_json('hospital-golden-repair.json')
-    golden_path = ROOT / 'fixtures' / 'hospital-full-golden-result.json'
-    loaded = json.loads(golden_path.read_text(encoding='utf-8')) if golden_path.is_file() else None
-    expected = loaded if loaded and baseline['sha256'] == loaded.get('source_sha256') else None
-    drifted = ingest_file(fetched['path'], inject_error=True) if inject_error else baseline
-    emit('builder', 'running', {}, {'type': 'evidence', 'source_excerpt': _wrap_excerpt(baseline['excerpt']),
-                                   'drift_excerpt': _wrap_excerpt(drifted['excerpt']),
-                                   'golden_mapping': mapping, 'golden_repair': repair})
-    result, rate_key = drifted if inject_error else baseline, mapping['fields']['rate']
-    checks = [_rate_check(result['rate_present'], rate_key)]
-    if expected:
-        checks.extend(_checks(result if not inject_error else drifted, expected))
-    emit('builder', 'running', {}, {'type': 'checks', 'checks': checks})
+    expected = loaded if loaded and baseline['sha256'] == golden_fp else None
+    rate_key = mapping['fields']['rate']
+    baseline_digest = digest(baseline['rows'])
+    baseline_excerpt = baseline['excerpt']
     if inject_error:
+        baseline['rows'] = []
+        gc.collect()
+        drifted = ingest_file(fetched['path'], inject_error=True)
+        emit('builder', 'running', {}, {'type': 'evidence', 'source_excerpt': _wrap_excerpt(baseline_excerpt),
+                                       'drift_excerpt': _wrap_excerpt(drifted['excerpt']),
+                                       'golden_mapping': mapping, 'golden_repair': repair})
+        drifted_skipped = drifted['counts']['skipped_no_dollar_count']
+        checks = [_rate_check(drifted['rate_present'], rate_key)]
+        if expected:
+            checks.extend(_checks(drifted['counts'], digest(drifted['rows']), expected))
+        emit('builder', 'running', {}, {'type': 'checks', 'checks': checks})
+        drifted.clear()
+        del drifted
+        gc.collect()
         result = ingest_file(fetched['path'], inject_error=True, rate_key=repair['fields']['rate'])
-        skipped_delta = drifted['counts']['skipped_no_dollar_count'] - result['counts']['skipped_no_dollar_count']
+        skipped_delta = drifted_skipped - result['counts']['skipped_no_dollar_count']
         result['counts']['rows_repaired'] = skipped_delta
         result['metrics']['rows_repaired'] = skipped_delta
-        expected_repaired = drifted['counts']['skipped_no_dollar_count'] - (
-            expected['counts']['skipped_no_dollar_count'] if expected else result['counts']['skipped_no_dollar_count'])
         repair_checks = [_rate_check(result['rate_present'], repair['fields']['rate'])]
         if expected:
-            repair_checks.extend(_checks(result, expected))
+            repair_checks.extend(_checks(result['counts'], digest(result['rows']), expected))
+            expected_repaired = drifted_skipped - expected['counts']['skipped_no_dollar_count']
+            repair_checks.append({'name': 'rows_repaired', 'pass': skipped_delta == expected_repaired,
+                                  'expected': expected_repaired, 'actual': skipped_delta})
         else:
-            repair_checks.append({'name': 'digest', 'pass': digest(result['rows']) == digest(baseline['rows']),
-                                  'expected': digest(baseline['rows']), 'actual': digest(result['rows'])})
-        repair_checks.append({'name': 'rows_repaired', 'pass': skipped_delta == expected_repaired,
-                              'expected': expected_repaired, 'actual': skipped_delta})
+            actual = digest(result['rows'])
+            repair_checks.append({'name': 'self-consistency', 'pass': actual == baseline_digest,
+                                  'expected': baseline_digest, 'actual': actual})
         emit('builder', 'running', {}, {'type': 'repair', 'label': 'injected', 'mapping': repair, 'checks': repair_checks})
         checks = repair_checks
-    if expected and not all(check['pass'] for check in checks):
-        raise ValueError('golden_checks_failed')
+    else:
+        emit('builder', 'running', {}, {'type': 'evidence', 'source_excerpt': _wrap_excerpt(baseline['excerpt']),
+                                       'drift_excerpt': _wrap_excerpt(baseline['excerpt']),
+                                       'golden_mapping': mapping, 'golden_repair': repair})
+        result = baseline
+        checks = [_rate_check(result['rate_present'], rate_key)]
+        if expected:
+            checks.extend(_checks(result['counts'], baseline_digest, expected))
+        emit('builder', 'running', {}, {'type': 'checks', 'checks': checks})
+    if not all(check['pass'] for check in checks):
+        raise ValueError('checks_failed')
     emit('builder', 'completed', {'row_count': len(result['rows']), **result['metrics']},
          {'type': 'checks', 'checks': checks})
     emit('store', 'running', {}, {'type': 'start'})
@@ -195,16 +216,19 @@ def run_pipeline(run_id, emit, data_dir, *, inject_error=False, discoverer=disco
         result['rows'], run_id, data_dir=data_dir,
         excluded_counts={k: result['counts'][k] for k in ('skipped_no_dollar_count', 'quarantined_row_count')},
         metrics=result['metrics'])
+    result['rows'] = []
+    gc.collect()
     store_counts = {'row_count': artifacts['row_count'], **{k: result['metrics'][k] for k in STAGE}}
     emit('store', 'completed', store_counts,
          {'type': 'artifact', 'row_count': artifacts['row_count'], 'sha256': artifacts['sha256'],
           'label': 'local SQLite', **result['metrics']})
-    emit('analyst', 'completed', {'row_count': len(artifacts['top_rows']), **result['metrics']},
-         {'type': 'top10', 'rows': artifacts['top_rows'], 'row_count': len(artifacts['top_rows']),
+    groups = artifacts['top_rows']
+    emit('analyst', 'completed', {'row_count': len(groups), **result['metrics']},
+         {'type': 'top10', 'rows': groups[:TOP_PREVIEW], 'row_count': len(groups),
           'spread': artifacts['spread'], 'baseline_label': artifacts['baseline_label']})
-    return {'_source_path': fetched['path'], '_inject_error': inject_error, '_row_count': len(result['rows']),
-            '_top_rows': artifacts['top_rows'],
-            'report_md': Path(artifacts['report_path']).read_text(encoding='utf-8')}
+    artifacts['top_rows'] = []
+    gc.collect()
+    return {}
 
 
 def _diffs(value, golden, prefix=''):
@@ -214,24 +238,22 @@ def _diffs(value, golden, prefix=''):
     return [] if value == golden else [prefix]
 
 
-def _load_source(run, *, drifted):
-    cached = run.get('_fixture' if drifted else '_baseline')
-    if cached is not None:
-        return cached
-    raise ValueError('source_not_cached')
+def _restored_count(run):
+    builder = next((step for step in run.get('steps') or [] if step.get('node') == 'builder'), None)
+    value = (builder or {}).get('counts', {}).get('rows_repaired')
+    return int(value) if isinstance(value, int) and value >= 0 else 0
 
 
-def _proposal(mapping, fixture, rows):
+def _summary_rows(data_dir, run_id):
+    db_path = Path(data_dir) / 'runs' / run_id / 'mrf.sqlite'
+    if not db_path.is_file():
+        return []
     try:
-        result = apply_mapping(fixture, mapping)
-        model = generate_row_model(mapping)
-        for row in result['rows']:
-            model.model_validate(row)
-        errors = [] if digest(result['rows']) == digest(rows) else ['run_rows']
-        return not errors, len(result['rows']), errors
-    except (ValueError, TypeError, KeyError, AttributeError) as exc:
-        print(f'proposal_apply_invalid {type(exc).__name__}', file=sys.stderr)
-        return False, 0, ['invalid_mapping']
+        groups, spread = analyze_full(db_path)
+        return groups + spread
+    except sqlite3.OperationalError as exc:
+        print(f'summary_rows_fallback {type(exc).__name__}', file=sys.stderr)
+        return analyze(db_path)
 
 
 class PipelineService:
@@ -255,26 +277,32 @@ class PipelineService:
             else:
                 result = self.pipeline(run_id, emit, self.data_dir)
             with self.lock:
-                self.runs[run_id].update(result, status='completed')
+                self.runs[run_id].update(result, status='completed', _accessed=time.monotonic())
                 self._retain()
         except Exception:
             with self.lock:
-                self.runs[run_id].update(status='failed', error='pipeline_failed')
+                self.runs[run_id].update(status='failed', error='pipeline_failed', _accessed=time.monotonic())
                 for step in self.runs[run_id]['steps']:
                     if step['status'] == 'running':
                         step['status'] = 'failed'
                 self._retain()
             print(f'pipeline_failed run_id={run_id}', file=sys.stderr)
 
+    def _forget(self, rid):
+        self.runs.pop(rid, None)
+        self.threads.pop(rid, None)
+        self.export_results.pop(rid, None)
+        folder = self.data_dir / 'runs' / rid
+        if folder.is_dir():
+            shutil.rmtree(folder, ignore_errors=True)
+
     def _retain(self, reserved=None):
-        while len(self.runs) > KEEP_RUNS:
-            rid = next((k for k, rec in self.runs.items()
-                        if k != reserved and rec.get('status') != 'running'), None)
-            if rid is None:
-                break
-            self.runs.pop(rid, None)
-            self.threads.pop(rid, None)
-            self.export_results.pop(rid, None)
+        now = time.monotonic()
+        for rid, rec in list(self.runs.items()):
+            if rid == reserved or rec.get('status') in ('queued', 'running'):
+                continue
+            if now - rec.get('_accessed', 0) > RETAIN_IDLE_S:
+                self._forget(rid)
 
     def _export(self, run_id):
         with self.export_lock:
@@ -319,7 +347,8 @@ class PipelineService:
                 return response(400, {'error': 'invalid_run'})
             run_id = 'run_' + uuid.uuid4().hex
             record = {'status': 'queued', 'steps': [{'node': node, 'status': 'pending', 'counts': {}, 'telemetry': []}
-                                                    for node in ('source', 'builder', 'store', 'analyst')], 'report_md': ''}
+                                                    for node in ('source', 'builder', 'store', 'analyst')],
+                      '_accessed': time.monotonic()}
             if caller:
                 record['owner'] = caller['sub']
             with self.lock:
@@ -336,10 +365,10 @@ class PipelineService:
         with self.lock:
             stored = self.runs.get(run_id)
             if stored is None:
-                run, private = None, {}
+                run = None
             else:
-                run = {k: copy.deepcopy(v) for k, v in stored.items() if not k.startswith('_')}
-                private = {k: stored[k] for k in stored if k.startswith('_')}
+                stored['_accessed'] = time.monotonic()
+                run = {k: copy.deepcopy(v) for k, v in stored.items() if not k.startswith('_') and k != 'report_md'}
         if run is None or (caller and run.get('owner') and run['owner'] != caller['sub']):
             return response(404, {'error': 'unknown_run'})
         if method == 'GET' and action is None:
@@ -361,22 +390,15 @@ class PipelineService:
             if action == 'summary':
                 if set(body) != {'text'} or not isinstance(body['text'], str):
                     return response(400, {'error': 'invalid_summary'})
-                violations = summary_violations(body['text'], private.get('_top_rows') or [])
+                violations = summary_violations(body['text'], _summary_rows(self.data_dir, run_id))
                 return response(200, {'ok': not violations, 'violations': violations})
             if not body or set(body) - {'mapping', 'repair'}:
                 return response(400, {'error': 'invalid_proposals'})
             result = {}
-            cached = {**run, **private}
             if 'mapping' in body:
                 golden = load_json('hospital-golden-mapping.json')
                 diffs = _diffs(body['mapping'], golden)
-                if private.get('_baseline') is not None or private.get('_fixture') is not None:
-                    baseline = _load_source(cached, drifted=False)
-                    baseline_rows = apply_mapping(baseline, golden)['rows']
-                    valid, _, _ = _proposal(body['mapping'], baseline, baseline_rows)
-                else:
-                    valid = not diffs
-                result['mapping'] = {'valid': valid, 'matches_golden': not diffs, 'diffs': diffs}
+                result['mapping'] = {'valid': not diffs, 'matches_golden': not diffs, 'diffs': diffs}
             if 'repair' in body:
                 repair = body['repair']
                 if isinstance(repair, dict) and repair.get('action') == 'replace_mapping':
@@ -384,14 +406,10 @@ class PipelineService:
                 try:
                     from hospital_mapping import parse_hospital_mapping
                     parse_hospital_mapping(repair)
-                    if private.get('_fixture') is not None or private.get('_baseline') is not None:
-                        valid, fixed, errors = _proposal(repair, _load_source(cached, drifted=True), private.get('_rows') or [])
-                        result['repair'] = {'valid': valid, 'fixed_rows': fixed, 'remaining_errors': errors}
-                    else:
-                        diffs = _diffs(repair, load_json('hospital-golden-repair.json'))
-                        valid = not diffs
-                        result['repair'] = {'valid': valid, 'fixed_rows': 0 if not valid else int(private.get('_row_count') or 0),
-                                            'remaining_errors': [] if valid else ['run_rows']}
+                    diffs = _diffs(repair, load_json('hospital-golden-repair.json'))
+                    valid = not diffs
+                    result['repair'] = {'valid': valid, 'fixed_rows': _restored_count(run) if valid else 0,
+                                        'remaining_errors': [] if valid else ['run_rows']}
                 except (ValueError, TypeError, KeyError, AttributeError) as exc:
                     print(f'proposal_repair_invalid {type(exc).__name__}', file=sys.stderr)
                     result['repair'] = {'valid': False, 'fixed_rows': 0, 'remaining_errors': ['invalid_mapping']}

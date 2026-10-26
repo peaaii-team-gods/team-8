@@ -4,6 +4,7 @@ from pathlib import Path
 
 SOURCE_SHA256 = "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd"
 CHUNK, RSS_CAP = 1024 * 1024, 400 * 1024 * 1024
+HEADER_LIMIT = 8 * CHUNK
 LEDGER_FIELDS = (
     "billing_code", "code_type", "description", "payer_name", "plan_name", "billing_class", "setting",
     "methodology", "negotiated_rate", "percent_rate", "algorithm", "gross_charge", "discounted_cash", "min_charge", "max_charge")
@@ -63,7 +64,7 @@ def _stream_items(path):
                 raise ValueError("truncated MRF header")
             key = buf.find('"standard_charge_information"')
             if key < 0:
-                if n > 8 * CHUNK:
+                if n > HEADER_LIMIT:
                     raise ValueError("MRF header too large")
                 continue
             prefix = buf[:key].rstrip()
@@ -82,6 +83,9 @@ def _stream_items(path):
             try:
                 item, end = decoder.raw_decode(buf, parsed)
             except json.JSONDecodeError:
+                if len(buf) - parsed > CHUNK:
+                    print("ingest_item_exceeds_buffer", file=sys.stderr)
+                    raise ValueError("MRF item exceeds 1 MB buffer") from None
                 if not pull():
                     raise ValueError("truncated MRF item") from None
                 if parsed:
@@ -217,8 +221,12 @@ def ingest_file(path, *, rate_key="standard_charge_dollar", inject_error=False, 
     rows, counts = [], {"quarantined_row_count": 0, "skipped_no_dollar_count": 0, "nulls_repaired": 0, "code_types": {}}
     for item in items():
         _emit(item, joined, rate_key, rows, counts)
-    if meta_of() is None:
+    meta2 = meta_of()
+    if meta2 is None:
         raise ValueError("missing ingest meta")
+    if meta2["sha256"] != meta["sha256"]:
+        print("ingest_sha_mismatch", file=sys.stderr)
+        raise ValueError("ingest sha mismatch")
     n, elapsed = len(rows), max(time.perf_counter() - started, 1e-9)
     metrics = {"bytes_streamed": meta["bytes_streamed"], "items_parsed": n_items, "rows_emitted": n,
                "rows_quarantined": counts["quarantined_row_count"], "rows_repaired": 0,

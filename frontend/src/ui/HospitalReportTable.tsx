@@ -7,13 +7,26 @@ const REPORT = [["billing_code", "Code"], ["code_type", "Type"], ["billing_class
   ["min_charge", "Min"], ["max_charge", "Max"]] as const;
 const SPREAD = [["payer_name", "Payer"], ["plan_name", "Plan"], ["min_rate", "Min"], ["median_rate", "Median"],
   ["max_rate", "Max"], ["n", "n"]] as const;
-export function maCaveat(rows: unknown[]) {
-  const counts = rows.map(row => Number((row as Record<string, unknown> | null)?.n_MA) || 0);
-  const multi = counts.filter(value => value >= 2);
-  if (!multi.length) {
-    return "Medicare Managed Care Plan is a single-plan baseline: no comparison group has MA n>=2 in this file.";
+const REPORT_HEADERS = ["Code", "Type", "Class", "Description", "Commercial median", "MA median", "Difference", "Ratio", "n_commercial", "n_MA", "Gross", "Cash", "Min", "Max"];
+const SPREAD_HEADERS = ["Payer", "Plan", "Min", "Median", "Max", "n"];
+
+function parseTable(md: string, headers: string[], keys: readonly (readonly [string, string])[]): Record<string, string>[] {
+  const lines = md.split(/\r?\n/);
+  const start = lines.findIndex(line => headers.every(header => line.includes(header)));
+  if (start < 0) return [];
+  const rows: Record<string, string>[] = [];
+  for (const line of lines.slice(start + 2)) {
+    if (!line.startsWith("|")) break;
+    const cells = line.split("|").slice(1, -1).map(cell => cell.trim());
+    if (cells.length < keys.length) continue;
+    rows.push(Object.fromEntries(keys.map(([key], index) => [key, cells[index] ?? ""])));
   }
-  return `Medicare Managed Care Plan is not a single-plan baseline here: ${multi.length} comparison groups have MA n>=2 (max n_MA=${Math.max(...multi)}).`;
+  return rows;
+}
+
+export function tablesFromReport(md: string) {
+  const caveat = md.split(/\r?\n/).map(line => line.trim()).find(line => line.includes("Medicare Managed Care Plan is")) ?? "";
+  return { rows: parseTable(md, REPORT_HEADERS, REPORT), spread: parseTable(md, SPREAD_HEADERS, SPREAD), caveat };
 }
 
 export function openHospitalReportDialog() {
@@ -37,8 +50,8 @@ function PagedTable({ rows, columns, className, testid }: { rows: unknown[]; col
   </div>;
 }
 
-export default function HospitalReportTable({ rows, spread = [], className = "", caveat }: { rows: unknown[]; spread?: unknown[]; className?: string; caveat?: string }) {
-  const note = <p className="mb-2 text-xs text-white/60">{caveat ?? maCaveat(rows)}</p>;
+export default function HospitalReportTable({ rows, spread = [], className = "", caveat }: { rows: unknown[]; spread?: unknown[]; className?: string; caveat: string }) {
+  const note = <p className="mb-2 text-xs text-white/60">{caveat}</p>;
   return <div className="space-y-4">
     <section><h3 className="mb-2 font-semibold">Codes with commercial and MA medians</h3>{note}
       <PagedTable rows={rows} columns={REPORT} className={className} testid="hospital-report-table" /></section>

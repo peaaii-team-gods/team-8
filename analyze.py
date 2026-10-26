@@ -174,6 +174,14 @@ def ma_caveat(rows):
             f'{len(multi)} comparison groups have MA n>=2 (max n_MA={max(row["n_MA"] for row in multi)}).')
 
 
+def ma_plan_scope(spread):
+    payers = sorted({row.get('payer_name') or '' for row in spread if (row.get('plan_name') or '') == MA_PLAN} - {''})
+    if len(payers) <= 1:
+        return 'Medicare Managed Care Plan names a single payer in this file.'
+    return ('Medicare Managed Care Plan is a cross-payer label shared by '
+            f'{len(payers)} payer names: {", ".join(payers)}.')
+
+
 def analyze_full(db_path):
     """Every code with commercial and MA medians, plus per-plan spread."""
     with closing(_connect(db_path)) as connection:
@@ -190,8 +198,9 @@ def render_full_report(rows, spread, *, excluded_counts=None, metrics=None):
     lines = ['# Hospital rate comparison', '',
              'Storage: local SQLite. Parse mode: ' + str(metrics.get('parse_mode', 'streamed')) + '.', '',
              'Medicare Advantage baseline: ' + BASELINE_LABEL + '.', '', caveat, '',
+             ma_plan_scope(spread), '',
              '## Codes with commercial and MA medians', '',
-             'Ranked by commercial median minus the Medicare Advantage baseline, descending. n and the MA single-plan caveat apply to every section.',
+             'Ranked by commercial median minus the Medicare Advantage baseline, descending.',
              'Commercial plans exclude names matching: ' + COMMERCIAL_EXCLUSION_PATTERN + '.', '',
              '| Code | Type | Class | Description | Commercial median | MA median | Difference | Ratio | n_commercial | n_MA | Gross | Cash | Min | Max |',
              '| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |']

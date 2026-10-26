@@ -6,7 +6,7 @@ import { formatTokens, formatUsageCost } from "../run/telemetry";
 import { matchingSchemaId, parseSchemaText } from "../registry/schemas";
 import { attachmentById, mcpPosture } from "../registry/mcpLinkage";
 import { HOSPITAL_EXPORT_EVENT } from "../run/hospitalPipeline";
-import HospitalReportTable, { openHospitalReportDialog } from "../ui/HospitalReportTable";
+import HospitalReportTable, { openHospitalReportDialog, tablesFromReport } from "../ui/HospitalReportTable";
 
 const ACCENT: Record<string, string> = {
   emerald: "#34d399",
@@ -40,12 +40,17 @@ function Shell({ data, id, isLake }: { data: CanvasNode["data"]; id: string; isL
   const repairedRows = Array.isArray(repair?.checks) ? (repair.checks as Record<string, unknown>[]).find(check => check.name === "rows_repaired") : undefined;
   const top = telemetry.find(event => event.type === "top10");
   const counts = hospitalView.counts as Record<string, unknown> | undefined;
+  const selfRepair = Array.isArray(repair?.checks) ? (repair.checks as Record<string, unknown>[]).find(check => check.name === "self-consistency") : undefined;
+  const restored = repairedRows?.pass === true
+    ? { label: "Golden repair", actual: repairedRows.actual, expected: repairedRows.expected }
+    : selfRepair && typeof counts?.rows_repaired === "number" && Number(counts.rows_repaired) > 0
+      ? { label: "Self-consistency repair", actual: counts.rows_repaired, expected: counts.rows_repaired }
+      : undefined;
+  const parsedReport = typeof hospitalView.analystText === "string" && hospitalView.analystText
+    ? tablesFromReport(hospitalView.analystText) : { rows: [] as Record<string, string>[], spread: [] as Record<string, string>[], caveat: "" };
   const reportNotes = typeof hospitalView.analystText === "string"
     ? hospitalView.analystText.split(/\r?\n/).map(line => line.trim()).filter(line => /^(Small-n medians|Percent\/algorithm prices|Excluded non-dollar payer entries:|Non-dollar payer entries stored with a null rate|Quarantined source items:)/.test(line))
     : [];
-  const caveatLine = typeof hospitalView.analystText === "string"
-    ? hospitalView.analystText.split(/\r?\n/).map(line => line.trim()).find(line => line.includes("Medicare Managed Care Plan is"))
-    : undefined;
   const hospitalNode = ["hospital-source", "mrf-hospital-builder", "mrf-hospital-maintainer", "hospital-store", "hospital-analyst"].includes(data.presetId);
   const tethered = edges
     .filter((e) => e.target === id)
@@ -104,24 +109,22 @@ function Shell({ data, id, isLake }: { data: CanvasNode["data"]; id: string; isL
       {source.url?.endsWith(".json") && trace.sha256 && <div>MRF SHA-256: {trace.sha256.slice(0, 8)}</div>}
     </div>)}
     {failedRate && <p className="mt-2 text-sm text-rose-200">Injected error: fields.rate expected {String(failedRate.expected)}, got {String(failedRate.actual)}{typeof failedRows?.actual === "number" && typeof failedRows.expected === "number" && failedRows.pass === false ? ` - ${failedRows.actual}/${failedRows.expected} rows` : ""}</p>}
-    {repairedRows?.pass === true && <p className="mt-2 text-sm text-emerald-200">Golden repair: {String(repairedRows.actual)}/{String(repairedRows.expected)} dollar rates restored</p>}
+    {restored && <p className="mt-2 text-sm text-emerald-200">{restored.label}: {String(restored.actual)}/{String(restored.expected)} dollar rates restored</p>}
     {data.presetId === "hospital-source" && typeof counts?.parse_mode === "string" && <p className="mt-2 text-sm text-white/80" data-testid={`parse-mode-${id}`}>{counts.parse_mode === "streamed" ? "streamed" : "parsed in memory"}{typeof counts.items_parsed === "number" ? ` · ${counts.items_parsed} items` : ""}{typeof counts.bytes_streamed === "number" ? ` · ${counts.bytes_streamed} bytes` : ""}</p>}
     {typeof counts?.rows_per_s === "number" && <p className="mt-1 text-[11px] text-white/70">{String(counts.rows_emitted ?? counts.row_count ?? "")} rows · {String(counts.rows_per_s)} rows/s · {String(counts.mb_per_s)} MB/s · {String(counts.stage_ms)} ms{typeof counts.rows_quarantined === "number" ? ` · ${counts.rows_quarantined} quarantined` : ""}{typeof counts.rows_repaired === "number" && counts.rows_repaired > 0 ? ` · ${counts.rows_repaired} repaired` : ""}</p>}
     {data.presetId === "hospital-store" && <p className="mt-2 text-sm text-white/80">{typeof counts?.row_count === "number" ? `${counts.row_count} rows - local SQLite` : "Waiting for row count"}</p>}
     {typeof hospitalView.modelRepair === "string" && <p className="text-sm text-white/60">{hospitalView.modelRepair}</p>}
-    {data.presetId === "hospital-analyst" && <>
-      {typeof hospitalView.analystText === "string" && Array.isArray(top?.rows) && <>
+    {data.presetId === "hospital-analyst" && parsedReport.rows.length > 0 && <>
         <button type="button" className="nodrag mt-2 rounded-lg border border-white/20 px-3 py-1 text-sm" onClick={event => {
           event.stopPropagation();
           openHospitalReportDialog();
         }}>Open full report</button>
         <dialog id="hospital-report-modal" className="m-auto w-[96vw] max-w-[1500px] max-h-[90vh] overflow-auto rounded-xl border border-white/20 bg-[#100a1c] p-5 text-white shadow-2xl backdrop:bg-black/70">
-          <div className="mb-3 flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">{data.title}</h2><p className="mt-1 text-sm text-white/70">{data.description}</p><p className="text-xs text-white/60">{String(top.baseline_label ?? "")}</p></div>
+          <div className="mb-3 flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">{data.title}</h2><p className="mt-1 text-sm text-white/70">{data.description}</p><p className="text-xs text-white/60">{String(top?.baseline_label ?? "")}</p></div>
             <form method="dialog"><button className="rounded-lg border border-white/20 px-3 py-1 text-xs">Close report</button></form></div>
-          <HospitalReportTable rows={top.rows as unknown[]} spread={Array.isArray(top.spread) ? top.spread as unknown[] : []} className="w-full table-fixed" caveat={caveatLine} />
+          <HospitalReportTable rows={parsedReport.rows} spread={parsedReport.spread} className="w-full table-fixed" caveat={parsedReport.caveat} />
           {reportNotes.length > 0 && <ul className="mt-3 space-y-1 text-sm text-white/70">{reportNotes.map(note => <li key={note}>{note}</li>)}</ul>}
         </dialog>
-      </>}
     </>}
     {typeof hospitalView.summaryNote === "string" && <p className="text-sm text-white/60">{hospitalView.summaryNote}</p>}
     {data.presetId === "hospital-store" && hospitalView.hospitalComplete === true && <button type="button" className="nodrag mt-2 text-left text-xs underline disabled:opacity-50" disabled={hospitalView.exporting === true}

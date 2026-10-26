@@ -96,6 +96,7 @@ def test_full_ledger_report_sections(tmp_path):
     caveat = ma_caveat(artifacts["top_rows"])
     assert caveat in text
     assert text.count(caveat) >= 3
+    assert 'n and the MA single-plan caveat apply to every section' not in text
     assert 'Min' in text and 'Max' in text
     assert artifacts['top_rows']
     assert artifacts['spread']
@@ -121,3 +122,21 @@ def test_ma_caveat_text_cannot_disagree_with_n_ma():
     assert '2 comparison groups' in note and 'max n_MA=5' in note
     assert note in text and text.count(note) >= 3
     assert single not in text
+
+
+def test_ma_plan_scope_is_derived_from_spread_payers():
+    from analyze import ma_plan_scope, render_full_report
+    row = {'billing_code': 'A0425', 'code_type': 'HCPCS', 'billing_class': 'facility', 'description': 'ambulance',
+           'commercial_median': 10, 'ma_median': 5, 'difference': 5, 'ratio': 2, 'n_commercial': 2, 'n_MA': 1,
+           'gross_charge': 20, 'discounted_cash': 8, 'min_charge': 1, 'max_charge': 30}
+    spread = [
+        {'payer_name': 'Aetna', 'plan_name': 'Medicare Managed Care Plan', 'min_rate': 1, 'median_rate': 2, 'max_rate': 3, 'n': 1},
+        {'payer_name': 'Tufts', 'plan_name': 'Medicare Managed Care Plan', 'min_rate': 1, 'median_rate': 2, 'max_rate': 3, 'n': 1},
+    ]
+    note = ma_plan_scope(spread)
+    text = render_full_report([{**row}], spread)
+    assert 'cross-payer label shared by 2 payer names' in note
+    assert 'Aetna' in note and 'Tufts' in note
+    assert note in text
+    assert 'n and the MA single-plan caveat apply to every section' not in text
+    assert 'single payer' in ma_plan_scope(spread[:1])

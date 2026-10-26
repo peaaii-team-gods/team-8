@@ -98,6 +98,35 @@ def test_memory_rss_cap_runs_after_loads(monkeypatch):
     assert order.index("loads") < order.index("rss")
 
 
+def test_malformed_item_does_not_grow_past_one_mb(tmp_path, capsys):
+    from ingest import CHUNK
+    bad = tmp_path / "huge-item.json"
+    bad.write_bytes(b'{"version":"3.0.0","standard_charge_information":[{"x":"' + b"a" * (CHUNK + 64))
+    with pytest.raises(ValueError):
+        ingest_file(bad)
+    err = capsys.readouterr().err
+    assert "ingest_item_exceeds_buffer" in err or "ingest_stream_failed" in err
+
+
+def test_two_walks_must_agree_on_sha(tmp_path, monkeypatch, capsys):
+    import ingest as mod
+    real_walk = mod._walk
+    state = {"n": 0}
+    def flipped(path, inject_error, parse_mode="streamed"):
+        header, items, meta_of = real_walk(path, inject_error, parse_mode)
+        if state["n"] == 0:
+            state["n"] += 1
+            return header, items, meta_of
+        def other():
+            meta = meta_of()
+            return None if meta is None else {**meta, "sha256": "0" * 64}
+        return header, items, other
+    monkeypatch.setattr(mod, "_walk", flipped)
+    with pytest.raises(ValueError, match="ingest sha mismatch"):
+        ingest_file(SLICE)
+    assert "ingest_sha_mismatch" in capsys.readouterr().err
+
+
 def test_checked_in_full_golden_is_internally_consistent():
     from analyze import ma_caveat
     golden = load_json("hospital-full-golden-result.json")
@@ -117,6 +146,8 @@ def test_checked_in_full_golden_is_internally_consistent():
             values.append(int(cells[9]))
     caveat = ma_caveat([{"n_MA": value} for value in values])
     assert caveat in text and text.count(caveat) >= 3
+    assert "cross-payer label shared by 11 payer names" in text
+    assert "n and the MA single-plan caveat apply to every section" not in text
 
 
 def test_slice_report_hash_is_lf_normalised_and_regenerated(tmp_path):

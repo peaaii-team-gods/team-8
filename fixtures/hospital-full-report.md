@@ -6,9 +6,11 @@ Medicare Advantage baseline: Medicare Advantage rates in this hospital's file.
 
 Medicare Managed Care Plan is not a single-plan baseline here: 12 comparison groups have MA n>=2 (max n_MA=5).
 
+Medicare Managed Care Plan is a cross-payer label shared by 11 payer names: Aetna, Bcbs, Commonwealth Care Alliance, Evercare, Fallon, Scan Health Plan, Senior Whole Health, Tufts Health, Unitedhealthcare, Wellcare, Wellsense.
+
 ## Codes with commercial and MA medians
 
-Ranked by commercial median minus the Medicare Advantage baseline, descending. n and the MA single-plan caveat apply to every section.
+Ranked by commercial median minus the Medicare Advantage baseline, descending.
 Commercial plans exclude names matching: medicare|medicaid|masshealth|self.?pay|cash|gross.
 
 | Code | Type | Class | Description | Commercial median | MA median | Difference | Ratio | n_commercial | n_MA | Gross | Cash | Min | Max |

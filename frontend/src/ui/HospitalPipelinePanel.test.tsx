@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import HospitalPipelinePanel, { GOLDEN_SOURCE_SHA256 } from "./HospitalPipelinePanel";
+import HospitalPipelinePanel from "./HospitalPipelinePanel";
 import { scenarioById } from "../registry/scenarios";
 import { canLink } from "../registry/linkRules";
 import { useStore } from "../state/store";
@@ -11,11 +11,13 @@ import type { WorkflowV1 } from "../compile/toWorkflow";
 import { readFileSync } from "node:fs";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+const reportMd = "# Hospital rate comparison\n\nMedicare Managed Care Plan is a single-plan baseline: no comparison group has MA n>=2 in this file.\n";
 const report = "Recorded SQL report: 5 eligible groups";
+const reportResponse = () => new Response(reportMd, { headers: { "Content-Type": "text/markdown; charset=utf-8" } });
 // Captured from actual PipelineService.route POST /run then GET /runs/<id> on fresh-main 605e6f0e; public-network source fetch, inject_error=true, completed GET. No CMS contacts or downloaded source body are included.
 const realResult = JSON.parse(readFileSync("src/ui/fixtures/hospital-run.real.json", "utf8"));
 const result = { status: "completed", report_md: report, steps: [
-  { node: "source", status: "completed", counts: {}, telemetry: [{ type: "trace", label: "cached", trace: [], sha256: "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd" }] },
+  { node: "source", status: "completed", counts: {}, telemetry: [{ type: "trace", label: "cached", trace: [], sha256: "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd", golden_source_sha256: "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd" }] },
   { node: "builder", status: "completed", counts: {}, telemetry: [
     { type: "repair", label: "injected", checks: [] },
   ] },
@@ -36,6 +38,7 @@ function modelSetup(summary: string, broken = false) {
     const body = init?.body ? JSON.parse(init.body as string) : undefined; requests.push({ url, body });
     if (url === "/api/pipeline/run") return response({ run_id: "run-model" });
     if (url === "/api/pipeline/runs/run-model") return response(snapshot);
+    if (url.endsWith("/artifacts/report.md")) return reportResponse();
     if (url.endsWith("/proposals")) return response({ mapping: { valid: true, matches_golden: true, diffs: [] }, repair: { valid: true, fixed_rows: 42, remaining_errors: [] } });
     if (url.endsWith("/summary")) return response({ ok: !body.text.includes("99999"), violations: body.text.includes("99999") ? ["99999"] : [] });
     throw new Error("unexpected URL");
@@ -52,6 +55,7 @@ const setup = (exported: unknown = { status: "unavailable", reason: "drive_expor
     requests.push({ url, init });
     if (url === "/api/pipeline/run") return response({ run_id: "run-test" });
     if (url === "/api/pipeline/runs/run-test") return response(runResult);
+    if (url.endsWith("/artifacts/report.md")) return reportResponse();
     if (url === "/api/pipeline/runs/run-test/export") return response(exported);
     throw new Error("Unexpected request");
   });
@@ -129,14 +133,15 @@ describe("hospital canvas deterministic record", () => {
 
   it("labels a sha mismatch as no golden without storing a new field", async () => {
     const snapshot = structuredClone(result);
-    snapshot.steps[0].telemetry = [{ type: "trace", label: "cached", trace: [], sha256: "def" }];
+    snapshot.steps[0].telemetry = [{ type: "trace", label: "cached", trace: [], sha256: "def", golden_source_sha256: "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd" }];
     snapshot.steps[3].telemetry = [{ type: "top10", rows: [{ billing_code: "12345" }], row_count: 2, baseline_label: "Medicare Advantage rates in this hospital's file" }];
     setup(undefined, snapshot);
     render(<HospitalPipelinePanel adapter={null} budget={0} />);
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
     await screen.findByRole("heading", { name: "No golden for this file" });
     expect(screen.queryByText("Golden SQL report")).toBeNull();
-    expect(snapshot.steps[0].telemetry[0].sha256).not.toBe(GOLDEN_SOURCE_SHA256);
+    expect(screen.queryByText(/remains golden/)).toBeNull();
+    expect(snapshot.steps[0].telemetry[0].sha256).not.toBe(snapshot.steps[0].telemetry[0].golden_source_sha256);
     expect(JSON.stringify(snapshot)).not.toMatch(/no_golden|no-golden|golden_label/);
   });
 
@@ -156,6 +161,7 @@ describe("hospital canvas deterministic record", () => {
     let submitted: unknown;
     vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
       if (url === "/api/pipeline/run") { submitted = JSON.parse(init!.body as string); return response({ run_id: "run-poll" }); }
+      if (url.endsWith("/artifacts/report.md")) return reportResponse();
       polls.push(Date.now());
       return response(polls.length === 1 ? { status: "running", steps: [] } : result);
     });
@@ -187,7 +193,7 @@ describe("hospital canvas deterministic record", () => {
     const furnace = useStore.getState().nodes.find(node => node.data.presetId === "mrf-hospital-maintainer")!;
     expect(JSON.parse(furnace.data.output!).modelRepair).toBe("Model repair: valid / matches golden");
     const analyst = useStore.getState().nodes.find(node => node.data.presetId === "hospital-analyst")!;
-    expect(JSON.parse(analyst.data.output!).analystText).toBe(report);
+    expect(JSON.parse(analyst.data.output!).analystText).toBe(reportMd);
     expect(analyst.data.output).not.toContain("99999");
   });
 
@@ -202,7 +208,7 @@ describe("hospital canvas deterministic record", () => {
     expect(screen.getByTestId("hospital-report-summary").textContent).toBe("The selected rate is $120.");
     expect(screen.getByRole("button", { name: "Open full report" })).toBeTruthy();
     const analyst = useStore.getState().nodes.find(node => node.data.presetId === "hospital-analyst")!;
-    expect(JSON.parse(analyst.data.output!).analystText).toBe(report);
+    expect(JSON.parse(analyst.data.output!).analystText).toBe(reportMd);
     expect(model.requests.find(r => r.url.endsWith("/summary"))?.body).toEqual({ text: "The selected rate is $120." });
   });
 
@@ -229,6 +235,7 @@ describe("hospital canvas deterministic record", () => {
     vi.stubGlobal("fetch", async (url: string) => {
       if (url === "/api/pipeline/run") return response({ run_id: "run-test" });
       if (url === "/api/pipeline/runs/run-test") return response(result);
+      if (url.endsWith("/artifacts/report.md")) return reportResponse();
       if (url.includes("/artifacts/")) return new Response("no", { status: 401 });
       throw new Error("Unexpected request");
     });
@@ -243,6 +250,7 @@ describe("hospital canvas deterministic record", () => {
     vi.stubGlobal("fetch", async (url: string) => {
       if (url === "/api/pipeline/run") return response({ run_id: "run-test" });
       if (url === "/api/pipeline/runs/run-test") return response(result);
+      if (url.endsWith("/artifacts/report.md")) return reportResponse();
       if (url.includes("/artifacts/")) throw new TypeError("Failed to fetch");
       throw new Error("Unexpected request");
     });

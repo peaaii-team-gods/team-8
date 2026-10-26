@@ -5,7 +5,6 @@ import { HOSPITAL_EXPORT_EVENT, hospitalModels, pipelineHeaders, pipelineRequest
 import { openHospitalReportDialog } from "./HospitalReportTable";
 const presets: Record<string, string[]> = { source: ["hospital-source"], builder: ["mrf-hospital-builder", "mrf-hospital-maintainer"], store: ["hospital-store"], analyst: ["hospital-analyst"] };
 const stepNames: Record<string, string> = { source: "Scout", builder: "Architect", store: "Ledger", analyst: "Analyst" };
-export const GOLDEN_SOURCE_SHA256 = "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd";
 const eventsFor = (step: PipelineRecord["steps"][number], type: string) => step.telemetry.filter(event => event.type === type);
 const failureLine = (step: PipelineRecord["steps"][number]) => {
   const checks = eventsFor(step, "checks").flatMap(event => Array.isArray(event.checks) ? event.checks as Record<string, unknown>[] : []);
@@ -16,15 +15,20 @@ const failureLine = (step: PipelineRecord["steps"][number]) => {
 };
 const matchesGoldenFingerprint = (record: PipelineRecord | null) => (record?.steps ?? [])
   .flatMap(step => eventsFor(step, "trace"))
-  .some(event => event.sha256 === GOLDEN_SOURCE_SHA256);
-const repairLine = (step: PipelineRecord["steps"][number]) => {
+  .some(event => typeof event.golden_source_sha256 === "string" && event.sha256 === event.golden_source_sha256);
+const repairLine = (step: PipelineRecord["steps"][number], golden: boolean) => {
   const repair = eventsFor(step, "repair").find(event => event.label === "injected");
-  const repaired = Array.isArray(repair?.checks) ? (repair.checks as Record<string, unknown>[]).find(check => check.name === "rows_repaired") : undefined;
-  return repair && repaired?.pass === true ? `Golden repair: ${String(repaired.actual)}/${String(repaired.expected)} dollar rates restored` : "";
+  const checks = Array.isArray(repair?.checks) ? repair.checks as Record<string, unknown>[] : [];
+  const repaired = checks.find(check => check.name === "rows_repaired");
+  const count = repaired ?? (typeof step.counts.rows_repaired === "number" && Number(step.counts.rows_repaired) > 0
+    ? { actual: step.counts.rows_repaired, expected: step.counts.rows_repaired } : undefined);
+  if (!repair || count === undefined) return "";
+  const label = golden ? "Golden repair" : "Self-consistency repair";
+  return `${label}: ${String(count.actual)}/${String(count.expected)} dollar rates restored`;
 };
-const humanSummary = (step: PipelineRecord["steps"][number]) => {
+const humanSummary = (step: PipelineRecord["steps"][number], golden: boolean) => {
   if (step.node === "store") return typeof step.counts.row_count === "number" ? `${step.counts.row_count} rows - local SQLite` : "Waiting for row count";
-  if (step.node === "builder") return repairLine(step) || failureLine(step) || `Architect ${step.status}`;
+  if (step.node === "builder") return repairLine(step, golden) || failureLine(step) || `Architect ${step.status}`;
   if (step.node === "source") {
     const trace = eventsFor(step, "trace")[0];
     const ingest = eventsFor(step, "ingest")[0];
@@ -40,6 +44,7 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
   const [record, setRecord] = useState<PipelineRecord | null>(null), [id, setId] = useState("");
   const [inject, setInject] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(""), [artifactError, setArtifactError] = useState("");
   const [model, setModel] = useState<ModelView>({}), [exportNote, setExportNote] = useState(""), [exporting, setExporting] = useState(false);
+  const [reportMd, setReportMd] = useState("");
   const active = useRef<AbortController | null>(null), handles = useRef<RunHandle[]>([]), exportLink = useRef("");
   useEffect(() => () => { active.current?.abort(); for (const handle of handles.current) void adapter?.cancel(handle).catch(() => undefined); }, [adapter]);
   useEffect(() => {
@@ -51,17 +56,17 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
       const telemetry = step?.telemetry.filter(event => event.type !== "evidence") ?? [];
       const view = node.data.presetId === "hospital-store" ? { counts: step?.counts, telemetry, hospitalRunId: id, hospitalComplete: record.status === "completed", exportNote, exporting }
         : node.data.presetId === "mrf-hospital-maintainer" ? { counts: step?.counts, telemetry, modelRepair: repairNote }
-        : node.data.presetId === "hospital-analyst" ? { counts: step?.counts, telemetry, analystText: record.report_md ?? "", summaryNote: model.rejected !== undefined ? `Summary rejected by guard: ${model.rejected} unsupported figures` : model.summary ? "Model summary · guard passed" : model.unavailable ? "model unavailable, golden path used" : "" } : null;
+        : node.data.presetId === "hospital-analyst" ? { counts: step?.counts, telemetry, analystText: reportMd, summaryNote: model.rejected !== undefined ? `Summary rejected by guard: ${model.rejected} unsupported figures` : model.summary ? "Model summary · guard passed" : model.unavailable ? "model unavailable, golden path used" : "" } : null;
       if (view) {
         store.setNodeStatus(node.id, node.data.status, JSON.stringify(view), node.data.verification);
       }
     }
-  }, [record, id, model, exportNote, exporting]);
+  }, [record, id, model, exportNote, exporting, reportMd]);
   const start = async () => {
     if (signedOut) return;
     const controller = new AbortController(); active.current?.abort(); active.current = controller; handles.current = [];
     const signal = controller.signal, timeout = setTimeout(() => controller.abort(), 180_000);
-    setBusy(true); setError(""); setArtifactError(""); setId(""); setRecord(null); setModel({}); setExportNote(""); exportLink.current = "";
+    setBusy(true); setError(""); setArtifactError(""); setId(""); setRecord(null); setModel({}); setReportMd(""); setExportNote(""); exportLink.current = "";
     const store = useStore.getState(); store.resetRun(); store.markRunStart(); store.setPipelineStage("execute");
     try {
       const created = await pipelineRequest("/api/pipeline/run", { source: "south-shore", inject_error: inject }, signal, accessToken);
@@ -78,6 +83,8 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
         if (snapshot.status === "failed") { store.setPipelineStage("fail"); throw new Error("Recorded hospital pipeline failed"); }
         if (snapshot.status === "completed") {
           store.setPipelineStage("complete");
+          const reportResponse = await fetch(`${runPath(created.run_id)}/artifacts/report.md`, { headers: pipelineHeaders(accessToken), cache: "no-store", redirect: "error", signal });
+          if (reportResponse.ok && !signal.aborted) setReportMd(await reportResponse.text());
           if (adapter) prepareLocalModel?.();
           const proposals = adapter ? await hospitalModels(adapter, created.run_id, snapshot, budget, signal, handle => handles.current.push(handle), accessToken) : { unavailable: true };
           if (!signal.aborted) setModel(proposals);
@@ -117,7 +124,7 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
     {artifactError && <p role="alert">{artifactError}</p>}
     {record?.steps.map(step => <div key={step.node}>
       <strong>{stepNames[step.node] ?? step.node}</strong>: {step.status}
-      <span className="ml-1 text-white/70">· {humanSummary(step)}</span>
+      <span className="ml-1 text-white/70">· {humanSummary(step, golden)}</span>
       <details className="mt-1"><summary>Show details</summary><pre className="max-h-56 overflow-auto whitespace-pre-wrap">{JSON.stringify(step.telemetry.filter(event => !["evidence", "top10"].includes(event.type)), null, 2)}</pre></details>
       {step.node === "builder" && model.repair && <p>Model repair: {model.repair.valid ? "valid" : "invalid"} / {model.matchesRepair ? "matches golden" : "differs from golden"}</p>}
     </div>)}
@@ -132,7 +139,7 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
     </section>}
     {model.summary && <p data-testid="hospital-report-summary">{model.summary}</p>}
     {model.rejected !== undefined && <p>Summary rejected by guard: {model.rejected} unsupported figures</p>}
-    {model.summary && <p>Model summary · guard passed; recorded report remains golden</p>}
+    {model.summary && <p>Model summary · guard passed{golden ? "; recorded report remains golden" : ""}</p>}
     {record?.status === "completed" && !signedOut && <><p>Recorded artifacts: {["rows.csv", "report.csv", "mrf.sqlite", "report.md"].map(file => {
       const href = `${runPath(id)}/artifacts/${file}`;
       return <a className="mr-2 underline" key={file} href={href} onClick={event => {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { pipelineHeaders, pipelineRequest } from "./hospitalPipeline";
+import { ANALYST_INPUT_CAP, analystSqlRows, pipelineHeaders, pipelineRequest } from "./hospitalPipeline";
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -24,5 +24,13 @@ describe("hospital pipeline client bearer", () => {
     await pipelineRequest("/api/pipeline/runs/run_local");
     expect(pipelineHeaders(null, true)).toEqual({ "Content-Type": "application/json" });
     expect(seen[0].headers).toEqual({ "Content-Type": "application/json" });
+  });
+
+  it("keeps the analyst prompt under the input cap", () => {
+    const rows = Array.from({ length: 6938 }, (_, index) => ({ billing_code: String(index), n_MA: 1, description: "x".repeat(80) }));
+    const text = analystSqlRows({ type: "top10", rows, row_count: 6938, spread: [{ payer_name: "Aetna", n: 10 }], baseline_label: "Medicare Advantage rates in this hospital's file" });
+    expect(text.length).toBeLessThanOrEqual(ANALYST_INPUT_CAP);
+    expect(JSON.parse(text).top_groups).toHaveLength(10);
+    expect(JSON.parse(text).aggregates.n_groups).toBe(6938);
   });
 });

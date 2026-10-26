@@ -2,7 +2,10 @@ import copy
 import json
 from io import BytesIO
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
+
+import pytest
 
 from mrf_apply import apply_mapping, load_json
 from server.pipeline_server import Handler, PipelineService, ROOT, run_pipeline
@@ -13,9 +16,9 @@ def fake_pipeline(run_id, emit, data_dir):
     fixture, mapping = load_json('hospital-v3-slice.json'), load_json('hospital-golden-mapping.json')
     rows = apply_mapping(fixture, mapping)['rows']
     result = write_run_artifacts(rows, run_id, data_dir=data_dir)
-    emit('analyst', 'completed', {'row_count': len(rows)}, {'type': 'top10', 'rows': result['top_rows']})
-    return {'_fixture': fixture, '_baseline': fixture, '_rows': rows, '_top_rows': result['top_rows'],
-            'report_md': open(result['report_path'], encoding='utf-8').read()}
+    emit('analyst', 'completed', {'row_count': len(result['top_rows'])},
+         {'type': 'top10', 'rows': result['top_rows'][:10], 'row_count': len(result['top_rows'])})
+    return {}
 
 
 def ready(tmp_path, exporter=None):
@@ -41,7 +44,9 @@ def test_status_and_artifact_allowlist(tmp_path):
     status, result = route(service, 'GET', prefix)
     assert status == 200 and result['status'] == 'completed'
     assert result['steps'][-1]['telemetry'][0]['type'] == 'top10'
-    assert '_rows' not in result and 'local SQLite' in result['report_md']
+    assert '_rows' not in result and 'report_md' not in result
+    status, report = route(service, 'GET', prefix + '/artifacts/report.md')
+    assert status == 200 and b'local SQLite' in report
     for name in ('rows.csv', 'mrf.sqlite', 'report.md'):
         status, body = route(service, 'GET', prefix + '/artifacts/' + name)
         assert status == 200 and body
@@ -55,9 +60,10 @@ def test_proposals_summary_and_golden_record_never_changed(tmp_path):
     prefix = '/api/pipeline/runs/' + run_id
     mapping = load_json('hospital-golden-mapping.json')
     before = (tmp_path / 'runs' / run_id / 'rows.csv').read_bytes()
-    status, result = route(service, 'POST', prefix + '/proposals', {'mapping': mapping, 'repair': mapping})
+    repair = load_json('hospital-golden-repair.json')
+    status, result = route(service, 'POST', prefix + '/proposals', {'mapping': mapping, 'repair': repair})
     assert status == 200 and result['mapping'] == {'valid': True, 'matches_golden': True, 'diffs': []}
-    assert result['repair'] == {'valid': True, 'fixed_rows': 42, 'remaining_errors': []}
+    assert result['repair'] == {'valid': True, 'fixed_rows': 0, 'remaining_errors': []}
     wrong = copy.deepcopy(mapping)
     wrong['fields']['rate'] = 'standard_charge_amount'
     _, result = route(service, 'POST', prefix + '/proposals', {'mapping': wrong})
@@ -119,8 +125,8 @@ def test_real_pipeline_offline_with_injected_repair(tmp_path):
     from ingest import ingest_file
     from resources import digest
     restored = ingest_file(source, inject_error=True, rate_key='standard_charge_amount')
-    assert '_rows' not in result
-    assert result['_row_count'] == restored['counts']['inserted_row_count'] > 42
+    assert result == {}
+    assert restored['counts']['inserted_row_count'] > 42
     assert any(event[3]['type'] == 'repair' for event in events)
     assert any(event[3].get('label') == 'cached' for event in events)
     assert (tmp_path / 'runs' / 'offline' / 'mrf.sqlite').exists()
@@ -131,9 +137,11 @@ def test_real_pipeline_offline_with_injected_repair(tmp_path):
     assert any(check['name'] == 'fields.rate' and not check['pass'] for event in events
                for check in event[3].get('checks', []))
     repair = next(event[3] for event in events if event[3].get('type') == 'repair')
-    repaired = next(check for check in repair['checks'] if check['name'] == 'rows_repaired')
-    assert repaired['pass'] and repaired['actual'] == repaired['expected'] > 0
-    assert repaired['actual'] != restored['counts']['inserted_row_count']
+    assert any(check['name'] == 'self-consistency' and check['pass'] for check in repair['checks'])
+    assert all(check['name'] != 'rows_repaired' for check in repair['checks'])
+    builder = next(event for event in events if event[0] == 'builder' and event[1] == 'completed')
+    restored_count = builder[2]['rows_repaired']
+    assert restored_count > 0 and restored_count != restored['counts']['inserted_row_count']
 
 
 def test_source_path_repair_rejects_invalid_mapping(tmp_path, capsys):
@@ -141,8 +149,7 @@ def test_source_path_repair_rejects_invalid_mapping(tmp_path, capsys):
     source = tmp_path / 'source.json'
     source.write_bytes((ROOT / 'fixtures' / 'hospital-v3-slice.json').read_bytes())
     run_id = 'run_' + 'ab' * 16
-    service.runs[run_id] = {'status': 'completed', 'steps': [], 'report_md': '',
-                            '_source_path': str(source), '_inject_error': False, '_row_count': 0, '_top_rows': []}
+    service.runs[run_id] = {'status': 'completed', 'steps': [], '_accessed': 0}
     status, result = route(service, 'POST', '/api/pipeline/runs/' + run_id + '/proposals',
                            {'repair': {'fields': {'rate': 'SECRET must never escape'}}})
     assert status == 200 and result['repair'] == {'valid': False, 'fixed_rows': 0, 'remaining_errors': ['invalid_mapping']}
@@ -150,17 +157,43 @@ def test_source_path_repair_rejects_invalid_mapping(tmp_path, capsys):
     assert 'proposal_repair_invalid' in err and 'SECRET' not in err
 
 
-def test_completed_runs_are_bounded(tmp_path):
-    service = PipelineService(data_dir=tmp_path, pipeline=fake_pipeline)
-    ids = []
+def test_running_run_is_not_evicted(tmp_path, monkeypatch):
+    from server import pipeline_server as mod
+    monkeypatch.setattr(mod, 'RETAIN_IDLE_S', 0)
+    entered, release = threading.Event(), threading.Event()
+    state = {'hold': True}
+    def pipeline(run_id, emit, data_dir):
+        if state['hold']:
+            entered.set()
+            release.wait(5)
+            return {}
+        return fake_pipeline(run_id, emit, data_dir)
+    service = PipelineService(data_dir=tmp_path, pipeline=pipeline)
+    _, running, _ = service.route('POST', '/api/pipeline/run', b'{"source":"south-shore","inject_error":false}')
+    assert entered.wait(2)
+    state['hold'] = False
     for _ in range(3):
         status, value, _ = service.route('POST', '/api/pipeline/run', b'{"source":"south-shore","inject_error":false}')
         assert status == 202
         service.threads[value['run_id']].join(5)
-        ids.append(value['run_id'])
-    assert route(service, 'GET', '/api/pipeline/runs/' + ids[0])[0] == 404
-    assert route(service, 'GET', '/api/pipeline/runs/' + ids[1])[0] == 200
-    assert route(service, 'GET', '/api/pipeline/runs/' + ids[2])[0] == 200
+    assert route(service, 'GET', '/api/pipeline/runs/' + running['run_id'])[0] == 200
+    release.set()
+    service.threads[running['run_id']].join(5)
+
+
+def test_idle_finished_run_folder_is_deleted(tmp_path, monkeypatch):
+    from server import pipeline_server as mod
+    monkeypatch.setattr(mod, 'RETAIN_IDLE_S', 0)
+    service = PipelineService(data_dir=tmp_path, pipeline=fake_pipeline)
+    _, first, _ = service.route('POST', '/api/pipeline/run', b'{"source":"south-shore","inject_error":false}')
+    service.threads[first['run_id']].join(5)
+    assert (tmp_path / 'runs' / first['run_id']).is_dir()
+    service.runs[first['run_id']]['_accessed'] = 0
+    _, second, _ = service.route('POST', '/api/pipeline/run', b'{"source":"south-shore","inject_error":false}')
+    service.threads[second['run_id']].join(5)
+    assert route(service, 'GET', '/api/pipeline/runs/' + first['run_id'])[0] == 404
+    assert not (tmp_path / 'runs' / first['run_id']).exists()
+    assert (tmp_path / 'runs' / second['run_id']).is_dir()
 
 
 def test_timeout_retries_then_cached_pipeline_run(tmp_path, monkeypatch):
@@ -245,7 +278,7 @@ def test_mismatched_fingerprint_completes_without_golden_checks(tmp_path):
         return {'path': str(source), 'trace': [], 'label': 'cached', 'sha256': 'not-the-golden'}
     events = []
     result = run_pipeline('no-golden', lambda *args: events.append(args), tmp_path, discoverer=discover)
-    assert result['_row_count'] > 42
+    assert result == {}
     names = [check['name'] for event in events for check in event[3].get('checks', [])]
     assert 'digest' not in names
     assert any(event[3].get('type') == 'trace' and event[3].get('sha256') == 'not-the-golden' for event in events)
@@ -255,8 +288,17 @@ def test_get_run_omits_private_fields(tmp_path):
     service, run_id = ready(tmp_path)
     status, result = route(service, 'GET', '/api/pipeline/runs/' + run_id)
     payload = json.dumps(result)
-    assert status == 200 and '_rows' not in result and '_top_rows' not in result and '_source_path' not in result
-    assert 'SECRET' not in payload and len(payload) < 200_000
+    assert status == 200 and '_rows' not in result and '_top_rows' not in result and 'report_md' not in result
+    top = result['steps'][-1]['telemetry'][0]
+    assert top['type'] == 'top10' and len(top['rows']) <= 10
+    assert 'SECRET' not in payload and len(payload) < 64_000
+
+
+def test_summary_guard_falls_back_when_ledger_columns_missing(tmp_path, capsys):
+    service, run_id = ready(tmp_path)
+    status, result = route(service, 'POST', '/api/pipeline/runs/' + run_id + '/summary', {'text': 'No invented figures.'})
+    assert status == 200 and result == {'ok': True, 'violations': []}
+    assert 'summary_rows_fallback' in capsys.readouterr().err
 
 
 def test_export_failure_is_safe_and_first_result_is_retained(tmp_path):
@@ -269,3 +311,44 @@ def test_export_failure_is_safe_and_first_result_is_retained(tmp_path):
     first = route(service, 'POST', path)
     assert first == (200, {'status': 'unavailable', 'reason': 'drive_export_unavailable'})
     assert route(service, 'POST', path) == first and len(calls) == 1
+
+
+def _slice_discover(source):
+    def discover(domain, location_hint, **kwargs):
+        return {'path': str(source), 'trace': [], 'label': 'cached', 'sha256': 'fixture'}
+    return discover
+
+
+def test_repair_proposal_reports_restored_rate_count(tmp_path):
+    from ingest import ingest_file
+    fixture = load_json('hospital-v3-slice.json')
+    source = tmp_path / 'source.json'
+    source.write_text(json.dumps(fixture), encoding='utf-8')
+    steps = {node: {'node': node, 'status': 'pending', 'counts': {}, 'telemetry': []}
+             for node in ('source', 'builder', 'store', 'analyst')}
+    def emit(node, status, counts, telemetry):
+        steps[node].update(status=status, counts=counts)
+        steps[node]['telemetry'].append(telemetry)
+    run_pipeline('offline-repair', emit, tmp_path, inject_error=True, discoverer=_slice_discover(source))
+    run_id = 'run_' + 'cd' * 16
+    service = PipelineService(data_dir=tmp_path)
+    service.runs[run_id] = {'status': 'completed', 'steps': list(steps.values()), '_accessed': time.monotonic()}
+    status, result = route(service, 'POST', '/api/pipeline/runs/' + run_id + '/proposals',
+                           {'repair': load_json('hospital-golden-repair.json')})
+    broken = ingest_file(source, inject_error=True)
+    restored = ingest_file(source, inject_error=True, rate_key='standard_charge_amount')
+    delta = broken['counts']['skipped_no_dollar_count'] - restored['counts']['skipped_no_dollar_count']
+    assert status == 200 and result['repair']['valid'] is True
+    assert result['repair']['fixed_rows'] == delta == steps['builder']['counts']['rows_repaired']
+    assert result['repair']['fixed_rows'] != restored['counts']['inserted_row_count']
+
+
+def test_failing_check_fails_the_run(tmp_path, monkeypatch):
+    from server import pipeline_server as mod
+    fixture = load_json('hospital-v3-slice.json')
+    source = tmp_path / 'source.json'
+    source.write_text(json.dumps(fixture), encoding='utf-8')
+    monkeypatch.setattr(mod, '_rate_check', lambda *args: {
+        'name': 'fields.rate', 'pass': False, 'expected': 'standard_charge_dollar', 'actual': 'missing'})
+    with pytest.raises(ValueError, match='checks_failed'):
+        run_pipeline('fail-check', lambda *_: None, tmp_path, discoverer=_slice_discover(source))

@@ -8,6 +8,25 @@ import { liveProviderBlocked, type InferenceStatus } from "../adapters/inference
 export interface PipelineEvent { type: string; [key: string]: unknown }
 export interface PipelineStep { node: string; status: string; counts: Record<string, unknown>; telemetry: PipelineEvent[] }
 export interface PipelineRecord { status: string; steps: PipelineStep[]; report_md?: string }
+export const ANALYST_INPUT_CAP = 32_768;
+export function analystSqlRows(top: PipelineEvent): string {
+  const rows = Array.isArray(top.rows) ? top.rows as unknown[] : [];
+  const spread = Array.isArray(top.spread) ? top.spread as unknown[] : [];
+  const payload: Record<string, unknown> = {
+    row_count: Number(top.row_count ?? rows.length),
+    baseline_label: top.baseline_label ?? "",
+    top_groups: rows.slice(0, 10),
+    spread_groups: spread,
+    aggregates: { n_groups: Number(top.row_count ?? rows.length), n_spread: spread.length },
+  };
+  let text = JSON.stringify(payload);
+  if (text.length > ANALYST_INPUT_CAP) {
+    payload.spread_groups = [];
+    payload.top_groups = rows.slice(0, 3);
+    text = JSON.stringify(payload);
+  }
+  return text;
+}
 export interface ModelView { mapping?: { valid: boolean; matches_golden: boolean }; repair?: { valid: boolean }; matchesRepair?: boolean; summary?: string; rejected?: number; unavailable?: boolean }
 export const runPath = (id: string) => `/api/pipeline/runs/${encodeURIComponent(id)}`;
 export const HOSPITAL_EXPORT_EVENT = "hospital-run-export";
@@ -61,7 +80,7 @@ export async function hospitalModels(adapter: RhmAdapter, id: string, record: Pi
     view.matchesRepair = canonical(proposed.action === "replace_mapping" ? proposed.mapping : repair) === canonical(evidence.golden_repair);
   } catch { view.unavailable = true; }
   if (!signal.aborted) try {
-    const proposal = await propose("hospital-analyst", { sql_rows: JSON.stringify(top.rows) }) as { summary?: unknown };
+    const proposal = await propose("hospital-analyst", { sql_rows: analystSqlRows(top) }) as { summary?: unknown };
     if (typeof proposal.summary !== "string" || !proposal.summary.trim() || proposal.summary.length > 1200) throw new Error("model unavailable");
     const guarded = await pipelineRequest(`${runPath(id)}/summary`, { text: proposal.summary }, signal, token);
     if (guarded.ok === true) view.summary = proposal.summary;

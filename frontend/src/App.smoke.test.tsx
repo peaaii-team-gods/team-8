@@ -80,8 +80,10 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
   it("renders every actual captured pipeline node, opens the complete SQL report, and exports only on click", async () => {
     const requests: { url: string; init?: RequestInit }[] = [];
     const realRun = JSON.parse(readFileSync("src/ui/fixtures/hospital-run.real.json", "utf8"));
+    const reportMd = readFileSync("../fixtures/hospital-full-report.md", "utf8");
     vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
       requests.push({ url, init });
+      if (url.includes("/artifacts/report.md")) return new Response(reportMd, { headers: { "Content-Type": "text/markdown; charset=utf-8" } });
       const value = url.endsWith("/export") ? { status: "unavailable", reason: "drive_export_unavailable" } : url.endsWith("/run") ? { run_id: "run-node" } : realRun;
       return new Response(JSON.stringify(value), { headers: { "Content-Type": "application/json" } });
     });
