@@ -21,7 +21,7 @@ from analyze import analyze, analyze_full, summary_violations, write_ledger_arti
 from discovery import discover
 from ingest import ingest_file
 from mrf_apply import load_json
-from resources import digest
+from resources import digest_rows
 
 PREFIX = '/api/pipeline'
 LIMIT = 256 * 1024
@@ -165,7 +165,7 @@ def run_pipeline(run_id, emit, data_dir, *, inject_error=False, discoverer=disco
     mapping, repair = load_json('hospital-golden-mapping.json'), load_json('hospital-golden-repair.json')
     expected = loaded if loaded and baseline['sha256'] == golden_fp else None
     rate_key = mapping['fields']['rate']
-    baseline_digest = digest(baseline['rows'])
+    baseline_digest = digest_rows(baseline['rows'])
     baseline_excerpt = baseline['excerpt']
     if inject_error:
         baseline['rows'] = []
@@ -177,7 +177,7 @@ def run_pipeline(run_id, emit, data_dir, *, inject_error=False, discoverer=disco
         drifted_skipped = drifted['counts']['skipped_no_dollar_count']
         checks = [_rate_check(drifted['rate_present'], rate_key)]
         if expected:
-            checks.extend(_checks(drifted['counts'], digest(drifted['rows']), expected))
+            checks.extend(_checks(drifted['counts'], digest_rows(drifted['rows']), expected))
         emit('builder', 'running', {}, {'type': 'checks', 'checks': checks})
         drifted.clear()
         del drifted
@@ -188,12 +188,12 @@ def run_pipeline(run_id, emit, data_dir, *, inject_error=False, discoverer=disco
         result['metrics']['rows_repaired'] = skipped_delta
         repair_checks = [_rate_check(result['rate_present'], repair['fields']['rate'])]
         if expected:
-            repair_checks.extend(_checks(result['counts'], digest(result['rows']), expected))
+            repair_checks.extend(_checks(result['counts'], digest_rows(result['rows']), expected))
             expected_repaired = drifted_skipped - expected['counts']['skipped_no_dollar_count']
             repair_checks.append({'name': 'rows_repaired', 'pass': skipped_delta == expected_repaired,
                                   'expected': expected_repaired, 'actual': skipped_delta})
         else:
-            actual = digest(result['rows'])
+            actual = digest_rows(result['rows'])
             repair_checks.append({'name': 'self-consistency', 'pass': actual == baseline_digest,
                                   'expected': baseline_digest, 'actual': actual})
         emit('builder', 'running', {}, {'type': 'repair', 'label': 'injected', 'mapping': repair, 'checks': repair_checks})

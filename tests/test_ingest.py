@@ -17,6 +17,13 @@ def lf_sha(data):
     return hashlib.sha256(data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")).hexdigest()
 
 
+def test_digest_rows_matches_list_digest():
+    from resources import digest, digest_rows
+    rows = ingest_file(SLICE)["rows"][:20]
+    assert digest_rows(rows) == digest(rows)
+    assert digest_rows([]) == digest([])
+
+
 def test_stream_matches_json_loads_on_slice():
     parsed = ingest_file(SLICE)
     loaded = load_json("hospital-v3-slice.json")

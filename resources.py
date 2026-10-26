@@ -30,6 +30,17 @@ def digest(value):
     return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
+def digest_rows(rows):
+    hasher = hashlib.sha256()
+    hasher.update(b'[')
+    for index, row in enumerate(rows):
+        if index:
+            hasher.update(b',')
+        hasher.update(canonical(row).encode())
+    hasher.update(b']')
+    return hasher.hexdigest()
+
+
 class Journal:
     def __init__(self, directory, *, api_base, issuer, user_id, model):
         self.root = Path(directory)

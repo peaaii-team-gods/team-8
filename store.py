@@ -57,14 +57,15 @@ def store_ledger(rows, db_path):
         pass
     names = list(LEDGER_FIELDS)
     columns = ', '.join(f'"{name}" {LEDGER_SQL[name]}' for name in names)
-    payload = [tuple(("" if row.get(name) is None and "NOT NULL" in LEDGER_SQL[name] else row.get(name))
-                     for name in names) for row in rows]
+    def as_tuple(row):
+        return tuple(("" if row.get(name) is None and "NOT NULL" in LEDGER_SQL[name] else row.get(name))
+                     for name in names)
     try:
         with closing(sqlite3.connect(path)) as connection, connection:
             connection.execute(f'CREATE TABLE hospital_rates ({columns})')
             insert = 'INSERT INTO hospital_rates VALUES (' + ','.join('?' for _ in names) + ')'
-            for start in range(0, len(payload), BATCH):
-                connection.executemany(insert, payload[start:start + BATCH])
+            for start in range(0, len(rows), BATCH):
+                connection.executemany(insert, [as_tuple(row) for row in rows[start:start + BATCH]])
             connection.execute('CREATE INDEX idx_hospital_rates_code_plan ON hospital_rates(billing_code, plan_name)')
             connection.execute(
                 'CREATE VIEW report AS SELECT billing_code, code_type, description, payer_name, plan_name, '
