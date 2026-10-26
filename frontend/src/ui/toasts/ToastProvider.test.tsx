@@ -22,6 +22,8 @@ describe("ToastProvider", () => {
     render(<ToastProvider><div data-testid="landing-page">Landing</div><Probe /></ToastProvider>);
     expect(screen.getByTestId("landing-page")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Ping" }));
+    expect(screen.getByTestId('toast-stack').className).toContain('bottom-12 left-4');
+    expect(screen.getByTestId('toast-stack').className).not.toContain('top-4 right-4');
     expect(screen.getByTestId("toast").textContent).toMatch(/Sign in failed/);
     expect(screen.getByTestId("toast").textContent).not.toMatch(/password|hunter2/i);
     fireEvent.click(screen.getByRole("button", { name: "Dismiss notification" }));
