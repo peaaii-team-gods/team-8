@@ -11,7 +11,8 @@ export function liveProviderBlocked(inference: InferenceStatus | null, spendCap:
   if (!Number.isFinite(cap) || cap < 0) return true;
   return configured && (!paidConsent || cap <= 0);
 }
-export function liveRunBlocked(inference: InferenceStatus | null, _tier: "free" | "premium", spendCap: string, paidConsent: boolean): boolean {
+export function liveRunBlocked(inference: InferenceStatus | null, tier: "free" | "premium", spendCap: string, paidConsent: boolean): boolean {
+  if (tier === "premium" && !inference?.configured) return true;
   return liveProviderBlocked(inference, spendCap, paidConsent);
 }
 export interface ProviderInput { provider: Provider; model_id: string; base_url?: string; api_key: string }

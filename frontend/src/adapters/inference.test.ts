@@ -44,7 +44,7 @@ describe("liveRunBlocked", () => {
   it("keeps Premium behind a configured provider, consent and positive cap", () => {
     expect(liveRunBlocked(configured, "premium", "0.5", true)).toBe(false);
     expect(liveRunBlocked(configured, "premium", "0", true)).toBe(true);
-    expect(liveRunBlocked(hostOnly, "premium", "0.5", true)).toBe(false);
+    expect(liveRunBlocked(hostOnly, "premium", "0.5", true)).toBe(true);
   });
 });
 

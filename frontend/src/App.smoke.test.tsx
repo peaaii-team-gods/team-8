@@ -376,7 +376,7 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     fireEvent.click(screen.getByRole("radio", { name: "Premium" }));
     fireEvent.change(screen.getByLabelText("USD admission budget per agent run"), { target: { value: "0.01" } });
-    fireEvent.click(screen.getByLabelText(/I permit paid inference/));
+    fireEvent.click(screen.getByLabelText(/I permit paid inference on this account/));
     await waitFor(() => expect((screen.getByRole("button", { name: /run pipeline/i }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: /run pipeline/i }));
@@ -418,7 +418,7 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     fireEvent.click(screen.getByRole("radio", { name: "Premium" }));
     fireEvent.change(screen.getByLabelText("USD admission budget per agent run"), { target: { value: "0.01" } });
-    fireEvent.click(screen.getByLabelText(/I permit paid inference/));
+    fireEvent.click(screen.getByLabelText(/I permit paid inference on this account/));
     await waitFor(() => expect((screen.getByRole("button", { name: /run pipeline/i }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: /run pipeline/i }));
@@ -582,6 +582,40 @@ const hostOnlyStatus: InferenceStatus = { configured: false, revision: null, cre
 const neitherStatus: InferenceStatus = { configured: false, revision: null, credential_lifetime: "backend_process", host_models_authorized: false };
 
 describe("live provider gate (configured / host-authorized / neither)", () => {
+  it("toggles inline paid consent and submits it with the run", async () => {
+    const actualRun = LiveAdapter.prototype.run;
+    liveInference(configuredStatus);
+    vi.mocked(LiveAdapter.prototype.run).mockImplementation(function (this: LiveAdapter, nodeId, workflow) {
+      return actualRun.call(this, nodeId, workflow);
+    });
+    const requests: { paid_inference_consent: boolean }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/v1/runs")) requests.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify(url.endsWith("inference-connections") ? {connections:[{id:"a".repeat(32)}]} : url.endsWith("models") ? {models:[]} : url.endsWith("workflows") ? {workflow_id:"w"} : {run_id:"r"}));
+    }));
+    renderApp();
+    fireEvent.click((await screen.findAllByRole("button", {name:/Pilot storyboard/}))[0]);
+    fireEvent.click(screen.getByRole("button", {name:"Settings"}));
+    fireEvent.click(screen.getByRole("radio", {name:"Premium"}));
+    fireEvent.change(screen.getByLabelText("USD admission budget per agent run"), {target:{value:"0.5"}});
+    fireEvent.keyDown(screen.getByRole("dialog"), {key:"Escape"});
+    const consent = screen.getByRole("checkbox", {name:"I permit paid inference for these runs."}) as HTMLInputElement;
+    const runButton = () => screen.getByRole("button", {name:/run pipeline/i}) as HTMLButtonElement;
+    expect(consent.checked).toBe(false);
+    expect(runButton().disabled).toBe(true);
+    fireEvent.click(consent);
+    expect(consent.checked).toBe(true);
+    expect(runButton().disabled).toBe(false);
+    fireEvent.click(consent);
+    expect(consent.checked).toBe(false);
+    expect(runButton().disabled).toBe(true);
+    fireEvent.click(consent);
+    fireEvent.click(runButton());
+    await waitFor(() => expect(requests.length).toBeGreaterThan(0));
+    expect(requests.every(request => request.paid_inference_consent)).toBe(true);
+    await waitFor(() => expect(runButton().disabled).toBe(false));
+  });
+
   it("shows connected readiness in live hospital mode", async () => {
     liveInference(configuredStatus);
     renderApp();
@@ -602,13 +636,13 @@ describe("live provider gate (configured / host-authorized / neither)", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Premium" }));
     await waitFor(() => expect(runBtn().disabled).toBe(true));
     fireEvent.change(screen.getByLabelText("USD admission budget per agent run"), { target: { value: "0.01" } });
-    fireEvent.click(screen.getByLabelText(/I permit paid inference/));
+    fireEvent.click(screen.getByLabelText(/I permit paid inference on this account/));
     await waitFor(() => expect(runBtn().disabled).toBe(false));
     fireEvent.click(screen.getByRole("radio", { name: "Free" }));
     await waitFor(() => expect(runBtn().disabled).toBe(true));
     fireEvent.click(screen.getByRole("radio", { name: "Premium" }));
     expect((screen.getByLabelText("USD admission budget per agent run") as HTMLInputElement).value).toBe("0");
-    expect((screen.getByLabelText(/I permit paid inference/) as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByLabelText(/I permit paid inference on this account/) as HTMLInputElement).checked).toBe(false);
   });
 
   it("opens Settings, returns focus on Escape, and shows the Free server error", async () => {
@@ -654,13 +688,13 @@ describe("live provider gate (configured / host-authorized / neither)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     fireEvent.click(screen.getByRole("radio", { name: "Premium" }));
     fireEvent.change(screen.getByLabelText("USD admission budget per agent run"), { target: { value: "0.5" } });
-    fireEvent.click(screen.getByLabelText(/I permit paid inference/));
+    fireEvent.click(screen.getByLabelText(/I permit paid inference on this account/));
     fireEvent.click(screen.getByText("Provider connection"));
     fireEvent.change(screen.getByLabelText("Primary provider"), { target: { value: "freellmapi" } });
     fireEvent.change(screen.getByLabelText("Primary API key"), { target: { value: "fixture-key" } });
     fireEvent.click(screen.getByLabelText(/I approve changing this shared account/));
     fireEvent.click(screen.getByRole("button", { name: "Save account provider" }));
-    await waitFor(() => expect((screen.getByLabelText(/I permit paid inference/) as HTMLInputElement).checked).toBe(false));
+    await waitFor(() => expect((screen.getByLabelText(/I permit paid inference on this account/) as HTMLInputElement).checked).toBe(false));
     fireEvent.click(screen.getByRole("radio", { name: "Free" }));
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect((screen.getByRole("button", { name: /run pipeline/i }) as HTMLButtonElement).disabled).toBe(true);
@@ -734,12 +768,12 @@ it("blocks a hidden stale pin until the user explicitly chooses Auto", async () 
   await screen.findByText(/Model list unavailable/);
   expect((screen.getByRole("combobox",{name:"Run model"}) as HTMLSelectElement).options).toHaveLength(1);
   fireEvent.change(screen.getByLabelText("USD admission budget per agent run"),{target:{value:"1"}});
-  fireEvent.click(screen.getByLabelText(/I permit paid inference/));
+  fireEvent.click(screen.getByLabelText(/I permit paid inference on this account/));
   expect((screen.getByRole("button",{name:/run pipeline/i}) as HTMLButtonElement).disabled).toBe(true);
   expect(run).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button",{name:"Use Auto"}));
   expect(JSON.parse(localStorage.getItem("crucible.modelOverride.v1")!).pin).toBeNull();
-  expect((screen.getByLabelText(/I permit paid inference/) as HTMLInputElement).checked).toBe(false);
-  fireEvent.click(screen.getByLabelText(/I permit paid inference/));
+  expect((screen.getByLabelText(/I permit paid inference on this account/) as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(screen.getByLabelText(/I permit paid inference on this account/));
   await waitFor(()=>expect((screen.getByRole("button",{name:/run pipeline/i}) as HTMLButtonElement).disabled).toBe(false));
 });

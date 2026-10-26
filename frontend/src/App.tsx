@@ -666,6 +666,7 @@ export default function App() {
     )}
     {shellMode === "live" && inference?.configured && <div className="glass absolute bottom-24 left-2 z-20 max-w-sm p-3 text-xs">
       <p>This run may use a paid model ({runModelLabel}).</p>
+      <label><input type="checkbox" checked={paidConsent} disabled={running} onChange={event => setPaidConsent(event.target.checked)} />I permit paid inference for these runs.</label>
       <button type="button" disabled={running} onClick={() => setSettingsOpen(true)}>Review model and spend consent in Settings</button>
     </div>}
     {scenarioId !== "hospital-pipeline" && shellMode === "live" && !inference?.configured && !inference?.host_models_authorized && <p className="glass absolute bottom-[4.5rem] left-2 z-20 max-w-sm p-2 text-xs">Open Settings and add a provider before running.</p>}
