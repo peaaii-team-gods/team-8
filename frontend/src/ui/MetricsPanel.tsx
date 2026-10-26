@@ -40,14 +40,14 @@ export default function MetricsPanel() {
           <div className="glass p-2"><div className="opacity-60">Latency</div><div className="tabular-nums">{obs.latencyMs == null ? "—" : `${obs.latencyMs} ms`}</div></div>
           <div className="glass p-2"><div className="opacity-60">Agents finished</div><div className="tabular-nums">{obs.agentsFinished}/{obs.agentsTotal}</div></div>
           <div className="glass p-2"><div className="opacity-60">Outcome</div><div>{obs.outcome}{obs.completionBasis ? ` · ${obs.completionBasis}` : ""}</div></div>
-          <div className="glass p-2"><div className="opacity-60">Source</div><div>{obs.source}</div></div>
+          <div className="glass p-2"><div className="opacity-60">Source</div><div>{scenarioId === "hospital-pipeline" ? "Local pipeline" : obs.source}</div></div>
         </div>
-        <div className="mb-2 grid grid-cols-2 gap-2 text-[10px]">
+        {scenarioId !== "hospital-pipeline" && <div className="mb-2 grid grid-cols-2 gap-2 text-[10px]">
           <div className="glass p-2">Lake fixtures · {obs.lakesTouched}</div>
           <div className="glass p-2">Repairs applied · {obs.repairsAttempted ?? "—"}</div>
           <div className="glass p-2">QC pass · {obs.qcPassRate}</div>
           <div className="glass p-2">Drift · {obs.driftDetected == null ? "—" : obs.driftDetected ? "yes" : "no"}</div>
-        </div>
+        </div>}
         <div className="mb-2 text-[10px] opacity-60">
           Set the USD admission budget before Run. Hard billing limits belong on the provider key. Unknown cost does not mean free.
         </div>

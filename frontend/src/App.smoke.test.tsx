@@ -142,6 +142,9 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     expect(sourceNode.textContent).toContain("MRF SHA-256: 0ba485a4");
     expect(sourceNode.textContent!.match(/MRF SHA-256:/g)).toHaveLength(1);
     expect(within(storageNode()).getByText("183335 rows - local SQLite")).toBeTruthy();
+    const metrics = screen.getByTestId('metrics-panel');
+    expect(metrics.textContent).not.toMatch(/Repairs applied|QC pass|Drift/);
+    expect(within(metrics).getByText('Local pipeline')).toBeTruthy();
     expect(requests.some(request => request.url.endsWith("/export"))).toBe(false);
     fireEvent.click(exportButton);
     const driveNote = await waitFor(() => within(storageNode()).getByText("Drive not configured"));
