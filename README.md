@@ -6,6 +6,10 @@ Live demo: **[peaaiiteam8.online](https://peaaiiteam8.online)**
 
 ---
 
+## Request an account
+
+Email: Brandon.siscoe001@umb.edu
+
 ## Why it matters
 
 US hospitals have to publish their negotiated prices as machine-readable files. In practice those files are huge, deeply nested JSON, and every hospital lays them out a little differently. The data is public, but most people can't use it.
