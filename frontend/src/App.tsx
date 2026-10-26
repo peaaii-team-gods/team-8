@@ -702,7 +702,7 @@ export default function App() {
       <MetricsPanel />
       <ActivityPanel />
       <ScienceReceipt />
-      <WorkspacePanel />
+      {scenarioId !== "hospital-pipeline" && <WorkspacePanel />}
     </div>
     {commandChrome}
     </div>

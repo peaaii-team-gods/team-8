@@ -142,6 +142,10 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     expect(sourceNode.textContent).toContain("MRF SHA-256: 0ba485a4");
     expect(sourceNode.textContent!.match(/MRF SHA-256:/g)).toHaveLength(1);
     expect(within(storageNode()).getByText("183335 rows - local SQLite")).toBeTruthy();
+    expect(screen.queryByTestId('workspace-panel')).toBeNull();
+    for (const name of ['rows.csv', 'report.csv', 'mrf.sqlite', 'report.md']) {
+      expect(screen.getByRole('link', { name })).toBeTruthy();
+    }
     const metrics = screen.getByTestId('metrics-panel');
     expect(metrics.textContent).not.toMatch(/Repairs applied|QC pass|Drift/);
     expect(within(metrics).getByText('Local pipeline')).toBeTruthy();
