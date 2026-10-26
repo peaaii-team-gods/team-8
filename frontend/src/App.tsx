@@ -29,6 +29,7 @@ import PacketEdge from "./canvas/PacketEdge";
 import { useStore, nextId, type CanvasNode } from "./state/store";
 import { AGENT_PRESETS } from "./registry/agentPresets";
 import { defaultSchemaText } from "./registry/schemas";
+import { CREATE_MENU_PRESETS } from "./registry/createMenuPresets";
 import { DATA_LAKE_PRESETS } from "./registry/dataLakePresets";
 import { DEMO_SCENARIOS, scenarioById } from "./registry/scenarios";
 import { useToast } from "./ui/toasts/ToastProvider";
@@ -640,10 +641,8 @@ export default function App() {
             {sc.title}<div className="text-xs opacity-70">{sc.blurb}</div>
           </button>
         ))}</div>
-        <div className="text-xs uppercase opacity-60">Agent</div>
-        <div className="my-2 grid grid-cols-2 gap-2">{AGENT_PRESETS.map((p) => <button key={p.id} className="glass p-3 text-left" onClick={() => spawnPreset("agent", p.id)}>{p.title}<div className="text-xs opacity-70">{p.description}</div></button>)}</div>
-        <div className="mt-3 text-xs uppercase opacity-60">Data Lake — declared inputs, not executable tools</div>
-        <div className="my-2 grid grid-cols-2 gap-2">{DATA_LAKE_PRESETS.map((p) => <button key={p.id} className="glass p-3 text-left" onClick={() => spawnPreset("dataLake", p.id)}>{p.title}<div className="text-xs opacity-70">{p.description}</div></button>)}</div>
+        <div className="text-xs uppercase opacity-60">Core pipeline</div>
+        <div className="my-2 grid grid-cols-2 gap-2">{CREATE_MENU_PRESETS.map((p) => <button key={p.id} className="glass p-3 text-left" onClick={() => spawnPreset(p.kind, p.id)}>{p.title}<div className="text-xs opacity-70">{p.description}</div></button>)}</div>
         <div className="mt-3 text-xs uppercase opacity-60">Other demos</div>
         <div className="my-2 flex flex-wrap gap-2">
           {DEMO_SCENARIOS.filter((sc) => !["pilot-storyboard", "hospital-pipeline"].includes(sc.id)).map((sc) => (

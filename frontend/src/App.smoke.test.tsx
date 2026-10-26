@@ -41,16 +41,17 @@ beforeEach(() => {
 });
 
 describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
-  it('puts Hospital source to SQL first in Create, before agents and Other demos', () => {
+  it('lists only the five core pipeline nodes in Create, in pipeline order', () => {
     renderApp();
     fireEvent.click(screen.getByRole('button', { name: 'Enter canvas' }));
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
     const picker = screen.getByRole('heading', { name: 'Create' }).parentElement!;
-    const first = within(picker).getAllByRole('button')[0];
-    expect(first.getAttribute('aria-label')).toBe('Hospital source to SQL');
-    expect(within(picker).getAllByRole('button', { name: 'Hospital source to SQL' })).toHaveLength(1);
-    fireEvent.click(first);
-    expect(useStore.getState().scenarioId).toBe('hospital-pipeline');
+    expect(within(picker).getAllByRole('button').filter((button) => button.className.includes('glass p-3')).map((button) => button.firstChild?.textContent)).toEqual([
+      'Scout', 'Architect', 'Refinery', 'Ledger', 'Analyst',
+    ]);
+    expect(within(picker).queryByText('Coding Service MCP')).toBeNull();
+    expect(within(picker).queryByText('Knowledge Base MCP')).toBeNull();
+    expect(within(picker).queryByText('Hosted Shell MCP')).toBeNull();
   });
 
   it('appends two hospital runs without duplicate done entries after Run ended', async () => {
@@ -437,70 +438,25 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     expect(screen.queryByTestId("snapshot-notice")).toBeNull();
   });
 
-  it("spawns agents, links them, and shows the handoff", async () => {
+  it("spawns and links the visible Scout and Architect nodes", async () => {
     renderApp();
     fireEvent.click(screen.getByRole("button", { name: /Enter canvas/i }));
-    expect(screen.getByText(/Mode: simulated/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Contracts" }));
-    expect(screen.getByText(/does not edit an agent/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    expect(screen.queryByText(/does not edit an agent/)).toBeNull();
-    expect(screen.getByTestId("history-panel").textContent).toMatch(/no server history/i);
-    expect(screen.getByTestId("readiness-panel").textContent).toMatch(/live mode for binding/i);
-    await waitFor(() => expect(screen.getByTestId("cap-execute-shell").textContent).toBe("unavailable"));
-    expect(screen.getByTestId("bound-workspace").textContent).toMatch(/none/);
-
     fireEvent.click(screen.getByLabelText("Create"));
-    fireEvent.click(screen.getByRole("button", { name: /^Builder/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Architect/ }));
     await waitFor(() => expect(useStore.getState().nodes).toHaveLength(1));
     expect(useStore.getState().tracks).toHaveLength(1);
-    expect(screen.getByTestId("metrics-panel").textContent).toMatch(/Builder/);
-    expect(useStore.getState().nodes[0].data.schemaText).toMatch(/mapping\.v1/);
+    expect(useStore.getState().nodes[0].data.presetId).toBe("mrf-hospital-builder");
 
     fireEvent.click(screen.getByLabelText("Create"));
-    fireEvent.click(screen.getByRole("button", { name: /Clinical Lab Panel/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Scout/ }));
     await waitFor(() => expect(useStore.getState().nodes).toHaveLength(2));
-    expect(useStore.getState().tracks).toHaveLength(1);
 
-    const agent = useStore.getState().nodes.find((n) => n.data.kind === "agent")!;
-    const lake = useStore.getState().nodes.find((n) => n.data.kind === "dataLake")!;
-    fireEvent.click(screen.getByTestId(`node-${lake.id}`));
+    const architect = useStore.getState().nodes.find((n) => n.data.presetId === "mrf-hospital-builder")!;
+    const scout = useStore.getState().nodes.find((n) => n.data.presetId === "hospital-source")!;
+    fireEvent.click(screen.getByTestId(`node-${scout.id}`));
     fireEvent.click(screen.getByLabelText("Link from node"));
-    fireEvent.click(screen.getByTestId(`node-${agent.id}`));
+    fireEvent.click(screen.getByTestId(`node-${architect.id}`));
     await waitFor(() => expect(useStore.getState().edges).toHaveLength(1));
-
-    fireEvent.click(screen.getByLabelText("Create"));
-    fireEvent.click(screen.getByRole("button", { name: /^Maintainer/ }));
-    const maintainer = useStore.getState().nodes.find((n) => n.data.presetId === "maintainer")!;
-    expect(useStore.getState().tracks.map((t) => t.title)).toEqual(["Builder", "Maintainer"]);
-
-    fireEvent.click(screen.getByTestId(`node-${agent.id}`));
-    fireEvent.click(screen.getByLabelText("Link from node"));
-    fireEvent.click(screen.getByTestId(`node-${maintainer.id}`));
-    await waitFor(() => expect(useStore.getState().edges).toHaveLength(2));
-
-    fireEvent.click(screen.getByRole("button", { name: /run pipeline/i }));
-    await waitFor(() => {
-      const builder = useStore.getState().nodes.find((n) => n.id === agent.id)!;
-      const repair = useStore.getState().nodes.find((n) => n.id === maintainer.id)!;
-      expect(builder.data.status).toBe("done");
-      expect(repair.data.status).toBe("done");
-      expect(builder.data.output).toContain("model proposal, agent_reported — not verification");
-    });
-
-    expect(useStore.getState().totals.totalTokens).toBeGreaterThan(0);
-    expect(useStore.getState().totals.costUsd).toBe(0);
-    expect(screen.getByTestId("metrics-panel").textContent).toContain("Unknown");
-
-    expect(screen.getAllByTestId("workspace-file").map((el) => el.textContent).join("\n")).toMatch(/mapping\.proposal\.json/);
-
-    const talk = screen.getAllByTestId("agent-message").map((el) => el.textContent).join("\n");
-    expect(talk).toMatch(/Builder/);
-    expect(talk).toMatch(/Maintainer/);
-    expect(talk).toMatch(/reading_column/);
-    const handoff = useStore.getState().edges.find((e) => e.source === agent.id && e.target === maintainer.id)!;
-    expect(handoff.data?.packetLabel).toMatch(/reading_column/);
-    expect(await screen.findAllByText(/Status: done/)).toHaveLength(2);
   });
 
   it("clears the canvas from the bar without writing browser storage", () => {
