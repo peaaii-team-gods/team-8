@@ -1,196 +1,134 @@
-## Account-provider CLI consent
+# Team 8: Hospital Price Files, Made Readable
 
-Configure the account provider in the hackathon web UI first. The pilot accepts
---allow-provider-charges --max-usd-per-run 0.02 for explicit consent to both Builder
-and Maintainer runs. Each run has its own admission budget. This is not a hard
-billing cap; set the hard limit on your provider key. Default consent is false
-and the admission budget is zero, so account-provider inference is denied by
-default. The operator host model requires a separate explicit user grant.
-There are no provider key CLI arguments or key environment variables.
+**Five AI-assisted stages turn a real hospital's 36.8 MB price-transparency file into a checked SQL ledger and a plain-language report, and the result reproduces exactly on every run.**
 
-# Two-role data pipeline pilot
+Live demo: **[peaaiiteam8.online](https://peaaiiteam8.online)**
 
-Local hospital pipeline: from `frontend/`, run `npm run pipeline:serve` (loopback port 8787; optional `PIPELINE_PORT`).
-In another terminal in `frontend/`, run `npm run dev`; the same-origin `/api/pipeline` proxy uses port 8787.
-Golden mapping, injected repair, and the guarded local SQLite report remain the output of record; Drive export is explicit.
+---
 
-Builder and Validator/Maintainer collaborate through two sequential RHM public
-workflow/run submissions. Builder selects a strictly bounded field mapping. Fixed
-local Python ingests a tiny CSV, doubles its readings, and validates every output.
-A second fixture renames `reading` to `value`, causing a real contract failure.
-Maintainer receives Builder's actual mapping/output and the failure evidence,
-proposes at most one mapping repair, and local code reruns independent validation.
+## Why it matters
 
-**Execution boundary:** model decisions run on the backend's configured local
-model. CSV ingestion, transformation and acceptance run in this Python client.
-This pilot does **not** demonstrate hosted sandbox execution. It executes no
-model-generated code and registers no provider keys or persistent agents.
+US hospitals have to publish their negotiated prices as machine-readable files. In practice those files are huge, deeply nested JSON, and every hospital lays them out a little differently. The data is public, but most people can't use it.
 
-**Frontend:** the agent canvas demo lives in [`frontend/`](frontend/README.md) (visual agent/data-lake canvas consuming this public API; simulated by default).
+We picked one real file, South Shore Hospital's published standard charges, and built a pipeline that finds it, maps it, repairs it, stores it and explains it. Models propose. Deterministic code checks every proposal before anything counts.
 
-## Run
+## What it does
 
-Requires Python 3.10+ and an operator-provisioned personal Identity account.
-The operator must have launched the API and configured its local model; the CLI
-checks capabilities before submitting work. From this repository:
+| Stage | Job | Output |
+|---|---|---|
+| **Scout** | Finds the hospital's published file and checks it is the exact file we expect. | Verified source file |
+| **Architect** | Proposes how the nested JSON maps onto a flat schema. | Field mapping, checked against the recorded reference |
+| **Refinery** | Validates every row. When the source drifts, it proposes a repair, and code re-checks the repair. | Clean, validated rows |
+| **Ledger** | Writes the rows into a local SQLite ledger. | `mrf.sqlite`, CSV exports |
+| **Analyst** | Writes a plain-language report from the stored data. A guard rejects any figure the ledger doesn't support. | `report.md` |
 
-```powershell
-python -m pip install -r requirements.txt
-python two_agents.py --username teammate --source fixtures/readings.csv --drift-source fixtures/readings-drift.csv --state-dir .pilot-state --output pilot-result.json
+```mermaid
+flowchart LR
+    S["Scout<br/>find + verify file"] --> A["Architect<br/>map schema"]
+    A --> R["Refinery<br/>validate + repair"]
+    R --> L["Ledger<br/>SQLite"]
+    L --> N["Analyst<br/>plain-language report"]
+    D(["Injected drift"]) -.-> R
+    G(["Recorded reference run"]) -.checks.-> A
+    G -.checks.-> R
+    G -.checks.-> L
 ```
 
-Enter your password at the hidden prompt. For a new personal account, obtain your
-own invitation from the operator and add `--enroll`:
+## By the numbers
 
-```powershell
-python two_agents.py --enroll --username teammate --state-dir .pilot-state --output pilot-result.json
-```
+All figures come from the recorded reference run of the full South Shore Hospital file and from the test suites in this repo.
 
-Enrollment prompts privately for a new password, confirmation and invitation.
-The invitation is single-use; an uncertain enrollment response should be followed
-by ordinary password login first. The client never prints or saves credentials.
-Password policy is enforced by Identity. Each teammate has a separate account.
-
-Defaults are `https://api.right-hand-man.space` and
-`https://identity.right-hand-man.space`. Authentication sends the explicit trusted
-Origin `https://api.right-hand-man.space`. Override via `--api-base`,
-`--identity-base`, and `--client-origin` only for your own trusted deployment.
-Equivalent environment settings are `RHM_API_BASE`, `RHM_IDENTITY_BASE`,
-`RHM_CLIENT_ORIGIN`, `RHM_USERNAME` and `RHM_MODEL`. There is no password/key/token
-environment variable. The CLI selects a model automatically when capabilities
-lists exactly one; otherwise pass `--model` with an advertised model, for example
-`--model qwen3.5-9b` on the intended local deployment.
-
-The only runtime dependency is `httpx`. No shared model/provider key is needed.
-The workflow requests a zero-dollar admission estimate, two ticks, 512 generated
-tokens per tick and 2,048 total tokens per run. These are backend guardrails, not
-a promise that an unknown cost is zero or a replacement for local-only deployment
-configuration. No paid inference fallback is configured by this client.
-
-## Inspect the result
-
-A successful command exits 0 and writes `pilot-result.json` containing:
-
-- Two backend run/workflow receipts, each preserving its `completion_basis`.
-- Builder's validated mapping and actual baseline records.
-- `injected_failure.code: "missing_column"`, the missing field, observed headers,
-  source SHA-256 and mapping SHA-256.
-- Exactly one maintenance attempt and the repaired mapping.
-- The actual final rows, independent validation receipts and content hashes.
-- `execution_boundary.pipeline: "local_deterministic"` and
-  `hosted_sandbox_execution: false`.
-
-The expected final rows are `north: 2 → 4`, `south: 4 → 8`, and `west: 6 → 12`;
-`row_count` is 3 and `total` is 24. The acceptance oracle checks all identifiers,
-original values, doubled values and aggregates. A model's `succeeded` /
-`agent_reported` result is a proposal; it is never a pipeline pass by itself.
-
-Malformed/extra model fields, Markdown instead of JSON, duplicate JSON keys,
-unsupported source shapes, invalid values, truncated responses, a rejected repair
-or a wrong rerun produce a clear failure. Contract failures write a failed receipt
-and exit 1. Transport failures preserve the submission journal and stop; they do
-not fabricate a completed receipt. Network access is used only for the configured
-Identity/API. All data fixtures are bundled synthetic data.
-
-## Contracts and bounds
-
-Machine-readable contracts live in [`contracts/`](contracts). The runtime uses
-standard-library checks so the pilot needs no schema-validator dependency.
-
-| Stage | Contract |
+| | |
 |---|---|
-| Source | UTF-8 CSV ≤4,096 bytes, exactly two distinct known columns, 1–16 rows, no missing/extra fields. Identifier must be unique and match `[a-z][a-z0-9_-]{0,31}`; readings are canonical nonnegative integers ≤999,999. |
-| Builder | Exactly `schema_version: mapping.v1`, `id_column: sensor_id`, `reading_column: reading` or `value`. No commands, code, paths, URLs, expressions or new transforms. |
-| Transform | Fixed implementation: normalize to `sensor_id`, `reading`, `doubled`; double each reading and sum the doubled values. |
-| Maintainer | Exactly one `replace_mapping` decision with that same mapping schema, or `fail` with an enumerated reason. |
-| Acceptance | Output schema plus a separate fixed-fixture oracle; exactly three expected records and total 24. |
+| Source file streamed | 36,771,540 bytes |
+| Items parsed | 25,451 |
+| Ledger rows | 183,335 |
+| Rows quarantined | 0 |
+| Dollar rates restored after injected drift | 127,887 of 127,887 |
+| Comparison groups in the report | 6,938 |
+| Groups with a notable price spread | 28 |
+| Parse stage time | about 3.6-3.9 s on a laptop |
+| Peak memory | about 200-240 MiB, streaming, never the whole file in memory |
+| Tests | 210 Python (pytest) + 230 frontend (vitest) |
 
-The drift check verifies that the fixtures differ only by the intended column
-rename. Both model replies are limited to 4,096 characters and must parse as one
-complete strict JSON value. The actual Builder artifact and local failure are
-passed to Maintainer in a bounded, escaped `untrusted_artefact` enclosure carrying
-the source run ID. Neither role receives tools, repository authority, service
-tokens or a direct peer channel. Read/write authority stays with the backend;
-the local adapter performs only the fixed data operations authorized by this CLI.
+## What you see in the demo
 
-## Restart, cancellation and retained state
+- A visual canvas. Each stage is a node, and you watch data move from one to the next.
+- Per-stage counts, checks and timings while the run is happening.
+- An **Upstream schema drift** moment: we break the source on purpose, the Refinery names the failed check, proposes one repair, and the counts go green again.
+- The final report: per-code price comparisons across payers, with caveats on small samples.
+- Download links for the ledger and report artifacts.
 
-Rerun the same command/state directory to inspect the same experiment. Successful
-stages fetch their existing outputs and rerun deterministic checks without new
-model submissions. Use a **new** state directory (for example `.pilot-state-2`)
-for a deliberate new experiment. Changing a stage's inputs while reusing its
-journal is rejected.
+## Run it locally
 
-The atomic `.pilot-state/journal.json` stores only account/deployment/model
-binding, workflow/run/workspace IDs, hashes, idempotency keys, timestamps and
-states. It contains no passwords, access/refresh tokens, prompts, data rows or
-model response content. A local OS file lock excludes overlapping processes using
-the same directory. This is single-machine coordination, not distributed exactly-once.
+Requirements: Python 3.10+ and Node.js 18+.
 
-Run creation is journaled before dispatch. A lost run receipt may be replayed
-only with the original key/body and within the server-advertised retention
-window, measured conservatively from local submission time. `outcome_unknown`,
-paused/failed runs and expired windows never create replacement runs. Workflow
-creation has **no** idempotency, list or deletion API: a lost workflow receipt
-stops as `workflow_create_uncertain` and is never blindly recreated. No run was
-submitted in that stage; the server may retain an unreachable immutable workflow.
+```bash
+# Python side
+python -m pip install -r requirements.txt -r requirements-dev.txt
+python -m pytest -q
 
-Exceptions/Ctrl+C attempt cancellation of this journal's known active runs.
-After an interruption or uncertain cancellation, sign in again and run:
-
-```powershell
-python two_agents.py --username teammate --state-dir .pilot-state --cancel-only
+# Frontend
+cd frontend
+npm install
+npm test             # vitest suite + registry docs check
+npm run dev          # canvas in simulated mode, no account needed
 ```
 
-This mode can reconcile a lost run receipt by its unique workspace, then cancel
-it; it never POSTs a new run and works without model-provider readiness. It checks
-the workflow/workspace binding before cancellation. Unconfirmed cancellation
-keeps the journal for another explicit attempt. A local polling limit defaults
-to 180 seconds per run (`--deadline-seconds 1..600`); requests are bounded to 15
-seconds and cancellation polling to 10 seconds. An in-flight HTTP/authentication
-request may finish after a polling deadline; cancellation cannot recall model
-work already in flight.
+Open the URL Vite prints. Add `?demo=1` for a guided storyboard. Simulated mode runs the full canvas with no network calls.
 
-Each process signs in afresh, rotates refresh cookies in memory as needed, and
-attempts logout on exit. A lost refresh response is not blindly replayed. Identity
-cookies are held in a separate HTTP client and never sent to the backend. A
-logout warning means revocation was not confirmed; local credentials are cleared
-regardless. Workflows, run history and logical workspaces remain on the server.
-This pilot does not promise database rollback or delete other work to force an
-inventory equality claim.
+To run the hospital pipeline against the real file on your machine, start the local pipeline server in a second terminal (`npm run pipeline:serve` from `frontend/`). The server listens on localhost only and requires a signed-in session. Without one, the canvas uses the recorded run and says so.
 
-## Verify locally
+## How we know it's right
 
-```powershell
-python -m pip install -r requirements-dev.txt
-New-Item -ItemType Directory -Path work -Force | Out-Null
-python -m pytest -q test_workflow.py --basetemp=work/pytest
+- **Recorded reference run.** The full-file run is stored in `fixtures/`, including the generated report. A new run has to reproduce it exactly: same counts, same rows, same report. Any difference fails the run.
+- **Injected drift, then repair.** The demo breaks the upstream schema on purpose. The repair counts only if code re-validates every affected row (127,887 of 127,887).
+- **Models propose, code decides.** A model's mapping or repair is shown as a proposal until deterministic checks pass. The Analyst's prose is checked against the ledger before it is shown.
+- **Tests.** 210 pytest tests cover ingest, mapping, storage, analysis, discovery and the pipeline server. 230 vitest tests cover the canvas, the pipeline panel, the report table and the compiler. `npm run docs:check` keeps generated docs in sync with the code.
+
+## Graceful degradation
+
+If the model, the account service or the network is unavailable, the pipeline falls back to the recorded path and labels it on screen ("model unavailable, recorded path used"). It never presents a recorded result as a live one. Signed-out visitors can explore the canvas but cannot start a server run or an export.
+
+## Tech stack
+
+- **Pipeline:** Python, streaming JSON ingest, SQLite, standard-library HTTP server.
+- **Frontend:** React, TypeScript, Vite, React Flow, Framer Motion, Tailwind, Zustand.
+- **Tests:** pytest, vitest, Testing Library.
+- **Hosting:** Docker Compose behind nginx, served at peaaiiteam8.online.
+- **Agents:** model calls run through the team's agent platform. This repo uses only its public workflow API.
+
+## Repo map
+
+```
+ingest.py, hospital_mapping.py, mrf_apply.py   streaming parse, mapping, repair
+store.py, analyze.py                           SQLite ledger and report
+discovery.py                                   Scout: find and verify the source file
+server/pipeline_server.py                      local pipeline server used by the canvas
+drive_export.py                                optional, explicit export of run artifacts
+fixtures/                                      recorded reference run and test slices
+contracts/                                     JSON schemas for stage inputs and outputs
+tests/                                         pytest suite
+frontend/                                      the canvas app (see frontend/README.md)
+deploy/                                        container setup for the public site
 ```
 
-Tests simulate Identity/API HTTP and execute the real deterministic ingestion,
-transformation and oracle. They cover actual handoffs, one repair, malicious
-mapping refusal, output tampering, truncated replies, lost receipts, replay
-expiry, cancellation, local exclusion, account binding, enrollment and refresh
-cookie separation. These tests are not evidence of a live model or deployment.
+## Limitations
 
-## Live acceptance — 2026-10-22
+- One hospital so far. The mapping is tuned to South Shore Hospital's layout.
+- The Analyst writes a one-shot report. It doesn't take follow-up questions yet.
+- Small-sample price comparisons are marked as indicative only.
+- The public site is a demo deployment, not a multi-tenant service.
 
-The pilot passed against the public HTTPS API and Identity with the real
-`qwen3.5-9b` local model, backend revision `46d9064` and Agent revision `d70fd07`.
-Builder run `run_d8de769198954d6998237696` selected the initial mapping; Maintainer
-run `run_08cb22bbb8c6459782f7941f` received the actual local artifacts/failure and
-selected the renamed `value` field. Both backend completions were
-`agent_reported`; separate local checks verified baseline and repaired output
-with three rows and total 24. The injected `missing_column` failure and hashes
-are recorded in the [sanitized live receipt](examples/public-pilot-acceptance.json).
+## Next steps
 
-Running the pilot again with the same journal returned the same backend receipts
-and data, with **zero additional runs** and unchanged run inventory. Logout was
-confirmed. No mock inference or paid provider key was used. This proves the
-public model-decision path plus the fixed local pipeline; it does not prove
-hosted sandbox execution. The temporary acceptance accounts are operator-managed
-and are not teammate credentials or a reusable public demo login. The local
-behavioral suite passed 45 tests after token-scheme compatibility checks.
+1. **Conversational Analyst.** Ask follow-up questions about the ledger in plain language.
+2. **Many hospitals.** Run many hospitals' files, each with its own recorded reference check.
+3. **Ledger as a tool.** Let agents query the ledger through a standard connector.
+4. **Cross-hospital comparisons.** Compare the same code and payer across hospitals.
+5. **Production hardening.** Per-user limits, key rotation and multi-user storage.
+6. **Cloud exports.** Send ledger and report artifacts straight to shared drives.
 
-See [`API.md`](API.md) for the public request sequence and
-[`rough-plan.md`](rough-plan.md) for the future mini-orchestrator boundary.
+## Team
+
+Team 8, peaaii-team-gods.
