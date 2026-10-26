@@ -604,7 +604,7 @@ export default function App() {
     {shellMode === "live" && identitySession && <SettingsDialog open={settingsOpen}
       inference={inference} apiBase={apiBase} session={identitySession} tier={tier} setTier={setTier}
       paidConsent={paidConsent} setPaidConsent={setPaidConsent} spendCap={spendCap} setSpendCap={setSpendCap}
-      onStatus={next => { setInference(next); if (!next?.configured) { setTier("free"); setPaidConsent(false); setSpendCap("0"); } }}
+      onStatus={next => { setInference(next); setPaidConsent(false); if (!next?.configured) { setTier("free"); setSpendCap("0"); } }}
       onClose={() => { setSettingsOpen(false); window.setTimeout(() => settingsButton.current?.focus(), 0); }} disabled={running}
     />}
     {nodes.length === 0 && uiState.kind !== "hub" && (

@@ -35,7 +35,7 @@ export default function SettingsDialog(props: Props) {
 
   const close = () => props.onClose();
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Escape") { event.preventDefault(); close(); return; }
+    if (event.key === "Escape") { event.preventDefault(); if (!props.disabled) close(); return; }
     if (event.key !== "Tab") return;
     const focusable = Array.from(dialog.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []).filter((el) => !(el as HTMLInputElement).disabled);
     if (!focusable.length) { event.preventDefault(); return; }

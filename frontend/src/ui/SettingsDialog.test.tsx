@@ -7,7 +7,7 @@ import SettingsDialog from "./SettingsDialog";
 
 const configured: InferenceStatus = { configured: true, revision: "r1", credential_lifetime: "backend_process", host_models_authorized: false };
 const hostOnly: InferenceStatus = { configured: false, revision: null, credential_lifetime: "backend_process", host_models_authorized: true };
-const renderDialog = (inference: InferenceStatus | null) => {
+const renderDialog = (inference: InferenceStatus | null, disabled = false) => {
   const setters = { setPaidConsent: vi.fn(), setSpendCap: vi.fn(), onClose: vi.fn(), onStatus: vi.fn() };
   function Harness() {
     const [tier, setTier] = useState<"free" | "premium">("free");
@@ -16,7 +16,7 @@ const renderDialog = (inference: InferenceStatus | null) => {
     return <SettingsDialog open inference={inference} apiBase="" session={new IdentitySession("", "")} tier={tier} setTier={setTier}
       paidConsent={paidConsent} setPaidConsent={value => { setters.setPaidConsent(value); updatePaidConsent(value); }}
       spendCap={spendCap} setSpendCap={value => { setters.setSpendCap(value); updateSpendCap(value); }}
-      onClose={setters.onClose} onStatus={setters.onStatus} disabled={false} />;
+      onClose={setters.onClose} onStatus={setters.onStatus} disabled={disabled} />;
   }
   render(<Harness />);
   return setters;
@@ -55,6 +55,14 @@ describe("SettingsDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close settings" }));
     fireEvent.click(screen.getByTestId("settings-backdrop"));
     expect(setters.onClose).toHaveBeenCalledTimes(3);
+  });
+
+  it("stays open when Escape is pressed while a run disables the close button", () => {
+    const setters = renderDialog(configured, true);
+    expect((screen.getByRole("button", { name: "Close settings" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(setters.onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Settings" })).toBeTruthy();
   });
 
   it("wraps Tab in both directions and skips disabled controls", async () => {

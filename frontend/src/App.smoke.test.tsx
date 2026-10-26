@@ -629,6 +629,45 @@ describe("live provider gate (configured / host-authorized / neither)", () => {
     await waitFor(() => expect(useStore.getState().nodes.some((node) => node.data.output?.includes("This run needs a spend cap. Choose Premium in Settings and set one."))).toBe(true));
   });
 
+  it("clears paid consent after a provider change before the next Free run", async () => {
+    const actualRun = LiveAdapter.prototype.run;
+    liveInference(configuredStatus);
+    vi.mocked(LiveAdapter.prototype.run).mockImplementation(function (this: LiveAdapter, nodeId, workflow) {
+      return actualRun.call(this, nodeId, workflow);
+    });
+    const workflowRequests: unknown[] = [];
+    const runRequests: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/v1/workflows")) {
+        workflowRequests.push(JSON.parse(String(init?.body)));
+        return new Response(JSON.stringify({ workflow_id: "workflow-1" }));
+      }
+      if (url.endsWith("/v1/runs")) {
+        runRequests.push(JSON.parse(String(init?.body)));
+        return new Response(JSON.stringify({ run_id: "run-1" }));
+      }
+      return new Response("{}", { status: 200 });
+    }));
+    renderApp();
+    fireEvent.click((await screen.findAllByRole("button", { name: /Pilot storyboard/ }))[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Premium" }));
+    fireEvent.change(screen.getByLabelText("USD admission budget per agent run"), { target: { value: "0.5" } });
+    fireEvent.click(screen.getByLabelText(/I permit paid inference/));
+    fireEvent.change(screen.getByLabelText("Primary provider"), { target: { value: "freellmapi" } });
+    fireEvent.change(screen.getByLabelText("Primary model"), { target: { value: "fixture-model" } });
+    fireEvent.change(screen.getByLabelText("Primary API key"), { target: { value: "fixture-key" } });
+    fireEvent.click(screen.getByLabelText(/I approve changing this shared account/));
+    fireEvent.click(screen.getByRole("button", { name: "Save account provider" }));
+    await waitFor(() => expect((screen.getByLabelText(/I permit paid inference/) as HTMLInputElement).checked).toBe(false));
+    fireEvent.click(screen.getByRole("radio", { name: "Free" }));
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: /run pipeline/i }));
+    await waitFor(() => expect(runRequests).toHaveLength(1));
+    expect(workflowRequests[0]).toMatchObject({ workflow: { budget: { max_usd: 0 } } });
+    expect(runRequests[0]).toMatchObject({ paid_inference_consent: false });
+  });
+
   it("lets a host-authorized account Run and Drift without its own provider", async () => {
     const { run } = liveInference(hostOnlyStatus);
     renderApp();
