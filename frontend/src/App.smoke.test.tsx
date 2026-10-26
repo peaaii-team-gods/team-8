@@ -41,6 +41,18 @@ beforeEach(() => {
 });
 
 describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
+  it("opens Hospital source to SQL directly from the landing MRF button", () => {
+    renderApp();
+    const landing = screen.getByTestId('landing-page');
+    expect(landing.textContent).toContain('Scout → Architect → Refinery → Ledger → Analyst');
+    expect(landing.textContent).not.toMatch(/SYNTHETIC|birds propose|16\/2\/14|synthetic lab panels/);
+    fireEvent.click(screen.getByRole('button', { name: 'Run MRF demo' }));
+    expect(useStore.getState().scenarioId).toBe('hospital-pipeline');
+    expect(useStore.getState().nodes).toHaveLength(5);
+    expect(screen.getByRole('button', { name: 'Run hospital pipeline' })).toBeTruthy();
+    expect(useStore.getState().runStartedAt).toBeNull();
+  });
+
   it("never labels a captured pipeline node Golden when the source fingerprint differs", async () => {
     const record = JSON.parse(readFileSync('src/ui/fixtures/hospital-run.real.json', 'utf8'));
     record.steps[0].telemetry.find((event: { type: string }) => event.type === 'trace').sha256 = 'another-file';
@@ -558,9 +570,11 @@ describe("live provider gate (configured / host-authorized / neither)", () => {
 });
 
 describe("MRF drift + one repair (jsdom)", () => {
-  it("one-click landing preset plus canned simulated replies tell the full story offline", async () => {
+  it("keeps the original MRF demo's canned simulated repair story available", async () => {
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: /Run MRF demo/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enter canvas' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    fireEvent.click(screen.getByRole('button', { name: 'MRF price file' }));
     expect(useStore.getState().scenarioId).toBe("mrf-pipeline");
     fireEvent.click(screen.getByRole("button", { name: /run pipeline/i }));
     await waitFor(() => expect(useStore.getState().scienceReceipt?.checks?.every((c) => c.pass)).toBe(true));

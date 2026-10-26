@@ -1,5 +1,4 @@
 import { motion } from "framer-motion";
-import SyntheticBadge from "./SyntheticBadge";
 
 interface Props {
   mode: "simulated" | "live";
@@ -14,7 +13,6 @@ export default function LandingPage({ mode, onSignIn, onEnterCanvas, onLoadMrf, 
     <div className="relative min-h-full overflow-hidden" data-testid="landing-page">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_30%_20%,#3b1470_0%,transparent_55%),radial-gradient(ellipse_at_80%_80%,#150826_0%,#070312_70%)]" />
       <div className="relative z-10 mx-auto flex min-h-full max-w-3xl flex-col justify-center px-6 py-16">
-        <SyntheticBadge className="mb-6 self-start" />
         {sessionError && <p role="alert" className="mb-4 text-sm text-red-300">{sessionError}</p>}
         <motion.p
           initial={{ opacity: 0, y: 8 }}
@@ -29,7 +27,7 @@ export default function LandingPage({ mode, onSignIn, onEnterCanvas, onLoadMrf, 
           transition={{ delay: 0.05 }}
           className="font-display mt-3 text-5xl leading-tight text-[#f8f4ff] md:text-6xl"
         >
-          Science data,<br />orchestrated.
+          Hospital prices,<br />from source to SQL.
         </motion.h1>
         <motion.p
           initial={{ opacity: 0, y: 12 }}
@@ -37,7 +35,7 @@ export default function LandingPage({ mode, onSignIn, onEnterCanvas, onLoadMrf, 
           transition={{ delay: 0.1 }}
           className="mt-4 max-w-xl text-base text-white/75 md:text-lg"
         >
-          Bounded agents map, QC, and repair contracts across synthetic lab panels, assay plates, and payer clearinghouses — without PHI.
+          Follow a public hospital price file into a searchable SQLite ledger and a rate comparison report.
         </motion.p>
         <motion.div
           initial={{ opacity: 0, y: 12 }}
@@ -63,10 +61,9 @@ export default function LandingPage({ mode, onSignIn, onEnterCanvas, onLoadMrf, 
         </motion.div>
         <section id="how-it-works" className="mt-20 space-y-3 text-sm text-white/70">
           <h2 className="font-display text-xl text-white">How it works</h2>
-          <p>1. Attach a synthetic science data lake to an agent.</p>
-          <p>2. Agents propose bounded JSON contracts. Live tools require backend authorization.</p>
-          <p>3. Explore repair proposals on the pilot storyboard. Model output is not verified acceptance.</p>
-          <p>4. MRF demo: birds propose a flatten mapping; fixed code applies it and runs pinned 16/2/14 + digest checks. Labels are Proposal, Checked locally, or Verified (Coding SHA only).</p>
+          <p>Scout → Architect → Refinery → Ledger → Analyst.</p>
+          <p>Stream the full file, check its rows, and compare rates. Optionally inject a rate-key error to see the repair.</p>
+          <p>Download the CSV, SQLite ledger, and report. Model proposals stay separate from local checks.</p>
         </section>
       </div>
     </div>

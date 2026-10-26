@@ -115,7 +115,6 @@ export default function App() {
     [shellMode, liveAdapter],
   );
   const [view, setView] = useState<ShellView>(demo.enabled ? "canvas" : "landing");
-  const pendingMrf = useRef(false);
   const demoBooted = useRef(false);
   const demoRan = useRef(false);
 
@@ -523,12 +522,8 @@ export default function App() {
         onSignIn={() => setView("signin")}
         onEnterCanvas={() => setView("canvas")}
         onLoadMrf={() => {
-          pendingMrf.current = true;
-          if (mode === "live") setView("signin");
-          else {
-            setView("canvas");
-            loadScenario("mrf-pipeline");
-          }
+          setView("canvas");
+          loadScenario("hospital-pipeline");
         }}
       />
       {commandChrome}
@@ -547,7 +542,6 @@ export default function App() {
           setLiveAdapter(adapterLive);
           setIdentitySession(sess);
           setView("canvas");
-          if (pendingMrf.current) loadScenario("mrf-pipeline");
         }}
       />
       {commandChrome}
