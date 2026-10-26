@@ -118,7 +118,7 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
   const reportTitle = "Hospital rate comparison";
   return <section className="glass space-y-2 p-3 text-xs" aria-label="Hospital pipeline">
     <h2 className="font-semibold">Hospital pipeline · deterministic record</h2>
-    <label className="block"><input type="checkbox" checked={inject} disabled={busy || signedOut} onChange={event => setInject(event.target.checked)} /> Inject rate-key error (injected)</label>
+    <label className="block"><input type="checkbox" checked={inject} disabled={busy || signedOut} onChange={event => setInject(event.target.checked)} /> Inject a rate-key error (tests drift repair)</label>
     {signedOut && <p role="status">Sign in to run the pipeline</p>}
     <button className="glass p-2 disabled:opacity-50" disabled={busy || exporting || signedOut} onClick={() => void start()}>Run hospital pipeline</button>
     {busy && <p role="status">Pipeline / model proposals running…</p>}

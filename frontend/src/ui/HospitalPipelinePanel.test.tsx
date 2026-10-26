@@ -198,6 +198,7 @@ describe("hospital canvas deterministic record", () => {
       return response(polls.length === 1 ? { status: "running", steps: [] } : result);
     });
     render(<HospitalPipelinePanel adapter={null} budget={0} />);
+    expect(screen.getByRole("checkbox", { name: "Inject a rate-key error (tests drift repair)" })).toBeTruthy();
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
     await screen.findByRole("heading", { name: "Hospital rate comparison" }, { timeout: 2500 });

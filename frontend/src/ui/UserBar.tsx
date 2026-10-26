@@ -18,11 +18,11 @@ interface Props {
 export default function UserBar({ mode, username, signedIn, busy, publicSource, hospitalModelLive, onSignIn, onSignOut, onClear, onPilot, onExport, onImport }: Props) {
   return (
     <header
-      className="flex h-12 shrink-0 items-center gap-3 overflow-x-auto border-b border-white/10 bg-[#070312]/90 px-3 text-xs"
+      className="flex h-12 shrink-0 items-center gap-3 overflow-x-auto border-b border-white/10 bg-[#070312]/90 px-3 text-sm"
       data-testid="user-bar"
       onClick={(e) => e.stopPropagation()}
     >
-      <span className="font-display text-sm text-fuchsia-100">Team 8</span>
+      <span className="font-display text-sm text-fuchsia-100">Crucible Cast</span>
       {publicSource ? <span>Public hospital source</span> : <SyntheticBadge />}
       <span data-testid="mode-label">{publicSource ? `Pipeline: local server · Model: ${hospitalModelLive ? "live" : "recorded path"}` : `Mode: ${mode}${mode === "live" && !signedIn ? " — sign in required" : ""}`}</span>
       <span className="ml-auto flex items-center gap-2">
