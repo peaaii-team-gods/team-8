@@ -64,6 +64,21 @@ const setup = (exported: unknown = { status: "unavailable", reason: "drive_expor
 };
 
 describe("hospital canvas deterministic record", () => {
+  it('opens only the selected Show details section', async () => {
+    setup();
+    render(<HospitalPipelinePanel adapter={null} budget={0} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Run hospital pipeline' }));
+    await screen.findByRole('heading', { name: 'Hospital rate comparison' });
+    const toggles = screen.getAllByText('Show details');
+    const sections = toggles.map(toggle => toggle.closest('details')!);
+    for (let index = 0; index < toggles.length; index++) {
+      fireEvent.click(toggles[index]);
+      expect(sections.map(section => section.open)).toEqual(sections.map((_, i) => i === index));
+      fireEvent.click(toggles[index]);
+      expect(sections.every(section => !section.open)).toBe(true);
+    }
+  });
+
   it("adds five ordered nodes and preserves all existing tether rules", () => {
     const scenario = scenarioById("hospital-pipeline");
     expect(scenario).toBeDefined();
