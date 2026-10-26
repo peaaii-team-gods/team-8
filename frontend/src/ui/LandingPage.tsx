@@ -1,4 +1,18 @@
 import { motion } from "framer-motion";
+import recordedRun from "./fixtures/hospital-run.real.json";
+
+const STAGES: ReadonlyArray<readonly [string, string]> = [
+  ["Scout", "finds and verifies the source."],
+  ["Architect", "proposes a schema."],
+  ["Refinery", "validates every row and proposes a repair when the source drifts."],
+  ["Ledger", "writes the rows to SQLite."],
+  ["Analyst", "writes a plain-language report."],
+];
+
+interface PreviewRow { billing_code: string; description: string; commercial_median: number; ma_median: number }
+interface RecordedStep { telemetry: Array<{ type: string; rows?: PreviewRow[] }> }
+const top10 = (recordedRun.steps as unknown as RecordedStep[]).flatMap((s) => s.telemetry).find((t) => t.type === "top10");
+const PREVIEW_ROWS: PreviewRow[] = (top10?.rows ?? []).slice(0, 3);
 
 interface Props {
   mode: "simulated" | "live";
@@ -43,28 +57,51 @@ export default function LandingPage({ mode, onSignIn, onEnterCanvas, onLoadMrf, 
           transition={{ delay: 0.15 }}
           className="mt-8 flex flex-wrap gap-3"
         >
+          <button type="button" data-testid="cta-primary" className="rounded-lg bg-emerald-400 px-6 py-3 text-base font-semibold text-[#070312] hover:bg-emerald-300" onClick={onLoadMrf}>
+            Run MRF demo
+          </button>
           {mode === "live" ? (
-            <button type="button" className="glass px-5 py-2.5 text-sm font-semibold text-fuchsia-200" onClick={onSignIn}>
+            <button type="button" data-testid="cta-secondary" className="glass px-5 py-3 text-base font-semibold text-fuchsia-200" onClick={onSignIn}>
               Sign in
             </button>
           ) : (
-            <button type="button" className="glass px-5 py-2.5 text-sm font-semibold text-fuchsia-200" onClick={onEnterCanvas}>
+            <button type="button" data-testid="cta-secondary" className="glass px-5 py-3 text-base font-semibold text-fuchsia-200" onClick={onEnterCanvas}>
               Enter canvas
             </button>
           )}
-          <button type="button" className="glass px-5 py-2.5 text-sm font-semibold text-emerald-200" onClick={onLoadMrf}>
-            Run MRF demo
-          </button>
-          <a href="#how-it-works" className="glass px-5 py-2.5 text-sm text-white/80">
+          <a href="#how-it-works" className="self-center px-2 py-2 text-base text-white/85 underline underline-offset-4">
             How it works
           </a>
         </motion.div>
-        <section id="how-it-works" className="mt-20 space-y-3 text-sm text-white/70">
+        <p data-testid="demo-hint" className="mt-3 max-w-xl text-base text-white/85">
+          The MRF demo opens the hospital price pipeline on the canvas.{mode === "live" ? " Running it requires sign-in." : ""}
+        </p>
+        <section id="how-it-works" className="mt-20 space-y-3 text-base text-white/85">
           <h2 className="font-display text-xl text-white">How it works</h2>
+          <p>MRF means Machine-Readable File, the CMS hospital price-transparency format.</p>
           <p>Scout → Architect → Refinery → Ledger → Analyst.</p>
-          <p>Scout finds and verifies the source. Architect proposes a schema. Refinery validates every row and proposes a repair when the source drifts. Ledger writes the rows to SQLite. Analyst writes a plain-language report.</p>
+          <ol className="list-decimal space-y-1 pl-6">
+            {STAGES.map(([name, text]) => (
+              <li key={name}><strong className="font-semibold text-white">{name}</strong> {text}</li>
+            ))}
+          </ol>
           <p>Models propose, code decides: nothing is kept until local checks pass. The demo streams a real public hospital price file (183,335 rows) into a ledger and a rate comparison report you can download.</p>
         </section>
+        {PREVIEW_ROWS.length > 0 && <section data-testid="recorded-preview" className="mt-10 text-base text-white/85">
+          <h2 className="font-display text-xl text-white">Recorded run preview</h2>
+          <p className="text-sm">Largest commercial vs Medicare Advantage differences from a recorded run of this pipeline.</p>
+          <table className="mt-2 w-full text-left text-sm">
+            <thead><tr><th>Code</th><th>Description</th><th>Commercial median</th><th>MA median</th></tr></thead>
+            <tbody>
+              {PREVIEW_ROWS.map((row) => (
+                <tr key={row.billing_code}>
+                  <td>{row.billing_code}</td><td>{row.description}</td>
+                  <td>{row.commercial_median.toLocaleString("en-US")}</td><td>{row.ma_median.toLocaleString("en-US")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>}
       </div>
     </div>
   );
