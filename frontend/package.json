@@ -8,6 +8,7 @@
     "pipeline:serve": "python ../server/pipeline_server.py",
     "build": "tsc -b && vite build",
     "test": "vitest run",
+    "test:touch": "vitest related --run",
     "docs:gen": "node scripts/gen-docs.mjs",
     "docs:check": "node scripts/gen-docs.mjs --check",
     "smoke:live": "node scripts/live-smoke.mjs",
