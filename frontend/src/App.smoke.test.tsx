@@ -84,6 +84,8 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     expect(useStore.getState().scenarioId).toBe('hospital-pipeline');
     expect(useStore.getState().nodes).toHaveLength(5);
     expect(screen.getByRole('button', { name: 'Run hospital pipeline' })).toBeTruthy();
+    expect(screen.queryByTestId('history-panel')).toBeNull();
+    expect(screen.queryByText(/SYNTHETIC/)).toBeNull();
     expect(useStore.getState().runStartedAt).toBeNull();
   });
 

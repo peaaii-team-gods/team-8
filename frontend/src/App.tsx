@@ -697,7 +697,7 @@ export default function App() {
         )}
       </div>
       {scenarioId === "hospital-pipeline" && <HospitalPipelinePanel key={sessionId} adapter={hospitalModelAdapter(shellMode === "live" ? liveAdapter : null, inference, spendCap, paidConsent)} budget={Number(spendCap)} prepareLocalModel={() => liveAdapter?.setPaidInferenceConsent(false)} mode={shellMode} accessToken={identitySession?.token ?? null} />}
-      <HistoryPanel mode={shellMode} client={shellMode === "live" ? liveAdapter : null} />
+      {scenarioId !== "hospital-pipeline" && <HistoryPanel mode={shellMode} client={shellMode === "live" ? liveAdapter : null} />}
       <ReadinessPanel
         mode={shellMode === "live" && liveAdapter ? "live" : "simulated"}
         port={readiness}
