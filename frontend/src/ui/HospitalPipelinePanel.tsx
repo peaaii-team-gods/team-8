@@ -115,7 +115,7 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
     return () => window.removeEventListener(HOSPITAL_EXPORT_EVENT, onExport);
   }, [record?.status, id, exporting]);
   const events = record?.steps.flatMap(step => step.telemetry) ?? [], top = events.find(event => event.type === "top10");
-  const reportTitle = golden ? "Golden SQL report" : "No golden for this file";
+  const reportTitle = "Hospital rate comparison";
   return <section className="glass space-y-2 p-3 text-xs" aria-label="Hospital pipeline">
     <h2 className="font-semibold">Hospital pipeline · deterministic record</h2>
     <label className="block"><input type="checkbox" checked={inject} disabled={busy || signedOut} onChange={event => setInject(event.target.checked)} /> Inject rate-key error (injected)</label>
@@ -134,6 +134,7 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
     {model.unavailable && <p className="text-white/60">model unavailable, recorded path used</p>}
     {top && <section aria-label={reportTitle} className="space-y-2">
       <h3 className="font-semibold">{reportTitle}</h3>
+      {!golden && <p>No golden for this file</p>}
       <p>Commercial vs Medicare Managed Care Plan median, this hospital's file</p>
       <p className="text-white/60">{String(top.baseline_label)}</p>
       <p className="text-white/60">{Number(top.row_count ?? (Array.isArray(top.rows) ? top.rows.length : 0))} comparison groups</p>

@@ -83,7 +83,7 @@ describe("hospital canvas deterministic record", () => {
     render(<HospitalPipelinePanel adapter={null} budget={0} />);
     expect(screen.queryByRole("button", { name: "Export to Google Drive (direct API, not MCP)" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
-    await screen.findByRole("heading", { name: "Golden SQL report" });
+    await screen.findByRole("heading", { name: "Hospital rate comparison" });
     expect(requests.every(r => r.url.startsWith("/api/pipeline/"))).toBe(true);
     expect(JSON.parse(requests[0].init!.body as string)).toEqual({ source: "south-shore", inject_error: false });
     expect(requests.some(r => r.url.endsWith("/export"))).toBe(false);
@@ -114,7 +114,7 @@ describe("hospital canvas deterministic record", () => {
     expect(sourceDetails?.querySelector("pre")?.textContent).toContain("https://zencloud-southshorehealth.s3.us-east-1.amazonaws.com/www.southshorehealth.org/assets/2026-03/042769210_south-shore-hospital_standardcharges.json");
     expect(sourceDetails?.querySelector("pre")?.textContent).toContain("0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd");
     expect(screen.getByText(/Golden repair: 127887\/127887 dollar rates restored/)).toBeTruthy();
-    expect(screen.getByText("Golden SQL report")).toBeTruthy();
+    expect(screen.getByText("Hospital rate comparison")).toBeTruthy();
     expect(screen.getByText("Commercial vs Medicare Managed Care Plan median, this hospital's file")).toBeTruthy();
     expect(screen.getByText("6938 comparison groups")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open full report" })).toBeTruthy();
@@ -140,7 +140,7 @@ describe("hospital canvas deterministic record", () => {
     setup(undefined, snapshot);
     render(<HospitalPipelinePanel adapter={null} budget={0} />);
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
-    await screen.findByRole("heading", { name: "No golden for this file" });
+    await screen.findByText("No golden for this file");
     expect(screen.queryByText("Golden SQL report")).toBeNull();
     expect(screen.queryByText(/remains golden/)).toBeNull();
     expect(screen.queryByText(/golden path|matches golden|differs from golden|Golden repair/)).toBeNull();
@@ -166,7 +166,7 @@ describe("hospital canvas deterministic record", () => {
     const requests = setup({ status: "exported", folder_id: "folder-test", folder_link: "https://drive.google.com/drive/folders/folder-test", files: ["rows.csv"] });
     render(<HospitalPipelinePanel adapter={null} budget={0} />);
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
-    await screen.findByRole("heading", { name: "Golden SQL report" });
+    await screen.findByRole("heading", { name: "Hospital rate comparison" });
     fireEvent.click(screen.getByRole("button", { name: "Export to Google Drive (direct API, not MCP)" }));
     const driveLink = await screen.findByRole("link", { name: "Exported to Drive" });
     expect(driveLink.getAttribute("href")).toBe("https://drive.google.com/drive/folders/folder-test");
@@ -185,7 +185,7 @@ describe("hospital canvas deterministic record", () => {
     render(<HospitalPipelinePanel adapter={null} budget={0} />);
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
-    await screen.findByRole("heading", { name: "Golden SQL report" }, { timeout: 2500 });
+    await screen.findByRole("heading", { name: "Hospital rate comparison" }, { timeout: 2500 });
     expect(submitted).toEqual({ source: "south-shore", inject_error: true });
     expect(polls).toHaveLength(2);
     expect(polls[1] - polls[0]).toBeGreaterThanOrEqual(990);
@@ -258,7 +258,7 @@ describe("hospital canvas deterministic record", () => {
     });
     render(<HospitalPipelinePanel adapter={null} budget={0} mode="live" accessToken="live-token" />);
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
-    await screen.findByRole("heading", { name: "Golden SQL report" });
+    await screen.findByRole("heading", { name: "Hospital rate comparison" });
     fireEvent.click(screen.getByRole("link", { name: "rows.csv" }));
     expect((await screen.findByRole("alert")).textContent).toBe("Artifact unavailable (401)");
   });
@@ -291,7 +291,7 @@ describe("hospital canvas deterministic record", () => {
     });
     render(<HospitalPipelinePanel adapter={null} budget={0} mode="live" accessToken="live-token" />);
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
-    await screen.findByRole("heading", { name: "Golden SQL report" });
+    await screen.findByRole("heading", { name: "Hospital rate comparison" });
     fireEvent.click(screen.getByRole("link", { name: "rows.csv" }));
     expect((await screen.findByRole("alert")).textContent).toBe("Artifact unavailable: connection failed");
   });
@@ -301,7 +301,7 @@ describe("hospital canvas deterministic record", () => {
     render(<HospitalPipelinePanel adapter={null} budget={0} mode="live" accessToken="live-token" />);
     expect(screen.queryByText("Sign in to run the pipeline")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
-    await screen.findByRole("heading", { name: "Golden SQL report" });
+    await screen.findByRole("heading", { name: "Hospital rate comparison" });
     expect((requests[0].init?.headers as Record<string, string>).Authorization).toBe("Bearer live-token");
     fireEvent.click(screen.getByRole("button", { name: "Export to Google Drive (direct API, not MCP)" }));
     await screen.findByText("Drive not configured");

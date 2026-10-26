@@ -125,7 +125,7 @@ function Shell({ data, id, isLake }: { data: CanvasNode["data"]; id: string; isL
           openHospitalReportDialog();
         }}>Open full report</button>
         <dialog id="hospital-report-modal" className="m-auto w-[96vw] max-w-[1500px] max-h-[90vh] overflow-auto rounded-xl border border-white/20 bg-[#100a1c] p-5 text-white shadow-2xl backdrop:bg-black/70">
-          <div className="mb-3 flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">{data.title}</h2><p className="mt-1 text-sm text-white/70">{data.description}</p><p className="text-xs text-white/60">{String(top?.baseline_label ?? "")}</p></div>
+          <div className="mb-3 flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">Hospital rate comparison</h2><p className="mt-1 text-sm text-white/70">{data.description}</p><p className="text-xs text-white/60">{String(top?.baseline_label ?? "")}</p></div>
             <form method="dialog"><button className="rounded-lg border border-white/20 px-3 py-1 text-xs">Close report</button></form></div>
           <HospitalReportTable rows={parsedReport.rows} spread={parsedReport.spread} className="w-full table-fixed" caveat={parsedReport.caveat} />
           {reportNotes.length > 0 && <ul className="mt-3 space-y-1 text-sm text-white/70">{reportNotes.map(note => <li key={note}>{note}</li>)}</ul>}

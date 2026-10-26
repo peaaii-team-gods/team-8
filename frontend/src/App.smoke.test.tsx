@@ -86,7 +86,7 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
     fireEvent.click(screen.getByRole('button', { name: 'Hospital source to SQL' }));
     fireEvent.click(screen.getByRole('button', { name: 'Run hospital pipeline' }));
-    await screen.findByRole('heading', { name: 'No golden for this file' });
+    await screen.findByText('No golden for this file');
     const furnace = useStore.getState().nodes.find(node => node.data.presetId === 'mrf-hospital-maintainer')!;
     await waitFor(() => expect(screen.getByTestId(`node-${furnace.id}`).textContent).toContain('Self-consistency repair: 127887/127887'));
     expect(screen.queryByText(/Golden repair|golden path|matches golden|differs from golden/)).toBeNull();
@@ -186,6 +186,7 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     const openReportButton = [...analystElement.querySelectorAll("button")].find(button => button.textContent?.includes("Open full report"))!;
     fireEvent.click(openReportButton);
     const dialog = analystElement.querySelector("dialog") as HTMLDialogElement;
+    expect(dialog.querySelector('h2')?.textContent).toBe('Hospital rate comparison');
     expect(dialog.open).toBe(true);
     const reportTable = dialog.querySelector('[data-testid="hospital-report-table"]') as HTMLTableElement;
     expect([...reportTable.querySelectorAll("thead th")].map(header => header.textContent)).toEqual(["Code", "Type", "Class", "Description", "Commercial median", "MA median", "Difference", "Ratio", "n commercial", "n MA", "Gross", "Cash", "Min", "Max"]);
