@@ -306,7 +306,7 @@ export const useStore = create<Store>((set, get) => ({
     const previous = get().pipelineStage;
     set({ pipelineStage });
     if (pipelineStage === previous) return;
-    const item = stageActivity(pipelineStage);
+    const item = stageActivity(pipelineStage, get().scenarioId);
     if (item) get().pushActivity(item);
   },
   markRunStart: () => {

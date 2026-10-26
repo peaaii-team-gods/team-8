@@ -39,7 +39,7 @@ export default function MetricsPanel() {
           </div>
           <div className="glass p-2"><div className="opacity-60">Latency</div><div className="tabular-nums">{obs.latencyMs == null ? "—" : `${obs.latencyMs} ms`}</div></div>
           <div className="glass p-2"><div className="opacity-60">Agents finished</div><div className="tabular-nums">{obs.agentsFinished}/{obs.agentsTotal}</div></div>
-          <div className="glass p-2"><div className="opacity-60">Outcome</div><div>{obs.outcome}{obs.completionBasis ? ` · ${obs.completionBasis}` : ""}</div></div>
+          <div className="glass p-2"><div className="opacity-60">Outcome</div><div>{scenarioId === "hospital-pipeline" && pipelineStage === "complete" ? "Complete · checked locally" : obs.outcome}{scenarioId !== "hospital-pipeline" && obs.completionBasis ? ` · ${obs.completionBasis}` : ""}</div></div>
           <div className="glass p-2"><div className="opacity-60">Source</div><div>{scenarioId === "hospital-pipeline" ? "Local pipeline" : obs.source}</div></div>
         </div>
         {scenarioId !== "hospital-pipeline" && <div className="mb-2 grid grid-cols-2 gap-2 text-[10px]">

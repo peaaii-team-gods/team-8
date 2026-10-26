@@ -3,6 +3,7 @@ import { useStore } from "../state/store";
 
 export default function StageStrip() {
   const stage = useStore((s) => s.pipelineStage);
+  const hospital = useStore((s) => s.scenarioId === "hospital-pipeline");
   const verified = useStore((s) => s.scienceReceipt?.fixtureVerified);
   if (stage === "idle") return null;
   return (
@@ -14,7 +15,7 @@ export default function StageStrip() {
             key={s.id}
             className={`rounded-full px-2 py-0.5 ${current ? "bg-fuchsia-400/30 text-fuchsia-100" : "bg-white/5 text-white/40"}`}
           >
-            {s.label}
+            {hospital && s.id === "complete" ? "Complete · checked locally" : s.label}
           </span>
         );
       })}

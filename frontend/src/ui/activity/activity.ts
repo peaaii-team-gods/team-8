@@ -28,14 +28,14 @@ export function publicDetail(detail?: string): string | undefined {
   return trimmed.slice(0, 80);
 }
 
-export function stageActivity(stage: PipelineStage): ActivityDraft | null {
+export function stageActivity(stage: PipelineStage, scenarioId?: string | null): ActivityDraft | null {
   if (stage === "idle") return null;
   const label = {
     propose: "Propose",
     execute: "Execute",
     fail: "Fail",
     repair: "Repair",
-    complete: "Complete · proposal",
+    complete: scenarioId === "hospital-pipeline" ? "Complete · checked locally" : "Complete · proposal",
   }[stage];
   const level: ActivityLevel = stage === "fail" ? "error" : stage === "complete" ? "ok" : stage === "repair" ? "warn" : "info";
   return { kind: "stage", title: `Stage ${label}`, level };

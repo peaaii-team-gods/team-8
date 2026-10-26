@@ -183,6 +183,9 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     const metrics = screen.getByTestId('metrics-panel');
     expect(metrics.textContent).not.toMatch(/Repairs applied|QC pass|Drift/);
     expect(within(metrics).getByText('Local pipeline')).toBeTruthy();
+    expect(within(metrics).getAllByText('Complete · checked locally')).toHaveLength(2);
+    expect(metrics.textContent).not.toMatch(/agent_reported|Complete · proposal/);
+    expect(useStore.getState().activity.some(item => item.title === 'Stage Complete · checked locally')).toBe(true);
     expect(requests.some(request => request.url.endsWith("/export"))).toBe(false);
     fireEvent.click(exportButton);
     const driveNote = await waitFor(() => within(storageNode()).getByText("Drive not configured"));
