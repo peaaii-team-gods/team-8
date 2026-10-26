@@ -6994,4 +6994,4 @@ Medicare Managed Care Plan is not a single-plan baseline here: 12 comparison gro
 Small-n medians (some groups contain one plan) are indicative only.
 Percent/algorithm prices are stored as percent_rate/algorithm and never converted into dollar rates.
 Non-dollar payer entries stored with a null rate (excluded from medians): 29340.
-Quarantined source items: 0.
+Quarantined rows: 0.

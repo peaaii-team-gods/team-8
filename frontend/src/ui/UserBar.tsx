@@ -24,7 +24,7 @@ export default function UserBar({ mode, username, signedIn, busy, publicSource, 
     >
       <span className="font-display text-sm text-fuchsia-100">Team 8</span>
       {publicSource ? <span>Public hospital source</span> : <SyntheticBadge />}
-      <span data-testid="mode-label">{publicSource ? `Pipeline: local server · Model: ${hospitalModelLive ? "live" : "golden path"}` : `Mode: ${mode}${mode === "live" && !signedIn ? " — sign in required" : ""}`}</span>
+      <span data-testid="mode-label">{publicSource ? `Pipeline: local server · Model: ${hospitalModelLive ? "live" : "recorded path"}` : `Mode: ${mode}${mode === "live" && !signedIn ? " — sign in required" : ""}`}</span>
       <span className="ml-auto flex items-center gap-2">
         {mode === "live" && signedIn && <span data-testid="user-name">{username ?? "Signed in"}</span>}
         {mode === "live" && !signedIn && (

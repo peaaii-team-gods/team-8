@@ -9,6 +9,7 @@ afterEach(() => cleanup());
 it("pages report sections and shows the MA caveat from the recorded report artifact", () => {
   const md = readFileSync("../fixtures/hospital-full-report.md", "utf8");
   const parsed = tablesFromReport(md);
+  expect(parsed.caveat).toContain('cross-payer label shared by 11 payer names');
   expect(md).toContain("Codes with commercial and MA medians");
   expect(md).toContain("Per-payer spread (dollar rates)");
   expect(md).toContain("Medicare Managed Care Plan is not a single-plan baseline here");

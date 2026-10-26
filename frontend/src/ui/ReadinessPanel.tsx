@@ -68,7 +68,7 @@ export default function ReadinessPanel({
       )}
       {hospitalScenario && (
         <p className="mb-2" data-testid="hospital-readiness-summary">
-          {mode === "live" ? "RHM live stack: connected" : "RHM live stack: not connected - golden path used"}
+          {mode === "live" ? "RHM live stack: connected" : "RHM live stack: not connected - recorded path used"}
         </p>
       )}
       {loading && <p className="mb-2 opacity-60">Reading readiness…</p>}

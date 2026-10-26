@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { RhmAdapter, RunHandle } from "../adapters/RhmAdapter";
 import { useStore } from "../state/store";
-import { HOSPITAL_EXPORT_EVENT, hospitalModels, pipelineHeaders, pipelineRequest, runPath, type ModelView, type PipelineRecord } from "../run/hospitalPipeline";
+import { HOSPITAL_EXPORT_EVENT, hospitalModels, matchesGoldenFingerprint, pipelineHeaders, pipelineRequest, runPath, type ModelView, type PipelineRecord } from "../run/hospitalPipeline";
 import { openHospitalReportDialog } from "./HospitalReportTable";
 const presets: Record<string, string[]> = { source: ["hospital-source"], builder: ["mrf-hospital-builder", "mrf-hospital-maintainer"], store: ["hospital-store"], analyst: ["hospital-analyst"] };
 const stepNames: Record<string, string> = { source: "Scout", builder: "Architect", store: "Ledger", analyst: "Analyst" };
@@ -13,9 +13,6 @@ const failureLine = (step: PipelineRecord["steps"][number]) => {
   return rate
     ? `Injected error: fields.rate expected ${String(rate.expected)}, got ${String(rate.actual)}${typeof inserted?.actual === "number" && typeof inserted.expected === "number" && inserted.pass === false ? ` - ${inserted.actual}/${inserted.expected} rows` : ""}` : "";
 };
-const matchesGoldenFingerprint = (record: PipelineRecord | null) => (record?.steps ?? [])
-  .flatMap(step => eventsFor(step, "trace"))
-  .some(event => typeof event.golden_source_sha256 === "string" && event.sha256 === event.golden_source_sha256);
 const repairLine = (step: PipelineRecord["steps"][number], golden: boolean) => {
   const repair = eventsFor(step, "repair").find(event => event.label === "injected");
   const checks = Array.isArray(repair?.checks) ? repair.checks as Record<string, unknown>[] : [];
@@ -45,23 +42,24 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
   const [inject, setInject] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(""), [artifactError, setArtifactError] = useState("");
   const [model, setModel] = useState<ModelView>({}), [exportNote, setExportNote] = useState(""), [exporting, setExporting] = useState(false);
   const [reportMd, setReportMd] = useState("");
+  const golden = matchesGoldenFingerprint(record?.steps ?? []);
   const active = useRef<AbortController | null>(null), handles = useRef<RunHandle[]>([]), exportLink = useRef("");
   useEffect(() => () => { active.current?.abort(); for (const handle of handles.current) void adapter?.cancel(handle).catch(() => undefined); }, [adapter]);
   useEffect(() => {
     if (!record || !id) return;
     const store = useStore.getState();
-    const repairNote = model.repair ? `Model repair: ${model.repair.valid ? "valid" : "invalid"} / ${model.matchesRepair ? "matches golden" : "differs from golden"}` : model.unavailable ? "model unavailable, golden path used" : "";
+    const repairNote = model.repair ? `Model repair: ${model.repair.valid ? "valid" : "invalid"}${golden ? ` / ${model.matchesRepair ? "matches golden" : "differs from golden"}` : ""}` : model.unavailable ? "model unavailable, recorded path used" : "";
     for (const node of store.nodes) {
       const step = record.steps.find(step => presets[step.node]?.includes(node.data.presetId));
       const telemetry = step?.telemetry.filter(event => event.type !== "evidence") ?? [];
       const view = node.data.presetId === "hospital-store" ? { counts: step?.counts, telemetry, hospitalRunId: id, hospitalComplete: record.status === "completed", exportNote, exporting }
         : node.data.presetId === "mrf-hospital-maintainer" ? { counts: step?.counts, telemetry, modelRepair: repairNote }
-        : node.data.presetId === "hospital-analyst" ? { counts: step?.counts, telemetry, analystText: reportMd, summaryNote: model.rejected !== undefined ? `Summary rejected by guard: ${model.rejected} unsupported figures` : model.summary ? "Model summary · guard passed" : model.unavailable ? "model unavailable, golden path used" : "" } : null;
+        : node.data.presetId === "hospital-analyst" ? { counts: step?.counts, telemetry, analystText: reportMd, summaryNote: model.rejected !== undefined ? `Summary rejected by guard: ${model.rejected} unsupported figures` : model.summary ? "Model summary · guard passed" : model.unavailable ? "model unavailable, recorded path used" : "" } : null;
       if (view) {
         store.setNodeStatus(node.id, node.data.status, JSON.stringify(view), node.data.verification);
       }
     }
-  }, [record, id, model, exportNote, exporting, reportMd]);
+  }, [record, id, model, exportNote, exporting, reportMd, golden]);
   const start = async () => {
     if (signedOut) return;
     const controller = new AbortController(); active.current?.abort(); active.current = controller; handles.current = [];
@@ -112,7 +110,6 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
     return () => window.removeEventListener(HOSPITAL_EXPORT_EVENT, onExport);
   }, [record?.status, id, exporting]);
   const events = record?.steps.flatMap(step => step.telemetry) ?? [], top = events.find(event => event.type === "top10");
-  const golden = matchesGoldenFingerprint(record);
   const reportTitle = golden ? "Golden SQL report" : "No golden for this file";
   return <section className="glass space-y-2 p-3 text-xs" aria-label="Hospital pipeline">
     <h2 className="font-semibold">Hospital pipeline · deterministic record</h2>
@@ -126,10 +123,10 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
       <strong>{stepNames[step.node] ?? step.node}</strong>: {step.status}
       <span className="ml-1 text-white/70">· {humanSummary(step, golden)}</span>
       <details className="mt-1"><summary>Show details</summary><pre className="max-h-56 overflow-auto whitespace-pre-wrap">{JSON.stringify(step.telemetry.filter(event => !["evidence", "top10"].includes(event.type)), null, 2)}</pre></details>
-      {step.node === "builder" && model.repair && <p>Model repair: {model.repair.valid ? "valid" : "invalid"} / {model.matchesRepair ? "matches golden" : "differs from golden"}</p>}
+      {step.node === "builder" && model.repair && <p>Model repair: {model.repair.valid ? "valid" : "invalid"}{golden && <> / {model.matchesRepair ? "matches golden" : "differs from golden"}</>}</p>}
     </div>)}
-    {model.mapping && <p>Model mapping: {model.mapping.valid ? "valid" : "invalid"} / {model.mapping.matches_golden ? "matches golden" : "differs from golden"}</p>}
-    {model.unavailable && <p className="text-white/60">model unavailable, golden path used</p>}
+    {model.mapping && <p>Model mapping: {model.mapping.valid ? "valid" : "invalid"}{golden && <> / {model.mapping.matches_golden ? "matches golden" : "differs from golden"}</>}</p>}
+    {model.unavailable && <p className="text-white/60">model unavailable, recorded path used</p>}
     {top && <section aria-label={reportTitle} className="space-y-2">
       <h3 className="font-semibold">{reportTitle}</h3>
       <p>Commercial vs Medicare Managed Care Plan median, this hospital's file</p>

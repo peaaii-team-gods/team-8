@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ANALYST_INPUT_CAP, analystSqlRows, pipelineHeaders, pipelineRequest } from "./hospitalPipeline";
+import { ANALYST_INPUT_CAP, analystSqlRows, hospitalModels, pipelineHeaders, pipelineRequest, type PipelineRecord } from "./hospitalPipeline";
+import { tablesFromReport } from "../ui/HospitalReportTable";
+import { useStore } from "../state/store";
+import type { RhmAdapter } from "../adapters/RhmAdapter";
+// @ts-ignore -- test-only Node builtin
+import { readFileSync } from "node:fs";
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -32,5 +37,35 @@ describe("hospital pipeline client bearer", () => {
     expect(text.length).toBeLessThanOrEqual(ANALYST_INPUT_CAP);
     expect(JSON.parse(text).top_groups).toHaveLength(10);
     expect(JSON.parse(text).aggregates.n_groups).toBe(6938);
+  });
+
+  it("bounds even oversized individual groups", () => {
+    const text = analystSqlRows({ type: 'top10', rows: [{ description: 'x'.repeat(100_000) }], spread: [], baseline_label: 'x'.repeat(100_000) });
+    expect(text.length).toBeLessThanOrEqual(ANALYST_INPUT_CAP);
+  });
+
+  it("dispatches the live Analyst with all 6938 full-file groups available", async () => {
+    useStore.getState().loadScenario('hospital-pipeline');
+    const report = tablesFromReport(readFileSync('../fixtures/hospital-full-report.md', 'utf8'));
+    expect(report.rows).toHaveLength(6938);
+    const record: PipelineRecord = { status: 'completed', steps: [{ node: 'analyst', status: 'completed', counts: {}, telemetry: [
+      { type: 'evidence', source_excerpt: {} },
+      { type: 'top10', rows: report.rows, row_count: report.rows.length, spread: report.spread },
+    ] }] };
+    const dispatched: string[] = [];
+    const adapter: RhmAdapter = { mode: 'live', capabilities: async () => null, cancel: async () => undefined,
+      run: async (nodeId, workflow) => {
+        if (workflow.inputs.sql_rows) dispatched.push(workflow.inputs.sql_rows);
+        return { nodeId, runId: 'local-model-test' };
+      },
+      poll: async handle => ({ nodeId: handle.nodeId, status: 'succeeded', basis: 'agent_reported', output: JSON.stringify({ summary: 'Full-file comparisons available.' }) }),
+    };
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ ok: true, mapping: { valid: true, matches_golden: true } })));
+    const view = await hospitalModels(adapter, 'test', record, 0, new AbortController().signal, () => undefined);
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0].length).toBeLessThan(ANALYST_INPUT_CAP);
+    expect(JSON.parse(dispatched[0]).row_count).toBe(6938);
+    expect(view.summary).toBe('Full-file comparisons available.');
+    expect(view.unavailable).toBeUndefined();
   });
 });

@@ -159,7 +159,6 @@ def test_source_path_repair_rejects_invalid_mapping(tmp_path, capsys):
 
 def test_running_run_is_not_evicted(tmp_path, monkeypatch):
     from server import pipeline_server as mod
-    monkeypatch.setattr(mod, 'RETAIN_IDLE_S', 0)
     entered, release = threading.Event(), threading.Event()
     state = {'hold': True}
     def pipeline(run_id, emit, data_dir):
@@ -171,6 +170,8 @@ def test_running_run_is_not_evicted(tmp_path, monkeypatch):
     service = PipelineService(data_dir=tmp_path, pipeline=pipeline)
     _, running, _ = service.route('POST', '/api/pipeline/run', b'{"source":"south-shore","inject_error":false}')
     assert entered.wait(2)
+    # More than 30 minutes unpolled, while the worker is still running.
+    service.runs[running['run_id']]['_accessed'] = time.monotonic() - mod.RETAIN_IDLE_S - 1
     state['hold'] = False
     for _ in range(3):
         status, value, _ = service.route('POST', '/api/pipeline/run', b'{"source":"south-shore","inject_error":false}')
@@ -183,17 +184,27 @@ def test_running_run_is_not_evicted(tmp_path, monkeypatch):
 
 def test_idle_finished_run_folder_is_deleted(tmp_path, monkeypatch):
     from server import pipeline_server as mod
-    monkeypatch.setattr(mod, 'RETAIN_IDLE_S', 0)
     service = PipelineService(data_dir=tmp_path, pipeline=fake_pipeline)
     _, first, _ = service.route('POST', '/api/pipeline/run', b'{"source":"south-shore","inject_error":false}')
     service.threads[first['run_id']].join(5)
     assert (tmp_path / 'runs' / first['run_id']).is_dir()
-    service.runs[first['run_id']]['_accessed'] = 0
+    service.runs[first['run_id']]['_accessed'] = time.monotonic() - mod.RETAIN_IDLE_S - 1
     _, second, _ = service.route('POST', '/api/pipeline/run', b'{"source":"south-shore","inject_error":false}')
     service.threads[second['run_id']].join(5)
     assert route(service, 'GET', '/api/pipeline/runs/' + first['run_id'])[0] == 404
     assert not (tmp_path / 'runs' / first['run_id']).exists()
     assert (tmp_path / 'runs' / second['run_id']).is_dir()
+
+
+def test_polled_finished_run_survives_retention(tmp_path):
+    from server import pipeline_server as mod
+    service, run_id = ready(tmp_path)
+    service.runs[run_id]['_accessed'] = time.monotonic() - mod.RETAIN_IDLE_S - 1
+    assert route(service, 'GET', '/api/pipeline/runs/' + run_id)[0] == 200
+    with service.lock:
+        service._retain()
+    assert run_id in service.runs
+    assert (tmp_path / 'runs' / run_id).is_dir()
 
 
 def test_timeout_retries_then_cached_pipeline_run(tmp_path, monkeypatch):
@@ -352,3 +363,48 @@ def test_failing_check_fails_the_run(tmp_path, monkeypatch):
         'name': 'fields.rate', 'pass': False, 'expected': 'standard_charge_dollar', 'actual': 'missing'})
     with pytest.raises(ValueError, match='checks_failed'):
         run_pipeline('fail-check', lambda *_: None, tmp_path, discoverer=_slice_discover(source))
+
+
+def test_no_golden_self_consistency_failure_marks_service_failed(tmp_path, monkeypatch):
+    from server import pipeline_server as mod
+    source = tmp_path / 'source.json'
+    source.write_bytes((ROOT / 'fixtures' / 'hospital-v3-slice.json').read_bytes())
+    real_ingest = mod.ingest_file
+    def corrupted(path, **kwargs):
+        parsed = real_ingest(path, **kwargs)
+        if kwargs.get('rate_key') == 'standard_charge_amount':
+            parsed['rows'][0]['description'] = 'unexpected mutation'
+        return parsed
+    monkeypatch.setattr(mod, 'ingest_file', corrupted)
+    monkeypatch.setattr(mod, 'discover', _slice_discover(source))
+    def pipeline(run_id, emit, data_dir):
+        return run_pipeline(run_id, emit, data_dir, inject_error=True, discoverer=_slice_discover(source))
+    service = PipelineService(data_dir=tmp_path, pipeline=pipeline)
+    _, created, _ = service.route('POST', '/api/pipeline/run', b'{"source":"south-shore","inject_error":true}')
+    service.threads[created['run_id']].join(5)
+    status, record = route(service, 'GET', '/api/pipeline/runs/' + created['run_id'])
+    assert status == 200 and record['status'] == 'failed'
+    checks = [check for step in record['steps'] for event in step['telemetry'] for check in event.get('checks', [])]
+    assert any(check['name'] == 'self-consistency' and not check['pass'] for check in checks)
+    assert not (tmp_path / 'runs' / created['run_id']).exists()
+
+
+def test_pipeline_releases_each_ingest_row_buffer(tmp_path, monkeypatch):
+    import gc
+    import weakref
+    from server import pipeline_server as mod
+    source = tmp_path / 'source.json'
+    source.write_bytes((ROOT / 'fixtures' / 'hospital-v3-slice.json').read_bytes())
+    real_ingest, buffers = mod.ingest_file, []
+    class Rows(list):
+        pass
+    def tracked(path, **kwargs):
+        parsed = real_ingest(path, **kwargs)
+        parsed['rows'] = Rows(parsed['rows'])
+        buffers.append(weakref.ref(parsed['rows']))
+        return parsed
+    monkeypatch.setattr(mod, 'ingest_file', tracked)
+    assert run_pipeline('release-buffers', lambda *_: None, tmp_path, inject_error=True,
+                        discoverer=_slice_discover(source)) == {}
+    gc.collect()
+    assert len(buffers) == 3 and all(ref() is None for ref in buffers)

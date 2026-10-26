@@ -26,10 +26,11 @@ const result = { status: "completed", report_md: report, steps: [
 ] };
 const response = (data: unknown) => new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json" } });
 const load = (name: string) => JSON.parse(readFileSync(`../fixtures/${name}`, "utf8"));
-function modelSetup(summary: string, broken = false) {
+function modelSetup(summary: string, broken = false, noGolden = false) {
   useStore.getState().loadScenario("hospital-pipeline");
   const mapping = load("hospital-golden-mapping.json"), repair = load("hospital-golden-repair.json");
   const snapshot = structuredClone(result);
+  if (noGolden) snapshot.steps[0].telemetry[0].sha256 = "different-input";
   const evidence = { type: "evidence", source_excerpt: { standard_charge_dollar: 120 }, drift_excerpt: { standard_charge_amount: 120 }, golden_mapping: mapping, golden_repair: repair };
   (snapshot.steps[1].telemetry as unknown[]).push(evidence);
   (snapshot.steps[1].telemetry as unknown[]).push({ type: "checks", checks: [{ name: "fields.rate", pass: false, expected: "standard_charge_dollar", actual: "missing" }, { name: "after_repair", pass: true }] });
@@ -90,7 +91,7 @@ describe("hospital canvas deterministic record", () => {
     expect(screen.getAllByText(/injected/).length).toBeGreaterThan(0);
     expect(screen.getByText("Medicare Advantage rates in this hospital's file")).toBeTruthy();
     expect(screen.getByRole("link", { name: "rows.csv" }).getAttribute("href")).toBe("/api/pipeline/runs/run-test/artifacts/rows.csv");
-    expect(screen.getByText("model unavailable, golden path used")).toBeTruthy();
+    expect(screen.getByText("model unavailable, recorded path used")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Export to Google Drive (direct API, not MCP)" }));
     await screen.findByText("Drive not configured");
     const exportRequest = requests.find(r => r.url.endsWith("/export"))!;
@@ -119,7 +120,7 @@ describe("hospital canvas deterministic record", () => {
     const detailSummaries = screen.getAllByText("Show details");
     expect(detailSummaries).toHaveLength(4);
     expect(detailSummaries.every(summary => summary.closest("details")?.open === false)).toBe(true);
-    expect(screen.getByText("model unavailable, golden path used")).toBeTruthy();
+    expect(screen.getByText("model unavailable, recorded path used")).toBeTruthy();
     const source = useStore.getState().nodes.find(node => node.data.presetId === "hospital-source")!;
     expect(JSON.parse(source.data.output!).telemetry.find((event: { type: string }) => event.type === "trace").trace.map((item: { url: string }) => item.url)).toEqual([
       "https://www.southshorehealth.org/cms-hpt.txt",
@@ -141,8 +142,23 @@ describe("hospital canvas deterministic record", () => {
     await screen.findByRole("heading", { name: "No golden for this file" });
     expect(screen.queryByText("Golden SQL report")).toBeNull();
     expect(screen.queryByText(/remains golden/)).toBeNull();
+    expect(screen.queryByText(/golden path|matches golden|differs from golden|Golden repair/)).toBeNull();
+    await screen.findByText("model unavailable, recorded path used");
     expect(snapshot.steps[0].telemetry[0].sha256).not.toBe(snapshot.steps[0].telemetry[0].golden_source_sha256);
     expect(JSON.stringify(snapshot)).not.toMatch(/no_golden|no-golden|golden_label/);
+  });
+
+  it("does not claim golden model comparisons or node notes for another file", async () => {
+    const model = modelSetup("The selected rate is $120.", false, true);
+    render(<HospitalPipelinePanel adapter={model.adapter} budget={0} />);
+    fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
+    await screen.findByText("Model summary · guard passed");
+    expect(screen.getByText("Model repair: valid")).toBeTruthy();
+    expect(screen.getByText("Model mapping: valid")).toBeTruthy();
+    expect(screen.queryByText(/matches golden|differs from golden|remains golden|Golden repair/)).toBeNull();
+    const furnace = useStore.getState().nodes.find(node => node.data.presetId === "mrf-hospital-maintainer")!;
+    expect(JSON.parse(furnace.data.output!).modelRepair).toBe("Model repair: valid");
+    expect(model.requests.filter(r => r.url.endsWith('/artifacts/report.md'))).toHaveLength(1);
   });
 
   it("exports only on click and shows the returned folder", async () => {
@@ -216,7 +232,7 @@ describe("hospital canvas deterministic record", () => {
     const model = modelSetup("unused", true);
     render(<HospitalPipelinePanel adapter={model.adapter} budget={0} />);
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
-    await screen.findByText("model unavailable, golden path used");
+    await screen.findByText("model unavailable, recorded path used");
     expect(screen.getByRole("button", { name: "Open full report" })).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(useStore.getState().pipelineStage).toBe("complete");
@@ -280,7 +296,7 @@ describe("hospital canvas deterministic record", () => {
     expect(gated).toBeNull();
     render(<HospitalPipelinePanel adapter={gated} budget={1} />);
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
-    await screen.findByText("model unavailable, golden path used");
+    await screen.findByText("model unavailable, recorded path used");
     expect(model.workflows).toHaveLength(0);
     expect(model.requests.some(r => r.url.endsWith("/proposals") || r.url.endsWith("/summary"))).toBe(false);
   });

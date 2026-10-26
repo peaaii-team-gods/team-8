@@ -8,13 +8,16 @@ import { liveProviderBlocked, type InferenceStatus } from "../adapters/inference
 export interface PipelineEvent { type: string; [key: string]: unknown }
 export interface PipelineStep { node: string; status: string; counts: Record<string, unknown>; telemetry: PipelineEvent[] }
 export interface PipelineRecord { status: string; steps: PipelineStep[]; report_md?: string }
+export const matchesGoldenFingerprint = (steps: Pick<PipelineStep, "telemetry">[]) => steps
+  .flatMap(step => step.telemetry)
+  .some(event => event.type === "trace" && typeof event.golden_source_sha256 === "string" && event.sha256 === event.golden_source_sha256);
 export const ANALYST_INPUT_CAP = 32_768;
 export function analystSqlRows(top: PipelineEvent): string {
   const rows = Array.isArray(top.rows) ? top.rows as unknown[] : [];
   const spread = Array.isArray(top.spread) ? top.spread as unknown[] : [];
   const payload: Record<string, unknown> = {
     row_count: Number(top.row_count ?? rows.length),
-    baseline_label: top.baseline_label ?? "",
+    baseline_label: String(top.baseline_label ?? "").slice(0, 400),
     top_groups: rows.slice(0, 10),
     spread_groups: spread,
     aggregates: { n_groups: Number(top.row_count ?? rows.length), n_spread: spread.length },
@@ -23,6 +26,10 @@ export function analystSqlRows(top: PipelineEvent): string {
   if (text.length > ANALYST_INPUT_CAP) {
     payload.spread_groups = [];
     payload.top_groups = rows.slice(0, 3);
+    text = JSON.stringify(payload);
+  }
+  while (text.length > ANALYST_INPUT_CAP && (payload.top_groups as unknown[]).length) {
+    (payload.top_groups as unknown[]).pop();
     text = JSON.stringify(payload);
   }
   return text;

@@ -5,7 +5,7 @@ import { useStore } from "../state/store";
 import { formatTokens, formatUsageCost } from "../run/telemetry";
 import { matchingSchemaId, parseSchemaText } from "../registry/schemas";
 import { attachmentById, mcpPosture } from "../registry/mcpLinkage";
-import { HOSPITAL_EXPORT_EVENT } from "../run/hospitalPipeline";
+import { HOSPITAL_EXPORT_EVENT, matchesGoldenFingerprint, type PipelineEvent } from "../run/hospitalPipeline";
 import HospitalReportTable, { openHospitalReportDialog, tablesFromReport } from "../ui/HospitalReportTable";
 
 const ACCENT: Record<string, string> = {
@@ -41,15 +41,20 @@ function Shell({ data, id, isLake }: { data: CanvasNode["data"]; id: string; isL
   const top = telemetry.find(event => event.type === "top10");
   const counts = hospitalView.counts as Record<string, unknown> | undefined;
   const selfRepair = Array.isArray(repair?.checks) ? (repair.checks as Record<string, unknown>[]).find(check => check.name === "self-consistency") : undefined;
+  let golden = false;
+  try {
+    const source = JSON.parse(nodes.find(node => node.data.presetId === "hospital-source")?.data.output ?? "{}");
+    golden = matchesGoldenFingerprint([{ telemetry: Array.isArray(source.telemetry) ? source.telemetry as PipelineEvent[] : [] }]);
+  } catch { /* No source fingerprint yet. */ }
   const restored = repairedRows?.pass === true
-    ? { label: "Golden repair", actual: repairedRows.actual, expected: repairedRows.expected }
+    ? { label: golden ? "Golden repair" : "Self-consistency repair", actual: repairedRows.actual, expected: repairedRows.expected }
     : selfRepair && typeof counts?.rows_repaired === "number" && Number(counts.rows_repaired) > 0
       ? { label: "Self-consistency repair", actual: counts.rows_repaired, expected: counts.rows_repaired }
       : undefined;
   const parsedReport = typeof hospitalView.analystText === "string" && hospitalView.analystText
     ? tablesFromReport(hospitalView.analystText) : { rows: [] as Record<string, string>[], spread: [] as Record<string, string>[], caveat: "" };
   const reportNotes = typeof hospitalView.analystText === "string"
-    ? hospitalView.analystText.split(/\r?\n/).map(line => line.trim()).filter(line => /^(Small-n medians|Percent\/algorithm prices|Excluded non-dollar payer entries:|Non-dollar payer entries stored with a null rate|Quarantined source items:)/.test(line))
+    ? hospitalView.analystText.split(/\r?\n/).map(line => line.trim()).filter(line => /^(Small-n medians|Percent\/algorithm prices|Excluded non-dollar payer entries:|Non-dollar payer entries stored with a null rate|Quarantined rows:)/.test(line))
     : [];
   const hospitalNode = ["hospital-source", "mrf-hospital-builder", "mrf-hospital-maintainer", "hospital-store", "hospital-analyst"].includes(data.presetId);
   const tethered = edges

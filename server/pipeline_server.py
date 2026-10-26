@@ -278,14 +278,14 @@ class PipelineService:
                 result = self.pipeline(run_id, emit, self.data_dir)
             with self.lock:
                 self.runs[run_id].update(result, status='completed', _accessed=time.monotonic())
-                self._retain()
+                self._retain(reserved=run_id)
         except Exception:
             with self.lock:
                 self.runs[run_id].update(status='failed', error='pipeline_failed', _accessed=time.monotonic())
                 for step in self.runs[run_id]['steps']:
                     if step['status'] == 'running':
                         step['status'] = 'failed'
-                self._retain()
+                self._retain(reserved=run_id)
             print(f'pipeline_failed run_id={run_id}', file=sys.stderr)
 
     def _forget(self, rid):

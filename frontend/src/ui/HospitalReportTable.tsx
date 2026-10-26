@@ -25,7 +25,8 @@ function parseTable(md: string, headers: string[], keys: readonly (readonly [str
 }
 
 export function tablesFromReport(md: string) {
-  const caveat = md.split(/\r?\n/).map(line => line.trim()).find(line => line.includes("Medicare Managed Care Plan is")) ?? "";
+  const caveat = [...new Set(md.split(/\r?\n/).map(line => line.trim())
+    .filter(line => line.startsWith("Medicare Managed Care Plan is")))].join(" ");
   return { rows: parseTable(md, REPORT_HEADERS, REPORT), spread: parseTable(md, SPREAD_HEADERS, SPREAD), caveat };
 }
 

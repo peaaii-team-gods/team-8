@@ -219,7 +219,7 @@ def render_full_report(rows, spread, *, excluded_counts=None, metrics=None):
     lines.extend(['', caveat, '', 'Small-n medians (some groups contain one plan) are indicative only.',
                   'Percent/algorithm prices are stored as percent_rate/algorithm and never converted into dollar rates.',
                   f"Non-dollar payer entries stored with a null rate (excluded from medians): {counts.get('skipped_no_dollar_count', 0)}.",
-                  f"Quarantined source items: {counts.get('quarantined_row_count', 0)}.", ''])
+                  f"Quarantined rows: {counts.get('quarantined_row_count', 0)}.", ''])
     text = '\n'.join(lines)
     if summary_violations(text, rows + spread):
         raise ValueError('report contains unsupported dollar figures')

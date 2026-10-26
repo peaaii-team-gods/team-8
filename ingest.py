@@ -53,9 +53,9 @@ def _stream_items(path):
     decoder, incremental, hasher = json.JSONDecoder(), codecs.getincrementaldecoder("utf-8-sig")(), hashlib.sha256()
     buf, parsed, header, n = "", 0, None, 0
     with Path(path).open("rb") as stream:
-        def pull():
+        def pull(size=CHUNK):
             nonlocal buf, n
-            chunk = stream.read(CHUNK)
+            chunk = stream.read(size)
             if chunk:
                 hasher.update(chunk); n += len(chunk); buf += incremental.decode(chunk, False)
             return chunk
@@ -83,16 +83,18 @@ def _stream_items(path):
             try:
                 item, end = decoder.raw_decode(buf, parsed)
             except json.JSONDecodeError:
-                if len(buf) - parsed > CHUNK:
+                remaining = len(buf) - parsed
+                if remaining >= CHUNK:
                     print("ingest_item_exceeds_buffer", file=sys.stderr)
                     raise ValueError("MRF item exceeds 1 MB buffer") from None
-                if not pull():
-                    raise ValueError("truncated MRF item") from None
                 if parsed:
                     buf, parsed = buf[parsed:], 0
+                if not pull(CHUNK - remaining):
+                    raise ValueError("truncated MRF item") from None
                 continue
             buf, parsed = buf[end:], 0
             yield item
+        buf = ""
         while pull():
             buf = ""
         incremental.decode(b"", True)
@@ -164,7 +166,11 @@ def _row(code, kind, item, charge, payer, facts, rate_key=None):
 def _emit(item, joined, rate_key, rows, counts):
     codes = _codes(item)
     if not codes:
-        counts["quarantined_row_count"] += 1
+        # Count rejected ledger row slots, including a charge with no payer,
+        # using the same charge/payer expansion as valid coded items below.
+        counts["quarantined_row_count"] += max(1, sum(
+            max(1, sum(isinstance(p, dict) for p in charge.get("payers_information") or []))
+            for charge in item.get("standard_charges") or [] if isinstance(charge, dict)))
         return
     for code, kind in codes:
         counts["code_types"][kind] = counts["code_types"].get(kind, 0) + 1

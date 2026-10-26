@@ -115,6 +115,39 @@ def test_malformed_item_does_not_grow_past_one_mb(tmp_path, capsys):
     assert "ingest_item_exceeds_buffer" in err or "ingest_stream_failed" in err
 
 
+def test_malformed_item_stops_reading_before_eof(tmp_path, monkeypatch):
+    from ingest import CHUNK
+    bad = tmp_path / "malformed.json"
+    bad.write_bytes(b'{"version":"3.0.0","standard_charge_information":[{"x":!,' + b' ' * (4 * CHUNK) + b'}]}')
+    read_sizes, opened = [], Path.open
+    class Tracked:
+        def __enter__(self):
+            self.stream = opened(bad, 'rb')
+            return self
+        def __exit__(self, *args):
+            self.stream.close()
+        def read(self, size):
+            data = self.stream.read(size)
+            read_sizes.append(len(data))
+            return data
+    monkeypatch.setattr(Path, 'open', lambda path, *args, **kwargs: Tracked() if path == bad else opened(path, *args, **kwargs))
+    with pytest.raises(ValueError, match='1 MB buffer'):
+        ingest_file(bad)
+    assert sum(read_sizes) <= CHUNK + 128
+
+
+def test_quarantined_count_counts_rejected_row_slots(tmp_path):
+    import json
+    source = tmp_path / 'no-codes.json'
+    source.write_text(json.dumps({'version': '3.0.0', 'standard_charge_information': [
+        {'standard_charges': [{'payers_information': [{}, {}, {}]}, {}]},
+        {'standard_charges': []}]}), encoding='utf-8')
+    parsed = ingest_file(source)
+    assert parsed['counts']['items_parsed'] == 2
+    assert parsed['counts']['quarantined_row_count'] == parsed['metrics']['rows_quarantined'] == 5
+    assert parsed['rows'] == []
+
+
 def test_two_walks_must_agree_on_sha(tmp_path, monkeypatch, capsys):
     import ingest as mod
     real_walk = mod._walk

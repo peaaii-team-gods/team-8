@@ -41,6 +41,23 @@ beforeEach(() => {
 });
 
 describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
+  it("never labels a captured pipeline node Golden when the source fingerprint differs", async () => {
+    const record = JSON.parse(readFileSync('src/ui/fixtures/hospital-run.real.json', 'utf8'));
+    record.steps[0].telemetry.find((event: { type: string }) => event.type === 'trace').sha256 = 'another-file';
+    vi.stubGlobal('fetch', async (url: string) => url.endsWith('/artifacts/report.md')
+      ? new Response(readFileSync('../fixtures/hospital-full-report.md', 'utf8'))
+      : new Response(JSON.stringify(url.endsWith('/run') ? { run_id: 'run-other' } : record)));
+    renderApp();
+    fireEvent.click(screen.getByRole('button', { name: /Enter canvas/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Hospital source to SQL' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Run hospital pipeline' }));
+    await screen.findByRole('heading', { name: 'No golden for this file' });
+    const furnace = useStore.getState().nodes.find(node => node.data.presetId === 'mrf-hospital-maintainer')!;
+    await waitFor(() => expect(screen.getByTestId(`node-${furnace.id}`).textContent).toContain('Self-consistency repair: 127887/127887'));
+    expect(screen.queryByText(/Golden repair|golden path|matches golden|differs from golden/)).toBeNull();
+  });
+
   it("shows the hospital's presentation labels and keeps unavailable capabilities in a closed disclosure", async () => {
     renderApp();
     fireEvent.click(screen.getByRole("button", { name: /Enter canvas/i }));
@@ -59,7 +76,7 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
       expect(screen.getByText(description)).toBeTruthy();
     }
     expect(screen.queryByText("Mode: simulated")).toBeNull();
-    expect(screen.getByText("Pipeline: local server · Model: golden path")).toBeTruthy();
+    expect(screen.getByText("Pipeline: local server · Model: recorded path")).toBeTruthy();
     const unavailable = await screen.findAllByText("unavailable");
     expect(unavailable.length).toBeGreaterThan(0);
     expect(unavailable.every(chip => chip.closest("details") && !chip.closest("details")!.open)).toBe(true);
@@ -68,13 +85,13 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     expect(css).toMatch(/\.react-flow__attribution\s*\{[^}]*background:\s*rgba\(7,\s*3,\s*18,/s);
   });
 
-  it("shows the golden-path readiness line in simulated hospital mode", async () => {
+  it("shows the recorded-path readiness line in simulated hospital mode", async () => {
     renderApp();
     fireEvent.click(screen.getByRole("button", { name: /Enter canvas/i }));
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     fireEvent.click(screen.getByRole("button", { name: "Hospital source to SQL" }));
     const summary = await screen.findByTestId("hospital-readiness-summary");
-    expect(summary.textContent).toBe("RHM live stack: not connected - golden path used");
+    expect(summary.textContent).toBe("RHM live stack: not connected - recorded path used");
   });
 
   it("renders every actual captured pipeline node, opens the complete SQL report, and exports only on click", async () => {
@@ -124,7 +141,7 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     const analystNode = within(analystElement);
     expect(analystElement.textContent).toContain("Analyst");
     expect(analystElement.textContent).toContain("Finds data patterns through plaintext queries.");
-    expect(analystNode.getByText("model unavailable, golden path used")).toBeTruthy();
+    expect(analystNode.getByText("model unavailable, recorded path used")).toBeTruthy();
     const openReportButton = [...analystElement.querySelectorAll("button")].find(button => button.textContent?.includes("Open full report"))!;
     fireEvent.click(openReportButton);
     const dialog = analystElement.querySelector("dialog") as HTMLDialogElement;
@@ -137,7 +154,7 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     expect(dialog.textContent).toContain("Small-n medians (some groups contain one plan) are indicative only.");
     expect(dialog.textContent).toContain("Percent/algorithm prices are stored as percent_rate/algorithm and never converted into dollar rates.");
     expect(dialog.textContent).toContain("Non-dollar payer entries stored with a null rate (excluded from medians): 29340.");
-    expect(dialog.textContent).toContain("Quarantined source items: 0.");
+    expect(dialog.textContent).toContain("Quarantined rows: 0.");
     expect(dialog.textContent).toContain("Codes with commercial and MA medians");
     expect(dialog.textContent).toContain("Per-payer spread (dollar rates)");
     const furnace = useStore.getState().nodes.find(node => node.data.presetId === "mrf-hospital-maintainer")!;
