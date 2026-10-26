@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import recordedRun from "./fixtures/hospital-run.real.json";
+import preview from "./fixtures/hospital-run.preview.json";
 
 const STAGES: ReadonlyArray<readonly [string, string]> = [
   ["Scout", "finds and verifies the source."],
@@ -10,9 +10,7 @@ const STAGES: ReadonlyArray<readonly [string, string]> = [
 ];
 
 interface PreviewRow { billing_code: string; description: string; commercial_median: number; ma_median: number }
-interface RecordedStep { telemetry: Array<{ type: string; rows?: PreviewRow[] }> }
-const top10 = (recordedRun.steps as unknown as RecordedStep[]).flatMap((s) => s.telemetry).find((t) => t.type === "top10");
-const PREVIEW_ROWS: PreviewRow[] = (top10?.rows ?? []).slice(0, 3);
+const PREVIEW_ROWS: PreviewRow[] = preview.rows;
 
 interface Props {
   mode: "simulated" | "live";
@@ -89,7 +87,7 @@ export default function LandingPage({ mode, onSignIn, onEnterCanvas, onLoadMrf, 
         </section>
         {PREVIEW_ROWS.length > 0 && <section data-testid="recorded-preview" className="mt-10 text-base text-white/85">
           <h2 className="font-display text-xl text-white">Recorded run preview</h2>
-          <p className="text-sm">Largest commercial vs Medicare Advantage differences from a recorded run of this pipeline.</p>
+          <p className="text-sm">Largest commercial vs Medicare Advantage differences from a recorded run of this pipeline (recorded run, commit {preview.source_commit}).</p>
           <table className="mt-2 w-full text-left text-sm">
             <thead><tr><th>Code</th><th>Description</th><th>Commercial median</th><th>MA median</th></tr></thead>
             <tbody>

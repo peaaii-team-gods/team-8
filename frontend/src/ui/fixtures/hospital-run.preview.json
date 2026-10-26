@@ -1,0 +1,55 @@
+{
+  "source": "frontend/src/ui/fixtures/hospital-run.real.json",
+  "source_commit": "5e1d9fb",
+  "source_sha256": "89a9f08fa1ac3b65d2d73d7f9d6cdb382424db64091cea8d10340927a97ebfd7",
+  "rows": [
+    {
+      "billing_code": "Q2058",
+      "code_type": "HCPCS",
+      "billing_class": "facility",
+      "description": "Obecbtge autol up to 400 mil",
+      "commercial_median": 535500,
+      "ma_median": 278250,
+      "gross_charge": null,
+      "discounted_cash": null,
+      "min_charge": 278250,
+      "max_charge": 535500,
+      "n_commercial": 3,
+      "n_MA": 1,
+      "difference": 257250,
+      "ratio": 1.92
+    },
+    {
+      "billing_code": "0308T",
+      "code_type": "HCPCS",
+      "billing_class": "facility",
+      "description": "Insj ocular telescope prosth",
+      "commercial_median": 46344.88,
+      "ma_median": 19727.44,
+      "gross_charge": null,
+      "discounted_cash": null,
+      "min_charge": 19727.44,
+      "max_charge": 46534.93,
+      "n_commercial": 4,
+      "n_MA": 1,
+      "difference": 26617.44,
+      "ratio": 2.35
+    },
+    {
+      "billing_code": "19296",
+      "code_type": "HCPCS",
+      "billing_class": "facility",
+      "description": "Place po breast cath for rad",
+      "commercial_median": 32865.635,
+      "ma_median": 9795.38,
+      "gross_charge": null,
+      "discounted_cash": null,
+      "min_charge": 4562,
+      "max_charge": 33588.83,
+      "n_commercial": 8,
+      "n_MA": 1,
+      "difference": 23070.255,
+      "ratio": 3.36
+    }
+  ]
+}
