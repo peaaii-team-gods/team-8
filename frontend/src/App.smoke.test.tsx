@@ -591,12 +591,12 @@ describe("live provider gate (configured / host-authorized / neither)", () => {
     expect(summary.textContent).toBe("RHM live stack: connected");
   });
 
-  it("lets a configured account Run on Free and requires consent and a positive cap on Premium", async () => {
+  it("requires own-key consent and a positive cap on every tier", async () => {
     liveInference(configuredStatus);
     renderApp();
     fireEvent.click((await screen.findAllByRole("button", { name: /Pilot storyboard/ }))[0]);
     const runBtn = () => screen.getByRole("button", { name: /run pipeline/i }) as HTMLButtonElement;
-    await waitFor(() => expect(runBtn().disabled).toBe(false));
+    await waitFor(() => expect(runBtn().disabled).toBe(true));
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     fireEvent.click(screen.getByRole("radio", { name: "Premium" }));
     await waitFor(() => expect(runBtn().disabled).toBe(true));
@@ -604,14 +604,14 @@ describe("live provider gate (configured / host-authorized / neither)", () => {
     fireEvent.click(screen.getByLabelText(/I permit paid inference/));
     await waitFor(() => expect(runBtn().disabled).toBe(false));
     fireEvent.click(screen.getByRole("radio", { name: "Free" }));
-    await waitFor(() => expect(runBtn().disabled).toBe(false));
+    await waitFor(() => expect(runBtn().disabled).toBe(true));
     fireEvent.click(screen.getByRole("radio", { name: "Premium" }));
     expect((screen.getByLabelText("USD admission budget per agent run") as HTMLInputElement).value).toBe("0");
     expect((screen.getByLabelText(/I permit paid inference/) as HTMLInputElement).checked).toBe(false);
   });
 
   it("opens Settings, returns focus on Escape, and shows the Free server error", async () => {
-    const { run } = liveInference(configuredStatus);
+    const { run } = liveInference(hostOnlyStatus);
     run.mockRejectedValue(new Error("This run needs a spend cap. Choose Premium in Settings and set one."));
     renderApp();
     const settings = await screen.findByRole("button", { name: "Settings" });
@@ -662,10 +662,9 @@ describe("live provider gate (configured / host-authorized / neither)", () => {
     await waitFor(() => expect((screen.getByLabelText(/I permit paid inference/) as HTMLInputElement).checked).toBe(false));
     fireEvent.click(screen.getByRole("radio", { name: "Free" }));
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-    fireEvent.click(screen.getByRole("button", { name: /run pipeline/i }));
-    await waitFor(() => expect(runRequests).toHaveLength(1));
-    expect(workflowRequests[0]).toMatchObject({ workflow: { budget: { max_usd: 0 } } });
-    expect(runRequests[0]).toMatchObject({ paid_inference_consent: false });
+    expect((screen.getByRole("button", { name: /run pipeline/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect(workflowRequests).toHaveLength(0);
+    expect(runRequests).toHaveLength(0);
   });
 
   it("lets a host-authorized account Run and Drift without its own provider", async () => {

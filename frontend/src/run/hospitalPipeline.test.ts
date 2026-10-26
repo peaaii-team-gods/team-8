@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ANALYST_INPUT_CAP, analystSqlRows, hospitalModels, pipelineHeaders, pipelineRequest, type PipelineRecord } from "./hospitalPipeline";
+import { hospitalModelAdapter, ANALYST_INPUT_CAP, analystSqlRows, hospitalModels, pipelineHeaders, pipelineRequest, type PipelineRecord } from "./hospitalPipeline";
 import { tablesFromReport } from "../ui/HospitalReportTable";
 import { useStore } from "../state/store";
 import type { RhmAdapter } from "../adapters/RhmAdapter";
@@ -69,3 +69,11 @@ describe("hospital pipeline client bearer", () => {
     expect(view.unavailable).toBeUndefined();
   });
 });
+
+ it("allows own-key hospital proposals only after explicit consent and cap", () => {
+   const adapter = {mode:"live"} as RhmAdapter;
+   const status = {configured:true,host_models_authorized:false,revision:null,credential_lifetime:"backend_process"} as const;
+   expect(hospitalModelAdapter(adapter,status,"1",true)).toBe(adapter);
+   expect(hospitalModelAdapter(adapter,status,"1",false)).toBeNull();
+   expect(hospitalModelAdapter(adapter,status,"0",true)).toBeNull();
+ });

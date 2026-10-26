@@ -38,7 +38,7 @@ export interface ModelView { mapping?: { valid: boolean; matches_golden: boolean
 export const runPath = (id: string) => `/api/pipeline/runs/${encodeURIComponent(id)}`;
 export const HOSPITAL_EXPORT_EVENT = "hospital-run-export";
 export const hospitalModelAdapter = (adapter: RhmAdapter | null, inference: InferenceStatus | null, spendCap: string, paidConsent: boolean) =>
-  adapter?.mode === "live" && inference?.host_models_authorized && !inference.configured && !liveProviderBlocked(inference, spendCap, paidConsent) ? adapter : null;
+  adapter?.mode === "live" && (inference?.host_models_authorized || inference?.configured) && !liveProviderBlocked(inference, spendCap, paidConsent) ? adapter : null;
 export function pipelineHeaders(token?: string | null, json = false): Record<string, string> {
   return { ...(json ? { "Content-Type": "application/json" } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) };
 }

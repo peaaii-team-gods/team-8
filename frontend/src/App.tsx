@@ -4,7 +4,7 @@ import "@xyflow/react/dist/style.css";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Play, Settings, Square } from "lucide-react";
 import VoidBackground from "./ui/VoidBackground";
-import { liveRunBlocked, type InferenceStatus } from "./adapters/inference";
+import { liveRunBlocked, readOverride, type InferenceStatus } from "./adapters/inference";
 import SessionPanel from "./ui/SessionPanel";
 import MetricsPanel from "./ui/MetricsPanel";
 import ConversationPanel from "./ui/ConversationPanel";
@@ -662,6 +662,11 @@ export default function App() {
         <ConversationPanel />
       </div>
     )}
+    {shellMode === "live" && inference?.configured && <div className="glass absolute bottom-24 left-2 z-20 max-w-sm p-3 text-xs">
+      <p>This run may use a paid model ({readOverride().pin?.model_id ?? "Auto"} / price unavailable).</p>
+      {tier === "free" && <><label><input type="checkbox" checked={paidConsent} disabled={running} onChange={event => setPaidConsent(event.target.checked)} />I permit paid inference for these runs.</label>
+      <label>Spend cap (USD)<input aria-label="Run spend cap (USD)" type="number" min="0" step="0.01" value={spendCap} disabled={running} onChange={event => setSpendCap(event.target.value)} /></label></>}
+    </div>}
     {scenarioId !== "hospital-pipeline" && shellMode === "live" && !inference?.configured && !inference?.host_models_authorized && <p className="glass absolute bottom-[4.5rem] left-2 z-20 max-w-sm p-2 text-xs">Open Settings and add a provider before running.</p>}
     {edges.length > 0 && scenarioId !== "hospital-pipeline" && (
       <div className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2">
@@ -700,7 +705,7 @@ export default function App() {
           <button type="button" disabled={running} className="mt-1 text-[10px] opacity-70 disabled:opacity-50" onClick={() => setView("landing")}>Back to landing</button>
         )}
       </div>
-      {scenarioId === "hospital-pipeline" && <HospitalPipelinePanel key={sessionId} adapter={hospitalModelAdapter(shellMode === "live" ? liveAdapter : null, inference, spendCap, paidConsent)} budget={Number(spendCap)} prepareLocalModel={() => liveAdapter?.setPaidInferenceConsent(false)} mode={shellMode} accessToken={identitySession?.token ?? null} />}
+      {scenarioId === "hospital-pipeline" && <HospitalPipelinePanel key={sessionId} adapter={hospitalModelAdapter(shellMode === "live" ? liveAdapter : null, inference, spendCap, paidConsent)} budget={Number(spendCap)} prepareLocalModel={() => liveAdapter?.setPaidInferenceConsent(paidConsent)} mode={shellMode} accessToken={identitySession?.token ?? null} />}
       {scenarioId !== "hospital-pipeline" && <HistoryPanel mode={shellMode} client={shellMode === "live" ? liveAdapter : null} />}
       <ReadinessPanel
         mode={shellMode === "live" && liveAdapter ? "live" : "simulated"}

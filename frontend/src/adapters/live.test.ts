@@ -51,7 +51,7 @@ describe("LiveAdapter poll mapping", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("http://api/v1/workflows");
     const createInit = fetchMock.mock.calls[0][1] as RequestInit | undefined;
     expect(JSON.parse(String(createInit?.body))).toEqual({ workflow: { schema_version: "workflow.v1" } });
-    expect(JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body))).toEqual({ workflow_id: "w1", paid_inference_consent: false });
+    expect(JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body))).toEqual({ workflow_id: "w1", paid_inference_consent: false, inference_selection: { mode: "auto", tier: "free" } });
     expect(handle).toEqual({ nodeId: "a1", runId: "r1" });
     const out = await pollUntilTerminal(a, handle, { sleep: async () => undefined, intervalMs: 0 });
     expect(fetchMock.mock.calls.map((c) => String(c[0]))).toContain("http://api/v1/runs/r1/outputs");
@@ -224,3 +224,30 @@ describe("LiveAdapter poll mapping", () => {
     await expect(adapter().run("a1", {} as never)).rejects.toThrow("Sign in again to run this agent.");
   });
 });
+
+ describe("saved run selection", () => {
+   afterEach(() => localStorage.clear());
+   it.each([null, {model_id:"paid/model",is_free:false}])("sends Auto tier or a pinned primary connection without granting consent", async pin => {
+     localStorage.setItem("crucible.modelOverride.v1", JSON.stringify({v:1,tier:"cheap_fast",pin}));
+     const calls: {url:string; body?:unknown}[] = [];
+     vi.stubGlobal("fetch", async (url:string, init?:RequestInit) => {
+       calls.push({url,body:init?.body ? JSON.parse(String(init.body)) : undefined});
+       return json(url.endsWith("inference-connections") ? {connections:[{id:"a".repeat(32)}]} : url.endsWith("workflows") ? {workflow_id:"w"} : {run_id:"r"});
+     });
+     await adapter().run("a", {} as never);
+     expect(calls.find(c=>c.url.endsWith("/runs"))?.body).toEqual({workflow_id:"w",paid_inference_consent:false,inference_selection:pin ? {mode:"manual",connection_id:"a".repeat(32),model_id:pin.model_id,allow_fallback:false} : {mode:"auto",tier:"cheap_fast"}});
+   });
+   it("fails closed on missing connection id before creating a workflow", async () => {
+     localStorage.setItem("crucible.modelOverride.v1", JSON.stringify({v:1,tier:"free",pin:{model_id:"m",is_free:true}}));
+     const mock = vi.fn(async () => json({connections:[{}]})); vi.stubGlobal("fetch", mock);
+     await expect(adapter().run("a", {} as never)).rejects.toThrow("Invalid primary inference connection id");
+     expect(mock).toHaveBeenCalledTimes(1);
+   });
+   it("uses Auto for host-model users even with a stale pin", async () => {
+     localStorage.setItem("crucible.modelOverride.v1", JSON.stringify({v:1,tier:"free",pin:{model_id:"host",is_free:true}}));
+     const mock = vi.fn(async (url:string, _init?:RequestInit) => json(url.endsWith("inference-connections") ? {connections:[]} : {workflow_id:"w",run_id:"r"}));
+     vi.stubGlobal("fetch", mock);
+     await adapter().run("a", {} as never);
+     expect(JSON.parse(String(mock.mock.calls.at(-1)?.[1]?.body)).inference_selection).toEqual({mode:"auto",tier:"free"});
+   });
+ });

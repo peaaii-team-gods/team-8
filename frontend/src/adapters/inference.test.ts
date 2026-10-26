@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { liveProviderBlocked, liveRunBlocked, type InferenceStatus } from "./inference";
+import { liveProviderBlocked, liveRunBlocked, readOverride, type InferenceStatus } from "./inference";
 
 const configured: InferenceStatus = {
   configured: true, revision: "r1", provider: "local", model_id: "m",
@@ -34,15 +34,25 @@ describe("liveProviderBlocked", () => {
 
 describe("liveRunBlocked", () => {
   it("allows Free for configured and host-authorized accounts, but blocks neither or unknown", () => {
-    expect(liveRunBlocked(configured, "0", false, false)).toBe(false);
-    expect(liveRunBlocked(hostOnly, "0", false, false)).toBe(false);
-    expect(liveRunBlocked(neither, "0", false, false)).toBe(true);
-    expect(liveRunBlocked(null, "0", false, false)).toBe(true);
+    expect(liveRunBlocked(configured, "free", "0", false)).toBe(true);
+    expect(liveRunBlocked(hostOnly, "free", "0", false)).toBe(false);
+    expect(liveRunBlocked(neither, "free", "0", false)).toBe(true);
+    expect(liveRunBlocked(null, "free", "0", false)).toBe(true);
   });
 
   it("keeps Premium behind a configured provider, consent and positive cap", () => {
     expect(liveRunBlocked(configured, "premium", "0.5", true)).toBe(false);
     expect(liveRunBlocked(configured, "premium", "0", true)).toBe(true);
-    expect(liveRunBlocked(hostOnly, "premium", "0.5", true)).toBe(true);
+    expect(liveRunBlocked(hostOnly, "premium", "0.5", true)).toBe(false);
   });
 });
+
+ it("strictly reads the versioned override or defaults", () => {
+   for (const raw of [null, "broken", '{}', '{"v":2,"tier":"free","pin":null}', '{"v":1,"tier":"free","pin":{"model_id":"m","is_free":"false"}}']) {
+     localStorage.clear(); if (raw) localStorage.setItem("crucible.modelOverride.v1", raw);
+     expect(readOverride()).toEqual({ v: 1, tier: "free", pin: null });
+   }
+   localStorage.setItem("crucible.modelOverride.v1", JSON.stringify({v:1,tier:"cheap_fast",pin:{model_id:"m",is_free:false}}));
+   expect(readOverride()).toEqual({v:1,tier:"cheap_fast",pin:{model_id:"m",is_free:false}});
+   localStorage.clear();
+ });

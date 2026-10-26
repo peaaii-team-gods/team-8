@@ -325,9 +325,9 @@ describe("hospital canvas deterministic record", () => {
     expect((exported.init?.headers as Record<string, string>).Authorization).toBe("Bearer live-token");
   });
 
-  it("never dispatches a configured remote provider even when its paid gate permits it", async () => {
+  it("preserves recorded fallback when an own-key account has not consented", async () => {
     const model = modelSetup("unused");
-    const gated = hospitalModelAdapter(model.adapter, { configured: true, host_models_authorized: true, revision: "r", credential_lifetime: "backend_process", provider: "openrouter" }, "1", true);
+    const gated = hospitalModelAdapter(model.adapter, { configured: true, host_models_authorized: true, revision: "r", credential_lifetime: "backend_process", provider: "openrouter" }, "1", false);
     expect(gated).toBeNull();
     render(<HospitalPipelinePanel adapter={gated} budget={1} />);
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
