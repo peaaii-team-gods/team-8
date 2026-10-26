@@ -635,13 +635,18 @@ export default function App() {
     <AnimatePresence>{uiState.kind === "hub" && (
       <motion.div layoutId="hub" initial={{ opacity: 0, scale: .9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="glass absolute left-1/2 top-1/2 z-10 w-[min(560px,92vw)] -translate-x-1/2 -translate-y-1/2 p-5" onClick={(e) => e.stopPropagation()}>
         <h2 className="mb-3 font-semibold">Create</h2>
+        <div className="mb-3">{DEMO_SCENARIOS.filter(sc => sc.id === "hospital-pipeline").map(sc => (
+          <button key={sc.id} type="button" aria-label={sc.title} className="glass w-full p-3 text-left" onClick={() => announceLoad(sc.id)}>
+            {sc.title}<div className="text-xs opacity-70">{sc.blurb}</div>
+          </button>
+        ))}</div>
         <div className="text-xs uppercase opacity-60">Agent</div>
         <div className="my-2 grid grid-cols-2 gap-2">{AGENT_PRESETS.map((p) => <button key={p.id} className="glass p-3 text-left" onClick={() => spawnPreset("agent", p.id)}>{p.title}<div className="text-xs opacity-70">{p.description}</div></button>)}</div>
         <div className="mt-3 text-xs uppercase opacity-60">Data Lake — declared inputs, not executable tools</div>
         <div className="my-2 grid grid-cols-2 gap-2">{DATA_LAKE_PRESETS.map((p) => <button key={p.id} className="glass p-3 text-left" onClick={() => spawnPreset("dataLake", p.id)}>{p.title}<div className="text-xs opacity-70">{p.description}</div></button>)}</div>
         <div className="mt-3 text-xs uppercase opacity-60">Other demos</div>
         <div className="my-2 flex flex-wrap gap-2">
-          {DEMO_SCENARIOS.filter((sc) => sc.id !== "pilot-storyboard").map((sc) => (
+          {DEMO_SCENARIOS.filter((sc) => !["pilot-storyboard", "hospital-pipeline"].includes(sc.id)).map((sc) => (
             <button key={sc.id} type="button" className="text-xs text-white/70 underline-offset-2 hover:underline" onClick={() => announceLoad(sc.id)}>{sc.title}</button>
           ))}
         </div>

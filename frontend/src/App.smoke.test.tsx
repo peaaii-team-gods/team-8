@@ -41,6 +41,18 @@ beforeEach(() => {
 });
 
 describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
+  it('puts Hospital source to SQL first in Create, before agents and Other demos', () => {
+    renderApp();
+    fireEvent.click(screen.getByRole('button', { name: 'Enter canvas' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    const picker = screen.getByRole('heading', { name: 'Create' }).parentElement!;
+    const first = within(picker).getAllByRole('button')[0];
+    expect(first.getAttribute('aria-label')).toBe('Hospital source to SQL');
+    expect(within(picker).getAllByRole('button', { name: 'Hospital source to SQL' })).toHaveLength(1);
+    fireEvent.click(first);
+    expect(useStore.getState().scenarioId).toBe('hospital-pipeline');
+  });
+
   it('appends two hospital runs without duplicate done entries after Run ended', async () => {
     const record = JSON.parse(readFileSync('src/ui/fixtures/hospital-run.real.json', 'utf8'));
     let submitted = 0;
