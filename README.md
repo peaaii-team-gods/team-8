@@ -1,5 +1,7 @@
 # Team 8: Hospital Price Files, Made Readable
 
+Current implementation and validation status: [STATUS.md](STATUS.md).
+
 **Five AI-assisted stages turn a real hospital's 36.8 MB price-transparency file into a checked SQL ledger and a plain-language report, and the result reproduces exactly on every run.**
 
 Live demo: **[peaaiiteam8.online](https://peaaiiteam8.online)**
