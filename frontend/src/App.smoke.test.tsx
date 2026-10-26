@@ -41,6 +41,28 @@ beforeEach(() => {
 });
 
 describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
+  it('appends two hospital runs without duplicate done entries after Run ended', async () => {
+    const record = JSON.parse(readFileSync('src/ui/fixtures/hospital-run.real.json', 'utf8'));
+    let submitted = 0;
+    vi.stubGlobal('fetch', async (url: string) => url.endsWith('/artifacts/report.md')
+      ? new Response(readFileSync('../fixtures/hospital-full-report.md', 'utf8'))
+      : new Response(JSON.stringify(url.endsWith('/run') ? { run_id: `run-${++submitted}` } : record)));
+    renderApp();
+    fireEvent.click(screen.getByRole('button', { name: 'Run MRF demo' }));
+    for (let run = 1; run <= 2; run++) {
+      fireEvent.click(screen.getByRole('button', { name: 'Run hospital pipeline' }));
+      await waitFor(() => expect(useStore.getState().activity.filter(item => item.kind === 'run-end')).toHaveLength(run));
+      const activity = useStore.getState().activity;
+      expect(activity.filter(item => item.kind === 'run-start')).toHaveLength(run);
+      for (const title of ['Scout', 'Architect', 'Refinery', 'Ledger', 'Analyst']) {
+        expect(activity.filter(item => item.title === `${title} done`)).toHaveLength(run);
+      }
+      const end = activity.map(item => item.kind).lastIndexOf('run-end');
+      expect(activity.slice(end + 1).some(item => item.kind === 'agent-done')).toBe(false);
+    }
+    expect(submitted).toBe(2);
+  });
+
   it("opens Hospital source to SQL directly from the landing MRF button", () => {
     renderApp();
     const landing = screen.getByTestId('landing-page');

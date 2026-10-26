@@ -188,6 +188,7 @@ export const useStore = create<Store>((set, get) => ({
   },
   cancelLink: () => set({ uiState: { kind: "idle" }, linkNotice: null }),
   setNodeStatus: (id, status, output, verification) => {
+    const previous = get().nodes.find((n) => n.id === id)?.data.status;
     const title = get().nodes.find((n) => n.id === id)?.data.title ?? "Agent";
     const badge = verification ?? (status === "done" || status === "error" ? "proposal" : undefined);
     set((s) => ({
@@ -202,6 +203,7 @@ export const useStore = create<Store>((set, get) => ({
       } : n),
       tracks: s.tracks.map((t) => t.nodeId === id ? { ...t, status } : t),
     }));
+    if (status === previous) return;
     if (status === "done") get().pushActivity({ kind: "agent-done", title: `${title} done`, detail: badge === "verified" ? "verified" : badge === "checked_locally" ? "checked locally" : "proposal", nodeId: id, level: "ok" });
     if (status === "error") get().pushActivity({ kind: "agent-fail", title: `${title} failed`, detail: "failed", nodeId: id, level: "error" });
   },
