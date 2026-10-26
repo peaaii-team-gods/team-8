@@ -69,6 +69,17 @@ describe("SessionPanel", () => {
     expect((await attempt(async () => { throw new Error("login failed (500)"); })).textContent).toBe("login failed (500)");
   });
 
+  it("maps each browser fetch-failure message to network copy but not other TypeErrors", async () => {
+    const network = "Couldn't reach the sign-in service. Try again.";
+    for (const msg of ["Failed to fetch", "NetworkError when attempting to fetch resource.", "Load failed", "fetch failed"]) {
+      expect((await attempt(async () => { throw new TypeError(msg); })).textContent).toBe(network);
+      cleanup();
+    }
+    expect((await attempt(async () => { throw new TypeError("x is undefined"); })).textContent).toBe("x is undefined");
+    cleanup();
+    expect((await attempt(async () => { throw new Error("login failed (401)"); })).textContent).toBe("Wrong username or password");
+  });
+
   it("keeps autocomplete attrs, plain-language copy, focus, and the busy label", async () => {
     let release: () => void = () => undefined;
     const login = vi.fn(() => new Promise<void>((resolve) => { release = resolve; }));

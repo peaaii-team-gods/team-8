@@ -24,7 +24,8 @@ function friendlyError(err: unknown): string {
   const e = err as { name?: string; message?: string } | null;
   const message = typeof e?.message === "string" ? e.message : "";
   if (/\((401|403)\)/.test(message)) return "Wrong username or password";
-  if (e?.name === "TypeError" || e?.name === "AbortError") return "Couldn't reach the sign-in service. Try again.";
+  const fetchFailure = e?.name === "TypeError" && /Failed to fetch|NetworkError when attempting to fetch|Load failed|fetch failed/i.test(message);
+  if (e?.name === "AbortError" || fetchFailure) return "Couldn't reach the sign-in service. Try again.";
   return message || "Sign in failed";
 }
 
