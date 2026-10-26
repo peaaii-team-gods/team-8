@@ -106,8 +106,9 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
   {
     id: "hospital-pipeline", title: "Hospital source to SQL", blurb: "Scout → Architect → Refinery → Ledger → Analyst",
     build: (nextId) => {
-      const nodes = [lakeNode(nextId, "hospital-source", 20, 40), agentNode(nextId, "mrf-hospital-builder", 360, 40),
-        agentNode(nextId, "mrf-hospital-maintainer", 20, 350), agentNode(nextId, "hospital-store", 360, 350), agentNode(nextId, "hospital-analyst", 20, 660)];
+      // Spaced for post-run card heights (Scout grows with source URLs) so cards never overlap.
+      const nodes = [lakeNode(nextId, "hospital-source", 20, 40), agentNode(nextId, "mrf-hospital-builder", 420, 40),
+        agentNode(nextId, "mrf-hospital-maintainer", 820, 40), agentNode(nextId, "hospital-store", 820, 600), agentNode(nextId, "hospital-analyst", 420, 600)];
       return { nodes, edges: nodes.slice(1).map((node, i) => ({ id: nextId("e"), source: nodes[i].id, target: node.id, type: "packet", data: { active: false } })) };
     },
   },
