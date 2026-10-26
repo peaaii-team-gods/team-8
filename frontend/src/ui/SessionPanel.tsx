@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { IdentitySession } from "../adapters/identity";
 import { LiveAdapter } from "../adapters/live";
@@ -15,6 +15,17 @@ interface Props {
   onLogout?: () => void;
   /** Full-page gate styling for live sign-in. */
   variant?: "overlay" | "page";
+  /** Page variant only: leave the sign-in page (Back button and Escape). Ignored while busy. */
+  onCancel?: () => void;
+}
+
+/** Map known identity failures to plain copy; unknown errors keep their raw message. */
+function friendlyError(err: unknown): string {
+  const e = err as { name?: string; message?: string } | null;
+  const message = typeof e?.message === "string" ? e.message : "";
+  if (/\((401|403)\)/.test(message)) return "Wrong username or password";
+  if (e?.name === "TypeError" || e?.name === "AbortError") return "Couldn't reach the sign-in service. Try again.";
+  return message || "Sign in failed";
 }
 
 /**
@@ -29,6 +40,7 @@ export default function SessionPanel({
   onAuthenticated,
   onLogout,
   variant = "overlay",
+  onCancel,
 }: Props) {
   const { toast } = useToast();
   const [username, setUsername] = useState("");
@@ -38,6 +50,17 @@ export default function SessionPanel({
   const [capabilities, setCapabilities] = useState<Record<string, unknown> | null>(null);
   const [signedIn, setSignedIn] = useState(false);
   const [activeSession, setActiveSession] = useState<IdentitySession | null>(null);
+
+  const usernameRef = useRef<HTMLInputElement>(null);
+  const canCancel = variant === "page" && !!onCancel && !busy && !signedIn;
+
+  useEffect(() => { usernameRef.current?.focus(); }, []);
+  useEffect(() => {
+    if (!canCancel) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel?.(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [canCancel, onCancel]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -54,7 +77,7 @@ export default function SessionPanel({
       setSignedIn(true);
       setCapabilities(await adapter.capabilities().catch(() => null));
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Sign in failed";
+      const message = friendlyError(err);
       setError(message);
       toast({ level: "error", title: "Sign in failed", detail: message });
     } finally {
@@ -109,11 +132,14 @@ export default function SessionPanel({
 
   return shell(
     <form className="glass flex flex-col gap-3 p-6 text-sm" data-testid="session-panel" onSubmit={(e) => void submit(e)}>
+      {variant === "page" && onCancel && (
+        <button type="button" className="glass self-start px-3 py-1 text-sm disabled:opacity-50" disabled={busy} onClick={onCancel}>Back</button>
+      )}
       <div className="font-display text-xl text-fuchsia-100">Sign in</div>
-      <p className="text-xs text-white/65">Uses the shared RHM Identity. Access tokens stay in memory only.</p>
+      <p className="text-sm text-white/80">Sign in with your Right Hand Man account. Your session stays in this browser tab's memory.</p>
       <SyntheticBadge className="self-start" />
       <label className="text-xs">Username
-        <input aria-label="Username" className="mt-1 w-full rounded bg-black/30 p-2" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
+        <input ref={usernameRef} aria-label="Username" className="mt-1 w-full rounded bg-black/30 p-2" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
       </label>
       <label className="text-xs">Password
         <input aria-label="Password" type="password" className="mt-1 w-full rounded bg-black/30 p-2" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />

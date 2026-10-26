@@ -540,6 +540,7 @@ export default function App() {
       <>
       <SessionPanel
         variant="page"
+        onCancel={() => setView("landing")}
         apiBase={apiBase}
         identityBase={identityBase}
         onAuthenticated={(adapterLive, sess) => {
