@@ -10,9 +10,9 @@
         "rows_emitted": 183335,
         "rows_quarantined": 0,
         "rows_repaired": 0,
-        "stage_ms": 4887.235,
-        "rows_per_s": 37513.032,
-        "mb_per_s": 7.524,
+        "stage_ms": 3712.799,
+        "rows_per_s": 49379.193,
+        "mb_per_s": 9.904,
         "item_count": 25451,
         "code_type_counts": {
           "RC": 10306,
@@ -54,10 +54,10 @@
           "rows_emitted": 183335,
           "rows_quarantined": 0,
           "rows_repaired": 0,
-          "stage_ms": 4887.235,
-          "rows_per_s": 37513.032,
-          "mb_per_s": 7.524,
-          "peak_rss": 252436480
+          "stage_ms": 3712.799,
+          "rows_per_s": 49379.193,
+          "mb_per_s": 9.904,
+          "peak_rss": 251600896
         }
       ]
     },
@@ -71,11 +71,11 @@
         "rows_emitted": 183335,
         "rows_quarantined": 0,
         "rows_repaired": 127887,
-        "stage_ms": 5032.862,
-        "rows_per_s": 36427.582,
-        "mb_per_s": 7.306,
+        "stage_ms": 3855.469,
+        "rows_per_s": 47551.928,
+        "mb_per_s": 9.538,
         "parse_mode": "streamed",
-        "peak_rss": 531480576
+        "peak_rss": 252227584
       },
       "telemetry": [
         {
@@ -239,12 +239,6 @@
               "actual": "missing"
             },
             {
-              "name": "source_sha256",
-              "pass": true,
-              "expected": "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd",
-              "actual": "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd"
-            },
-            {
               "name": "flattened_row_count",
               "pass": true,
               "expected": 183335,
@@ -323,12 +317,6 @@
               "actual": "standard_charge_amount"
             },
             {
-              "name": "source_sha256",
-              "pass": true,
-              "expected": "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd",
-              "actual": "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd"
-            },
-            {
               "name": "flattened_row_count",
               "pass": true,
               "expected": 183335,
@@ -386,12 +374,6 @@
               "pass": true,
               "expected": "standard_charge_amount",
               "actual": "standard_charge_amount"
-            },
-            {
-              "name": "source_sha256",
-              "pass": true,
-              "expected": "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd",
-              "actual": "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd"
             },
             {
               "name": "flattened_row_count",
@@ -455,9 +437,9 @@
         "rows_emitted": 183335,
         "rows_quarantined": 0,
         "rows_repaired": 127887,
-        "stage_ms": 5032.862,
-        "rows_per_s": 36427.582,
-        "mb_per_s": 7.306
+        "stage_ms": 3855.469,
+        "rows_per_s": 47551.928,
+        "mb_per_s": 9.538
       },
       "telemetry": [
         {
@@ -473,11 +455,11 @@
           "rows_emitted": 183335,
           "rows_quarantined": 0,
           "rows_repaired": 127887,
-          "stage_ms": 5032.862,
-          "rows_per_s": 36427.582,
-          "mb_per_s": 7.306,
+          "stage_ms": 3855.469,
+          "rows_per_s": 47551.928,
+          "mb_per_s": 9.538,
           "parse_mode": "streamed",
-          "peak_rss": 531480576
+          "peak_rss": 252227584
         }
       ]
     },
@@ -491,11 +473,11 @@
         "rows_emitted": 183335,
         "rows_quarantined": 0,
         "rows_repaired": 127887,
-        "stage_ms": 5032.862,
-        "rows_per_s": 36427.582,
-        "mb_per_s": 7.306,
+        "stage_ms": 3855.469,
+        "rows_per_s": 47551.928,
+        "mb_per_s": 9.538,
         "parse_mode": "streamed",
-        "peak_rss": 531480576
+        "peak_rss": 252227584
       },
       "telemetry": [
         {

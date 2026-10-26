@@ -101,6 +101,7 @@ describe("hospital canvas deterministic record", () => {
   });
 
   it("renders the real run's source trace, ordered furnace checks, SQLite count, and complete SQL report", async () => {
+    expect(realResult.steps[1].counts.peak_rss).toBeLessThanOrEqual(300_000_000);
     useStore.getState().loadScenario("hospital-pipeline");
     setup(undefined, realResult);
     render(<HospitalPipelinePanel adapter={null} budget={0} />);
