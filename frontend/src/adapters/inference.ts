@@ -69,19 +69,16 @@ export function readOverride(): ModelOverride {
 }
 export async function runSelection(base: string, session: IdentitySession) {
   const { tier, pin } = readOverride();
-  if (pin) {
-    const response = await fetch(`${base}/v1/account/inference-connections`, {
-      headers: { authorization: `Bearer ${session.token ?? ""}` }, cache: "no-store", redirect: "error", credentials: "omit",
-    });
-    if (!response.ok) throw new Error("Could not read inference connections. Refresh before running.");
-    const body = await response.json() as { connections?: { id?: unknown }[] };
-    if (!Array.isArray(body.connections)) throw new Error("Invalid inference connections response.");
-    const primary = body.connections[0];
-    if (primary) {
-      if (typeof primary.id !== "string" || !/^[a-f0-9]{32}$/.test(primary.id)) throw new Error("Invalid primary inference connection id.");
-      return { mode: "manual", connection_id: primary.id, model_id: pin.model_id, allow_fallback: false };
-    }
-  }
+  const response = await fetch(`${base}/v1/account/inference-connections`, {
+    headers: { authorization: `Bearer ${session.token ?? ""}` }, cache: "no-store", redirect: "error", credentials: "omit",
+  });
+  if (!response.ok) throw new Error("Could not read inference connections. Refresh before running.");
+  const body = await response.json() as { connections?: { id?: unknown }[] };
+  if (!Array.isArray(body?.connections)) throw new Error("Invalid inference connections response.");
+  if (body.connections.length === 0) return undefined;
+  const primary = body.connections[0];
+  if (!primary || typeof primary.id !== "string" || !/^[a-f0-9]{32}$/.test(primary.id)) throw new Error("Invalid primary inference connection id.");
+  if (pin) return { mode: "manual", connection_id: primary.id, model_id: pin.model_id, allow_fallback: false };
   return { mode: "auto", tier };
 }
 

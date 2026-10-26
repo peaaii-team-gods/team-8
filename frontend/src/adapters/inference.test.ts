@@ -1,6 +1,6 @@
 import { IdentitySession } from "./identity";
 import { describe, expect, it, vi } from "vitest";
-import { InferenceSettings, liveProviderBlocked, liveRunBlocked, readOverride, type InferenceStatus } from "./inference";
+import { InferenceSettings, liveProviderBlocked, liveRunBlocked, readOverride, runSelection, type InferenceStatus } from "./inference";
 
 const configured: InferenceStatus = {
   configured: true, revision: "r1", provider: "local", model_id: "m",
@@ -68,4 +68,12 @@ it("reads the catalog with account headers and rejects malformed responses", asy
    expect(fetcher.mock.calls[0]).toEqual(["https://api.example/v1/inference/models",expect.objectContaining({headers:{"content-type":"application/json",authorization:"Bearer "},credentials:"omit",cache:"no-store",redirect:"error"})]);
    await expect(api.listModels()).rejects.toThrow("Invalid model list");
  } finally { vi.unstubAllGlobals(); }
+});
+
+it.each([{}, {connections:[{}]}, {connections:[{id:"bad"}]}])("rejects malformed connections before Auto selection: %j", async body => {
+ const fetcher=vi.fn(async()=>new Response(JSON.stringify(body)));
+ vi.stubGlobal("fetch",fetcher);
+ localStorage.clear();
+ try { await expect(runSelection("https://api.example", new IdentitySession("https://id.example"))).rejects.toThrow(/Invalid/); }
+ finally { vi.unstubAllGlobals(); }
 });

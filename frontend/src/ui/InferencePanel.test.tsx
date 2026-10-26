@@ -49,7 +49,7 @@ describe("Account inference", () => {
    const calls: {url:string;init?:RequestInit}[]=[];
    vi.stubGlobal("fetch", vi.fn(async (url:string,init?:RequestInit) => {
      calls.push({url,init});
-     return new Response(JSON.stringify(url.endsWith("workflows") ? {workflow_id:"w"} : url.endsWith("runs") ? {run_id:"r"} : initial));
+     return new Response(JSON.stringify(url.endsWith("inference-connections") ? {connections:[{id:"a".repeat(32)}]} : url.endsWith("workflows") ? {workflow_id:"w"} : url.endsWith("runs") ? {run_id:"r"} : initial));
    }));
    const session = new IdentitySession("https://identity.example");
    render(<InferencePanel apiBase="https://api.example" session={session} onStatus={vi.fn()} disabled={false} />);

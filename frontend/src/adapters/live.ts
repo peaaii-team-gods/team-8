@@ -59,7 +59,7 @@ export class LiveAdapter implements RhmAdapter {
     const w = await fetch(`${this.apiBase}/v1/workflows`, { method: "POST", headers: this.headers(), body: JSON.stringify({ workflow }) });
     if (!w.ok) throw await runFailure(w);
     const wid = ((await w.json()) as { workflow_id?: string; id?: string }).workflow_id ?? "";
-    const r = await fetch(`${this.apiBase}/v1/runs`, { method: "POST", headers: this.headers(), body: JSON.stringify({ workflow_id: wid, paid_inference_consent: this.paidConsent, inference_selection }) });
+    const r = await fetch(`${this.apiBase}/v1/runs`, { method: "POST", headers: this.headers(), body: JSON.stringify({ workflow_id: wid, paid_inference_consent: this.paidConsent, ...(inference_selection === undefined ? {} : { inference_selection }) }) });
     if (!r.ok) throw await runFailure(r);
     const runId = ((await r.json()) as { run_id?: string; id?: string }).run_id ?? "";
     return { nodeId, runId };

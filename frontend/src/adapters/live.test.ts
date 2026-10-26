@@ -13,6 +13,7 @@ function installFetch(script: { polls: Record<string, unknown>[]; outputs?: unkn
   let pollN = 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
+    if (url.endsWith("/v1/account/inference-connections")) return json({ connections: [] });
     if (url.endsWith("/v1/workflows")) return json({ workflow_id: script.workflowId ?? "w1" });
     if (url.endsWith("/v1/runs")) return json({ run_id: script.runId ?? "r1" });
     if (url.includes("/events")) return json(script.events ?? { events: [], next_after_seq: 0 });
@@ -48,10 +49,10 @@ describe("LiveAdapter poll mapping", () => {
     const a = adapter();
     const handle = await a.run("a1", { schema_version: "workflow.v1" } as never);
     // backend create contract: POST /v1/workflows with {workflow} wrapper
-    expect(fetchMock.mock.calls[0][0]).toBe("http://api/v1/workflows");
-    const createInit = fetchMock.mock.calls[0][1] as RequestInit | undefined;
+    expect(fetchMock.mock.calls[1][0]).toBe("http://api/v1/workflows");
+    const createInit = fetchMock.mock.calls[1][1] as RequestInit | undefined;
     expect(JSON.parse(String(createInit?.body))).toEqual({ workflow: { schema_version: "workflow.v1" } });
-    expect(JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body))).toEqual({ workflow_id: "w1", paid_inference_consent: false, inference_selection: { mode: "auto", tier: "free" } });
+    expect(JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body))).toEqual({ workflow_id: "w1", paid_inference_consent: false });
     expect(handle).toEqual({ nodeId: "a1", runId: "r1" });
     const out = await pollUntilTerminal(a, handle, { sleep: async () => undefined, intervalMs: 0 });
     expect(fetchMock.mock.calls.map((c) => String(c[0]))).toContain("http://api/v1/runs/r1/outputs");
@@ -204,21 +205,25 @@ describe("LiveAdapter poll mapping", () => {
 
   it("maps existing run error envelopes to safe public copy", async () => {
     vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(json({ connections: [] }))
       .mockResolvedValueOnce(json({ workflow_id: "w1" }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "inference_budget_required", message: "private detail" } }), { status: 422 })));
     await expect(adapter().run("a1", {} as never)).rejects.toThrow("This run needs a spend cap. Choose Premium in Settings and set one.");
 
     vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(json({ connections: [] }))
       .mockResolvedValueOnce(json({ workflow_id: "w1" }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "other", message: "safe message" } }), { status: 500 })));
     await expect(adapter().run("a1", {} as never)).rejects.toThrow("Run could not start: safe message");
 
     vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(json({ connections: [] }))
       .mockResolvedValueOnce(json({ workflow_id: "w1" }))
       .mockResolvedValueOnce(new Response("bad json", { status: 500 })));
     await expect(adapter().run("a1", {} as never)).rejects.toThrow("Run could not start (500).");
 
     vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(json({ connections: [] }))
       .mockResolvedValueOnce(json({ workflow_id: "w1" }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "other", message: "private detail" } }), { status: 401 })));
     await expect(adapter().run("a1", {} as never)).rejects.toThrow("Sign in again to run this agent.");
@@ -237,17 +242,25 @@ describe("LiveAdapter poll mapping", () => {
      await adapter().run("a", {} as never);
      expect(calls.find(c=>c.url.endsWith("/runs"))?.body).toEqual({workflow_id:"w",paid_inference_consent:false,inference_selection:pin ? {mode:"manual",connection_id:"a".repeat(32),model_id:pin.model_id,allow_fallback:false} : {mode:"auto",tier:"cheap_fast"}});
    });
+   it.each([null, {model_id:"m",is_free:true}])("fails closed on a connections failure with pin %j", async pin => {
+     localStorage.setItem("crucible.modelOverride.v1", JSON.stringify({v:1,tier:"free",pin}));
+     const mock = vi.fn(async (_url: RequestInfo | URL) => new Response("unavailable", {status:500}));
+     vi.stubGlobal("fetch", mock);
+     await expect(adapter().run("a", {} as never)).rejects.toThrow("Could not read inference connections");
+     expect(mock).toHaveBeenCalledTimes(1);
+     expect(mock.mock.calls.some(call => String(call[0]).endsWith("/v1/runs"))).toBe(false);
+   });
    it("fails closed on missing connection id before creating a workflow", async () => {
      localStorage.setItem("crucible.modelOverride.v1", JSON.stringify({v:1,tier:"free",pin:{model_id:"m",is_free:true}}));
      const mock = vi.fn(async () => json({connections:[{}]})); vi.stubGlobal("fetch", mock);
      await expect(adapter().run("a", {} as never)).rejects.toThrow("Invalid primary inference connection id");
      expect(mock).toHaveBeenCalledTimes(1);
    });
-   it("uses Auto for host-model users even with a stale pin", async () => {
-     localStorage.setItem("crucible.modelOverride.v1", JSON.stringify({v:1,tier:"free",pin:{model_id:"host",is_free:true}}));
+   it.each([null, {model_id:"host",is_free:true}])("omits selection for host-model users with pin %j", async pin => {
+     localStorage.setItem("crucible.modelOverride.v1", JSON.stringify({v:1,tier:"free",pin}));
      const mock = vi.fn(async (url:string, _init?:RequestInit) => json(url.endsWith("inference-connections") ? {connections:[]} : {workflow_id:"w",run_id:"r"}));
      vi.stubGlobal("fetch", mock);
      await adapter().run("a", {} as never);
-     expect(JSON.parse(String(mock.mock.calls.at(-1)?.[1]?.body)).inference_selection).toEqual({mode:"auto",tier:"free"});
+     expect(JSON.parse(String(mock.mock.calls.at(-1)?.[1]?.body))).not.toHaveProperty("inference_selection");
    });
  });
