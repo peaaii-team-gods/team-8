@@ -642,7 +642,7 @@ export default function App() {
           </button>
         ))}</div>
         <div className="text-xs uppercase opacity-60">Core pipeline</div>
-        <div className="my-2 grid grid-cols-2 gap-2">{CREATE_MENU_PRESETS.map((p) => <button key={p.id} className="glass p-3 text-left" onClick={() => spawnPreset(p.kind, p.id)}>{p.title}<div className="text-xs opacity-70">{p.description}</div></button>)}</div>
+        <div role="group" aria-label="Core pipeline presets" className="my-2 grid grid-cols-2 gap-2">{CREATE_MENU_PRESETS.map((p) => <button key={p.id} className="glass p-3 text-left" onClick={() => spawnPreset(p.kind, p.id)}>{p.title}<div className="text-xs opacity-70">{p.description}</div></button>)}</div>
         <div className="mt-3 text-xs uppercase opacity-60">Other demos</div>
         <div className="my-2 flex flex-wrap gap-2">
           {DEMO_SCENARIOS.filter((sc) => !["pilot-storyboard", "hospital-pipeline"].includes(sc.id)).map((sc) => (
