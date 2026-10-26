@@ -19,7 +19,7 @@ export default function LandingPage({ mode, onSignIn, onEnterCanvas, onLoadMrf, 
           animate={{ opacity: 1, y: 0 }}
           className="font-display text-sm uppercase tracking-[0.35em] text-fuchsia-300/90"
         >
-          Team 8 · Pea.AI
+          PEAAII - Team 8
         </motion.p>
         <motion.h1
           initial={{ opacity: 0, y: 12 }}
@@ -27,7 +27,7 @@ export default function LandingPage({ mode, onSignIn, onEnterCanvas, onLoadMrf, 
           transition={{ delay: 0.05 }}
           className="font-display mt-3 text-5xl leading-tight text-[#f8f4ff] md:text-6xl"
         >
-          Hospital prices,<br />from source to SQL.
+          Crucible Cast.<br />Raw data in, checked records out.
         </motion.h1>
         <motion.p
           initial={{ opacity: 0, y: 12 }}
@@ -35,7 +35,7 @@ export default function LandingPage({ mode, onSignIn, onEnterCanvas, onLoadMrf, 
           transition={{ delay: 0.1 }}
           className="mt-4 max-w-xl text-base text-white/75 md:text-lg"
         >
-          Follow a public hospital price file into a searchable SQLite ledger and a rate comparison report.
+          An agentic data pipeline that finds a source file, maps its shape, validates every row, stores it in a SQL ledger, and writes a report the ledger has to back up.
         </motion.p>
         <motion.div
           initial={{ opacity: 0, y: 12 }}
@@ -62,8 +62,8 @@ export default function LandingPage({ mode, onSignIn, onEnterCanvas, onLoadMrf, 
         <section id="how-it-works" className="mt-20 space-y-3 text-sm text-white/70">
           <h2 className="font-display text-xl text-white">How it works</h2>
           <p>Scout → Architect → Refinery → Ledger → Analyst.</p>
-          <p>Stream the full file, check its rows, and compare rates. Optionally inject a rate-key error to see the repair.</p>
-          <p>Download the CSV, SQLite ledger, and report. Model proposals stay separate from local checks.</p>
+          <p>Scout finds and verifies the source. Architect proposes a schema. Refinery validates every row and proposes a repair when the source drifts. Ledger writes the rows to SQLite. Analyst writes a plain-language report.</p>
+          <p>Models propose, code decides: nothing is kept until local checks pass. The demo streams a real public hospital price file (183,335 rows) into a ledger and a rate comparison report you can download.</p>
         </section>
       </div>
     </div>
