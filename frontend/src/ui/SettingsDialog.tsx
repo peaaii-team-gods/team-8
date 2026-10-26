@@ -47,7 +47,7 @@ export default function SettingsDialog(props: Props) {
     }
   };
 
-  return <div hidden={!props.open} data-testid="settings-backdrop" className="fixed inset-0 z-40 flex items-center justify-center bg-black/50" onClick={(event) => { if (event.target === event.currentTarget) close(); }}>
+  return <div hidden={!props.open} data-testid="settings-backdrop" className="fixed inset-0 z-40 flex items-center justify-center bg-black/50" onClick={(event) => { if (event.target === event.currentTarget && !props.disabled) close(); }}>
     <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(event) => event.stopPropagation()} onKeyDown={onKeyDown} className="glass w-[min(520px,92vw)] max-h-[85vh] overflow-auto p-5">
       <div className="mb-4 flex items-center justify-between"><h2 id="settings-title" className="text-lg font-semibold">Settings</h2><button type="button" aria-label="Close settings" disabled={props.disabled} onClick={close}>Close</button></div>
       <fieldset className="mb-4 grid gap-2" disabled={props.disabled}>

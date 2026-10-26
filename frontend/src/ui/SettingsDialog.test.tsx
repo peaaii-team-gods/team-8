@@ -65,6 +65,18 @@ describe("SettingsDialog", () => {
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeTruthy();
   });
 
+  it("does not close from the backdrop while disabled", () => {
+    const setters = renderDialog(configured, true);
+    fireEvent.click(screen.getByTestId("settings-backdrop"));
+    expect(setters.onClose).not.toHaveBeenCalled();
+  });
+
+  it("closes from the backdrop while enabled", () => {
+    const setters = renderDialog(configured);
+    fireEvent.click(screen.getByTestId("settings-backdrop"));
+    expect(setters.onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("wraps Tab in both directions and skips disabled controls", async () => {
     renderDialog(null);
     const close = screen.getByRole("button", { name: "Close settings" });
