@@ -17,7 +17,6 @@ const realResult = JSON.parse(readFileSync("src/ui/fixtures/hospital-run.real.js
 const result = { status: "completed", report_md: report, steps: [
   { node: "source", status: "completed", counts: {}, telemetry: [{ type: "trace", label: "cached", trace: [], sha256: "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd" }] },
   { node: "builder", status: "completed", counts: {}, telemetry: [
-    { type: "checks", checks: [{ name: "source_sha256", pass: true, expected: "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd", actual: "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd" }] },
     { type: "repair", label: "injected", checks: [] },
   ] },
   { node: "store", status: "completed", counts: { row_count: 42 }, telemetry: [{ type: "artifact", label: "local SQLite" }] },
@@ -131,13 +130,13 @@ describe("hospital canvas deterministic record", () => {
   it("labels a sha mismatch as no golden without storing a new field", async () => {
     const snapshot = structuredClone(result);
     snapshot.steps[0].telemetry = [{ type: "trace", label: "cached", trace: [], sha256: "def" }];
-    snapshot.steps[1].telemetry = [{ type: "checks", checks: [{ name: "source_sha256", pass: false, expected: "abc", actual: "def" }] }];
     snapshot.steps[3].telemetry = [{ type: "top10", rows: [{ billing_code: "12345" }], row_count: 2, baseline_label: "Medicare Advantage rates in this hospital's file" }];
     setup(undefined, snapshot);
     render(<HospitalPipelinePanel adapter={null} budget={0} />);
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
     await screen.findByRole("heading", { name: "No golden for this file" });
     expect(screen.queryByText("Golden SQL report")).toBeNull();
+    expect(snapshot.steps[0].telemetry[0].sha256).not.toBe(GOLDEN_SOURCE_SHA256);
     expect(JSON.stringify(snapshot)).not.toMatch(/no_golden|no-golden|golden_label/);
   });
 
