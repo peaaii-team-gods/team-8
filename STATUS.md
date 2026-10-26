@@ -21,3 +21,15 @@ build passed. Existing build-size warning remains. Source and local checks do
 not establish deployment or live model acceptance. Owner Catalog setup,
 Identity grants, deployment and the batch live gate remain open. No deployment
 or paid inference was performed by this batch.
+
+
+## Inference fix 01: host Auto (2026-10-26)
+
+Accounts without inference connections use the existing host-model path
+without an explicit inference selection. Accounts with a connection retain
+Auto tiers and manual pins. Failed or malformed connections reads block run
+creation.
+
+Validation: frontend suite 279 tests passed; docs check and production build
+passed. Deployment and live acceptance remain open. No deployment or paid
+inference was performed by this batch.
