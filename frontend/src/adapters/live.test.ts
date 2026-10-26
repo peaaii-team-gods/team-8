@@ -201,4 +201,26 @@ describe("LiveAdapter poll mapping", () => {
     expect(out.status).toBe("unknown");
     expect(out.state).toBe("running");
   });
+
+  it("maps existing run error envelopes to safe public copy", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(json({ workflow_id: "w1" }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "inference_budget_required", message: "private detail" } }), { status: 422 })));
+    await expect(adapter().run("a1", {} as never)).rejects.toThrow("This run needs a spend cap. Choose Premium in Settings and set one.");
+
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(json({ workflow_id: "w1" }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "other", message: "safe message" } }), { status: 500 })));
+    await expect(adapter().run("a1", {} as never)).rejects.toThrow("Run could not start: safe message");
+
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(json({ workflow_id: "w1" }))
+      .mockResolvedValueOnce(new Response("bad json", { status: 500 })));
+    await expect(adapter().run("a1", {} as never)).rejects.toThrow("Run could not start (500).");
+
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(json({ workflow_id: "w1" }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "other", message: "private detail" } }), { status: 401 })));
+    await expect(adapter().run("a1", {} as never)).rejects.toThrow("Sign in again to run this agent.");
+  });
 });

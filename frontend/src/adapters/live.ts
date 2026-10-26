@@ -13,6 +13,23 @@ export const DISPLAY_OUTPUT_LIMIT = 4000;
 export function displayRunOutput(text: string, limit = DISPLAY_OUTPUT_LIMIT): string {
   return text.length <= limit ? text : text.slice(0, limit);
 }
+export function runErrorText(status: number, code?: unknown, message?: unknown): string {
+  const codeCopy: Record<string, string> = {
+    inference_budget_required: "This run needs a spend cap. Choose Premium in Settings and set one.",
+    inference_not_free: "No free model can take this run right now. Try again later, or use Premium.",
+    enrollment_unrouted: "This agent isn't set up to run on a model yet.",
+    tier_above_ceiling: "This run needs a higher tier than this account allows.",
+  };
+  if (status === 401 || status === 403) return "Sign in again to run this agent.";
+  if (status === 429) return "Too many runs right now. Try again shortly.";
+  if (typeof code === "string" && Object.hasOwn(codeCopy, code)) return codeCopy[code];
+  const safeMessage = typeof message === "string" ? message.trim().slice(0, 160) : "";
+  return safeMessage ? `Run could not start: ${safeMessage}` : `Run could not start (${status}).`;
+}
+async function runFailure(response: Response): Promise<Error> {
+  const body = await response.json().catch(() => null) as { error?: { code?: unknown; message?: unknown } } | null;
+  return new Error(runErrorText(response.status, body?.error?.code, body?.error?.message));
+}
 export class LiveAdapter implements RhmAdapter {
   mode = "live" as const;
   private paidConsent = false;
@@ -38,10 +55,10 @@ export class LiveAdapter implements RhmAdapter {
   }
   async run(nodeId: string, workflow: WorkflowV1): Promise<RunHandle> {
     const w = await fetch(`${this.apiBase}/v1/workflows`, { method: "POST", headers: this.headers(), body: JSON.stringify({ workflow }) });
-    if (!w.ok) throw new Error(`workflow create failed (${w.status})`);
+    if (!w.ok) throw await runFailure(w);
     const wid = ((await w.json()) as { workflow_id?: string; id?: string }).workflow_id ?? "";
     const r = await fetch(`${this.apiBase}/v1/runs`, { method: "POST", headers: this.headers(), body: JSON.stringify({ workflow_id: wid, paid_inference_consent: this.paidConsent }) });
-    if (!r.ok) throw new Error(`run create failed (${r.status})`);
+    if (!r.ok) throw await runFailure(r);
     const runId = ((await r.json()) as { run_id?: string; id?: string }).run_id ?? "";
     return { nodeId, runId };
   }

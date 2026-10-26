@@ -372,10 +372,12 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     const poll = vi.spyOn(LiveAdapter.prototype, "poll").mockImplementation(() => new Promise((resolve) => { release = resolve; }));
     renderApp();
     fireEvent.click((await screen.findAllByRole("button", { name: /Pilot storyboard/ }))[0]);
-    fireEvent.click(screen.getByRole("button", { name: /Account inference settings/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Premium" }));
     fireEvent.change(screen.getByLabelText("USD admission budget per agent run"), { target: { value: "0.01" } });
     fireEvent.click(screen.getByLabelText(/I permit paid inference/));
     await waitFor(() => expect((screen.getByRole("button", { name: /run pipeline/i }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: /run pipeline/i }));
     await waitFor(() => expect(poll).toHaveBeenCalledTimes(1));
     expect(vi.mocked(LiveAdapter.prototype.run).mock.calls[0][1]).toMatchObject({ budget: { max_usd: .01 }, loop_limits: { max_ticks: 2, max_tokens_per_tick: 512, max_tokens_total: 2048 } });
@@ -412,10 +414,12 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     fireEvent.click(screen.getByDisplayValue("ws-b"));
     await waitFor(() => expect(screen.getByTestId("bound-workspace").textContent).toBe("Bound for next Run: ws-b"));
     fireEvent.click(screen.getAllByRole("button", { name: /Pilot storyboard/ })[0]);
-    fireEvent.click(screen.getByRole("button", { name: /Account inference settings/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Premium" }));
     fireEvent.change(screen.getByLabelText("USD admission budget per agent run"), { target: { value: "0.01" } });
     fireEvent.click(screen.getByLabelText(/I permit paid inference/));
     await waitFor(() => expect((screen.getByRole("button", { name: /run pipeline/i }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: /run pipeline/i }));
     await waitFor(() => expect(seen.length).toBeGreaterThan(0));
     expect(seen.every((workflow) => workflow.workspace_id === "ws-b" && workflow.project_id === "p2")).toBe(true);
@@ -587,16 +591,42 @@ describe("live provider gate (configured / host-authorized / neither)", () => {
     expect(summary.textContent).toBe("RHM live stack: connected");
   });
 
-  it("lets a configured account Run after paid consent and a positive cap", async () => {
+  it("lets a configured account Run on Free and requires consent and a positive cap on Premium", async () => {
     liveInference(configuredStatus);
     renderApp();
     fireEvent.click((await screen.findAllByRole("button", { name: /Pilot storyboard/ }))[0]);
     const runBtn = () => screen.getByRole("button", { name: /run pipeline/i }) as HTMLButtonElement;
+    await waitFor(() => expect(runBtn().disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Premium" }));
     await waitFor(() => expect(runBtn().disabled).toBe(true));
-    fireEvent.click(screen.getByRole("button", { name: /Account inference settings/ }));
     fireEvent.change(screen.getByLabelText("USD admission budget per agent run"), { target: { value: "0.01" } });
     fireEvent.click(screen.getByLabelText(/I permit paid inference/));
     await waitFor(() => expect(runBtn().disabled).toBe(false));
+    fireEvent.click(screen.getByRole("radio", { name: "Free" }));
+    await waitFor(() => expect(runBtn().disabled).toBe(false));
+    fireEvent.click(screen.getByRole("radio", { name: "Premium" }));
+    expect((screen.getByLabelText("USD admission budget per agent run") as HTMLInputElement).value).toBe("0");
+    expect((screen.getByLabelText(/I permit paid inference/) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("opens Settings, returns focus on Escape, and shows the Free server error", async () => {
+    const { run } = liveInference(configuredStatus);
+    run.mockRejectedValue(new Error("This run needs a spend cap. Choose Premium in Settings and set one."));
+    renderApp();
+    const settings = await screen.findByRole("button", { name: "Settings" });
+    expect(screen.queryByRole("button", { name: /Account inference settings/ })).toBeNull();
+    settings.focus();
+    fireEvent.click(settings);
+    expect(screen.getByRole("dialog", { name: "Settings" })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(document.activeElement).toBe(settings));
+    fireEvent.click((await screen.findAllByRole("button", { name: /Pilot storyboard/ }))[0]);
+    await waitFor(() => expect((screen.getByRole("button", { name: /run pipeline/i }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: /run pipeline/i }));
+    await waitFor(() => expect(run.mock.calls.length).toBeGreaterThan(0));
+    expect(run.mock.calls[0][1]).toMatchObject({ budget: { max_usd: 0 } });
+    await waitFor(() => expect(useStore.getState().nodes.some((node) => node.data.output?.includes("This run needs a spend cap. Choose Premium in Settings and set one."))).toBe(true));
   });
 
   it("lets a host-authorized account Run and Drift without its own provider", async () => {
@@ -626,7 +656,7 @@ describe("live provider gate (configured / host-authorized / neither)", () => {
     fireEvent.click(screen.getByRole("button", { name: /MRF price file/ }));
     await waitFor(() => expect(useStore.getState().scenarioId).toBe("mrf-pipeline"));
     await waitFor(() => expect((screen.getByRole("button", { name: /run pipeline/i }) as HTMLButtonElement).disabled).toBe(true));
-    expect(screen.getByText(/cannot use the operator's model automatically/)).toBeTruthy();
+    expect(screen.getByText("Open Settings and add a provider before running.")).toBeTruthy();
     useStore.setState({ mrfMapping: MRF_GOLDEN_MAPPING });
     expect((screen.getByRole("button", { name: /Upstream schema drift/i }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: /Upstream schema drift/i }));
