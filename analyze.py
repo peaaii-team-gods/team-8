@@ -109,7 +109,7 @@ def render_report(rows, *, excluded_counts=None):
         lines.extend(['', 'No groups have both eligible commercial and Medicare Advantage baseline rates.'])
     lines.extend(['', 'Small-n medians (some groups contain one plan) are indicative only.',
                   'Percent/algorithm prices are never converted into dollar rates.',
-                  f"Excluded non-dollar payer entries: {counts.get('skipped_no_dollar_count', 0)}.",
+                  f"Non-dollar payer entries stored with a null rate (excluded from medians): {counts.get('skipped_no_dollar_count', 0)}.",
                   f"Quarantined source items: {counts.get('quarantined_row_count', 0)}.", ''])
     text = '\n'.join(lines)
     violations = summary_violations(text, rows)
@@ -143,7 +143,8 @@ def write_run_artifacts(rows, run_id, *, data_dir=Path('data'), mapping=None, ex
             'negotiated_rate', 'gross_charge', 'discounted_cash'])
         writer.writeheader()
         writer.writerows(validated)
-    report_path.write_text(report, encoding='utf-8')
+    with report_path.open('w', encoding='utf-8', newline='\n') as stream:
+        stream.write(report)
     return {**stored, 'db_path': stored['path'], 'rows_csv': str(csv_path), 'report_path': str(report_path),
             'top_rows': top_rows, 'baseline_label': BASELINE_LABEL, 'excluded_counts': counts}
 
@@ -165,7 +166,12 @@ SPREAD_QUERY = (
     "SELECT payer_name, plan_name, min(negotiated_rate) AS min_rate, median(negotiated_rate) AS median_rate, "
     "max(negotiated_rate) AS max_rate, count(*) AS n FROM hospital_rates WHERE negotiated_rate IS NOT NULL "
     "GROUP BY payer_name, plan_name ORDER BY payer_name ASC, plan_name ASC")
-MA_CAVEAT = 'Medicare Managed Care Plan is a single-plan baseline: no code has MA n>=2 in this file.'
+def ma_caveat(rows):
+    multi = [row for row in rows if (row.get('n_MA') or 0) >= 2]
+    if not multi:
+        return 'Medicare Managed Care Plan is a single-plan baseline: no comparison group has MA n>=2 in this file.'
+    return ('Medicare Managed Care Plan is not a single-plan baseline here: '
+            f'{len(multi)} comparison groups have MA n>=2 (max n_MA={max(row["n_MA"] for row in multi)}).')
 
 
 def analyze_full(db_path):
@@ -180,10 +186,10 @@ def _md(cells):
 
 
 def render_full_report(rows, spread, *, excluded_counts=None, metrics=None):
-    counts, metrics = excluded_counts or {}, metrics or {}
+    counts, metrics, caveat = excluded_counts or {}, metrics or {}, ma_caveat(rows)
     lines = ['# Hospital rate comparison', '',
              'Storage: local SQLite. Parse mode: ' + str(metrics.get('parse_mode', 'streamed')) + '.', '',
-             'Medicare Advantage baseline: ' + BASELINE_LABEL + '.', '', MA_CAVEAT, '',
+             'Medicare Advantage baseline: ' + BASELINE_LABEL + '.', '', caveat, '',
              '## Codes with commercial and MA medians', '',
              'Ranked by commercial median minus the Medicare Advantage baseline, descending. n and the MA single-plan caveat apply to every section.',
              'Commercial plans exclude names matching: ' + COMMERCIAL_EXCLUSION_PATTERN + '.', '',
@@ -197,13 +203,13 @@ def render_full_report(rows, spread, *, excluded_counts=None, metrics=None):
                           _money(row['min_charge']), _money(row['max_charge'])]))
     if not rows:
         lines.extend(['', 'No groups have both eligible commercial and Medicare Advantage baseline rates.'])
-    lines.extend(['', MA_CAVEAT, '', '## Per-payer spread (dollar rates)', '',
+    lines.extend(['', caveat, '', '## Per-payer spread (dollar rates)', '',
                   '| Payer | Plan | Min | Median | Max | n |', '| --- | --- | ---: | ---: | ---: | ---: |'])
     lines.extend(_md([row['payer_name'], row['plan_name'], _money(row['min_rate']), _money(row['median_rate']),
                       _money(row['max_rate']), row['n']]) for row in spread)
-    lines.extend(['', MA_CAVEAT, '', 'Small-n medians (some groups contain one plan) are indicative only.',
+    lines.extend(['', caveat, '', 'Small-n medians (some groups contain one plan) are indicative only.',
                   'Percent/algorithm prices are stored as percent_rate/algorithm and never converted into dollar rates.',
-                  f"Excluded non-dollar payer entries: {counts.get('skipped_no_dollar_count', 0)}.",
+                  f"Non-dollar payer entries stored with a null rate (excluded from medians): {counts.get('skipped_no_dollar_count', 0)}.",
                   f"Quarantined source items: {counts.get('quarantined_row_count', 0)}.", ''])
     text = '\n'.join(lines)
     if summary_violations(text, rows + spread):
@@ -231,7 +237,8 @@ def write_ledger_artifacts(rows, run_id, *, data_dir=Path('data'), excluded_coun
     with report_csv.open('w', newline='', encoding='utf-8') as stream:
         writer = csv.DictWriter(stream, fieldnames=list(top_rows[0]) if top_rows else ['billing_code'])
         writer.writeheader(); writer.writerows(top_rows)
-    report_path.write_text(report, encoding='utf-8')
+    with report_path.open('w', encoding='utf-8', newline='\n') as stream:
+        stream.write(report)
     return {**stored, 'db_path': stored['path'], 'rows_csv': str(csv_path), 'report_csv': str(report_csv),
             'report_path': str(report_path), 'top_rows': top_rows, 'spread': spread,
             'baseline_label': BASELINE_LABEL, 'excluded_counts': counts}

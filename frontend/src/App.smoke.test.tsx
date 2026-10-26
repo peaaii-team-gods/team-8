@@ -134,14 +134,14 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     expect(reportTable.className).toContain("text-sm");
     expect(dialog.textContent).toContain("Small-n medians (some groups contain one plan) are indicative only.");
     expect(dialog.textContent).toContain("Percent/algorithm prices are stored as percent_rate/algorithm and never converted into dollar rates.");
-    expect(dialog.textContent).toContain("Excluded non-dollar payer entries: 29340.");
+    expect(dialog.textContent).toContain("Non-dollar payer entries stored with a null rate (excluded from medians): 29340.");
     expect(dialog.textContent).toContain("Quarantined source items: 0.");
     expect(dialog.textContent).toContain("Codes with commercial and MA medians");
     expect(dialog.textContent).toContain("Per-payer spread (dollar rates)");
     const furnace = useStore.getState().nodes.find(node => node.data.presetId === "mrf-hospital-maintainer")!;
     const furnaceNode = within(screen.getByTestId(`node-${furnace.id}`));
     const errorLine = furnaceNode.getByText("Injected error: fields.rate expected standard_charge_dollar, got missing");
-    const repairLine = furnaceNode.getByText("Golden repair: 183335/183335 rows restored");
+    const repairLine = furnaceNode.getByText("Golden repair: 127887/127887 dollar rates restored");
     expect(errorLine.className).toContain("text-rose-200");
     expect(repairLine.className).toContain("text-emerald-200");
     expect(Boolean(errorLine.compareDocumentPosition(repairLine) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);

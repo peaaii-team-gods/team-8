@@ -57,3 +57,11 @@ def test_ledger_batches_indexes_and_report_view(tmp_path):
         view = connection.execute("SELECT sql FROM sqlite_master WHERE name='report'").fetchone()[0]
         assert 'hospital_rates' in view
         assert connection.execute('SELECT count(*) FROM report').fetchone()[0] == first['row_count']
+        assert connection.execute(
+            'SELECT count(*) FROM hospital_rates WHERE algorithm IS NOT NULL AND algorithm = \'\''
+        ).fetchone()[0] == 0
+        nulls = connection.execute('SELECT count(*) FROM hospital_rates WHERE algorithm IS NULL').fetchone()[0]
+        assert nulls == connection.execute(
+            "SELECT count(*) FROM hospital_rates WHERE algorithm IS NULL OR algorithm = ''").fetchone()[0]
+        assert connection.execute("SELECT count(*) FROM hospital_rates WHERE algorithm = ''").fetchone()[0] == 0
+        assert connection.execute('SELECT count(*) FROM hospital_rates WHERE algorithm IS NULL').fetchone()[0] > 0

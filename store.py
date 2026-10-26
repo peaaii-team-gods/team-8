@@ -2,6 +2,7 @@
 import hashlib
 from pathlib import Path
 import sqlite3
+import sys
 from contextlib import closing
 
 from hospital_mapping import generate_row_model
@@ -56,8 +57,7 @@ def store_ledger(rows, db_path):
         pass
     names = list(LEDGER_FIELDS)
     columns = ', '.join(f'"{name}" {LEDGER_SQL[name]}' for name in names)
-    payload = [tuple(row.get(name) if row.get(name) is not None else
-                     ("" if LEDGER_SQL[name].startswith("TEXT") and "REAL" not in LEDGER_SQL[name] else None)
+    payload = [tuple(("" if row.get(name) is None and "NOT NULL" in LEDGER_SQL[name] else row.get(name))
                      for name in names) for row in rows]
     try:
         with closing(sqlite3.connect(path)) as connection, connection:
@@ -71,7 +71,8 @@ def store_ledger(rows, db_path):
                 'billing_class, setting, negotiated_rate, percent_rate, algorithm, gross_charge, discounted_cash, '
                 'min_charge, max_charge FROM hospital_rates')
             count = connection.execute('SELECT count(*) FROM hospital_rates').fetchone()[0]
-    except Exception:
+    except Exception as exc:
+        print(f'store_ledger_failed {type(exc).__name__}', file=sys.stderr)
         path.unlink(missing_ok=True)
         raise
     return {'row_count': count, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest(), 'path': str(path)}

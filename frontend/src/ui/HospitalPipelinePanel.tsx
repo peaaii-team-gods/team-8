@@ -5,6 +5,7 @@ import { HOSPITAL_EXPORT_EVENT, hospitalModels, pipelineHeaders, pipelineRequest
 import { openHospitalReportDialog } from "./HospitalReportTable";
 const presets: Record<string, string[]> = { source: ["hospital-source"], builder: ["mrf-hospital-builder", "mrf-hospital-maintainer"], store: ["hospital-store"], analyst: ["hospital-analyst"] };
 const stepNames: Record<string, string> = { source: "Scout", builder: "Architect", store: "Ledger", analyst: "Analyst" };
+export const GOLDEN_SOURCE_SHA256 = "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd";
 const eventsFor = (step: PipelineRecord["steps"][number], type: string) => step.telemetry.filter(event => event.type === type);
 const failureLine = (step: PipelineRecord["steps"][number]) => {
   const checks = eventsFor(step, "checks").flatMap(event => Array.isArray(event.checks) ? event.checks as Record<string, unknown>[] : []);
@@ -13,10 +14,13 @@ const failureLine = (step: PipelineRecord["steps"][number]) => {
   return rate
     ? `Injected error: fields.rate expected ${String(rate.expected)}, got ${String(rate.actual)}${typeof inserted?.actual === "number" && typeof inserted.expected === "number" && inserted.pass === false ? ` - ${inserted.actual}/${inserted.expected} rows` : ""}` : "";
 };
+const matchesGoldenFingerprint = (record: PipelineRecord | null) => (record?.steps ?? [])
+  .flatMap(step => eventsFor(step, "trace"))
+  .some(event => event.sha256 === GOLDEN_SOURCE_SHA256);
 const repairLine = (step: PipelineRecord["steps"][number]) => {
   const repair = eventsFor(step, "repair").find(event => event.label === "injected");
-  const inserted = Array.isArray(repair?.checks) ? (repair.checks as Record<string, unknown>[]).find(check => check.name === "inserted_row_count") : undefined;
-  return repair && inserted?.pass === true ? `Golden repair: ${String(inserted.actual)}/${String(inserted.expected)} rows restored` : "";
+  const repaired = Array.isArray(repair?.checks) ? (repair.checks as Record<string, unknown>[]).find(check => check.name === "rows_repaired") : undefined;
+  return repair && repaired?.pass === true ? `Golden repair: ${String(repaired.actual)}/${String(repaired.expected)} dollar rates restored` : "";
 };
 const humanSummary = (step: PipelineRecord["steps"][number]) => {
   if (step.node === "store") return typeof step.counts.row_count === "number" ? `${step.counts.row_count} rows - local SQLite` : "Waiting for row count";
@@ -101,6 +105,8 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
     return () => window.removeEventListener(HOSPITAL_EXPORT_EVENT, onExport);
   }, [record?.status, id, exporting]);
   const events = record?.steps.flatMap(step => step.telemetry) ?? [], top = events.find(event => event.type === "top10");
+  const golden = matchesGoldenFingerprint(record);
+  const reportTitle = golden ? "Golden SQL report" : "No golden for this file";
   return <section className="glass space-y-2 p-3 text-xs" aria-label="Hospital pipeline">
     <h2 className="font-semibold">Hospital pipeline · deterministic record</h2>
     <label className="block"><input type="checkbox" checked={inject} disabled={busy || signedOut} onChange={event => setInject(event.target.checked)} /> Inject rate-key error (injected)</label>
@@ -117,11 +123,11 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
     </div>)}
     {model.mapping && <p>Model mapping: {model.mapping.valid ? "valid" : "invalid"} / {model.mapping.matches_golden ? "matches golden" : "differs from golden"}</p>}
     {model.unavailable && <p className="text-white/60">model unavailable, golden path used</p>}
-    {top && <section aria-label="Golden SQL report" className="space-y-2">
-      <h3 className="font-semibold">Golden SQL report</h3>
+    {top && <section aria-label={reportTitle} className="space-y-2">
+      <h3 className="font-semibold">{reportTitle}</h3>
       <p>Commercial vs Medicare Managed Care Plan median, this hospital's file</p>
       <p className="text-white/60">{String(top.baseline_label)}</p>
-      <p className="text-white/60">{Array.isArray(top.rows) ? top.rows.length : 0} comparison groups</p>
+      <p className="text-white/60">{Number(top.row_count ?? (Array.isArray(top.rows) ? top.rows.length : 0))} comparison groups</p>
       <button type="button" className="glass rounded-lg px-3 py-1 text-sm" onClick={openHospitalReportDialog}>Open full report</button>
     </section>}
     {model.summary && <p data-testid="hospital-report-summary">{model.summary}</p>}

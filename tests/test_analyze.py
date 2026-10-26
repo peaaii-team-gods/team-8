@@ -13,7 +13,7 @@ def test_summary_guard_checks_dollars_against_only_numeric_row_values():
     assert not summary_guard('Negative -$100.', rows)
     assert not summary_guard('Bad precision $100.001.', rows)
 
-from analyze import analyze, write_ledger_artifacts, write_run_artifacts, BASELINE_LABEL, MA_CAVEAT
+from analyze import analyze, write_ledger_artifacts, write_run_artifacts, BASELINE_LABEL, ma_caveat
 from mrf_apply import apply_mapping, load_json
 from store import store_rows
 import csv
@@ -64,7 +64,7 @@ def test_golden_artifacts_and_percent_exclusion(tmp_path):
     text = open(artifacts['report_path'], encoding='utf-8').read()
     assert BASELINE_LABEL in text and 'Medicare Advantage baseline' in text
     assert 'local SQLite' in text and 'indicative only' in text
-    assert 'Excluded non-dollar payer entries: 1' in text
+    assert 'Non-dollar payer entries stored with a null rate (excluded from medians): 1' in text
     assert 'Quarantined source items: 1' in text
     assert summary_guard(text, artifacts['top_rows'])
     repeated = write_run_artifacts(result['rows'], 'repeat-run', data_dir=tmp_path / 'data',
@@ -93,8 +93,9 @@ def test_full_ledger_report_sections(tmp_path):
     text = open(artifacts['report_path'], encoding='utf-8').read()
     assert '## Codes with commercial and MA medians' in text
     assert '## Per-payer spread (dollar rates)' in text
-    assert MA_CAVEAT in text
-    assert text.count(MA_CAVEAT) >= 3
+    caveat = ma_caveat(artifacts["top_rows"])
+    assert caveat in text
+    assert text.count(caveat) >= 3
     assert 'Min' in text and 'Max' in text
     assert artifacts['top_rows']
     assert artifacts['spread']
@@ -103,3 +104,20 @@ def test_full_ledger_report_sections(tmp_path):
                                       excluded_counts=artifacts['excluded_counts'], metrics=parsed['metrics'])
     assert repeated['sha256'] == artifacts['sha256']
     assert open(repeated['report_path'], encoding='utf-8').read() == text
+
+
+def test_ma_caveat_text_cannot_disagree_with_n_ma():
+    from analyze import render_full_report
+    row = {'billing_code': 'A0425', 'code_type': 'HCPCS', 'billing_class': 'facility', 'description': 'ambulance',
+           'commercial_median': 10, 'ma_median': 5, 'difference': 5, 'ratio': 2, 'n_commercial': 2, 'n_MA': 1,
+           'gross_charge': 20, 'discounted_cash': 8, 'min_charge': 1, 'max_charge': 30}
+    single = ma_caveat([{**row}])
+    assert 'no comparison group has MA n>=2' in single
+    assert single in render_full_report([{**row}], [])
+    multi = [{**row, 'n_MA': 5}, {**row, 'billing_code': 'A0426', 'n_MA': 2}]
+    note = ma_caveat(multi)
+    text = render_full_report(multi, [])
+    assert 'not a single-plan baseline' in note
+    assert '2 comparison groups' in note and 'max n_MA=5' in note
+    assert note in text and text.count(note) >= 3
+    assert single not in text

@@ -63,7 +63,8 @@ def _stream_items(path):
                 raise ValueError("truncated MRF header")
             key = buf.find('"standard_charge_information"')
             if key < 0:
-                buf = buf[-256:] if len(buf) > CHUNK else buf
+                if n > 8 * CHUNK:
+                    raise ValueError("MRF header too large")
                 continue
             prefix = buf[:key].rstrip()
             header = json.loads((prefix[:-1] if prefix.endswith(",") else prefix) + "}")
@@ -94,10 +95,11 @@ def _stream_items(path):
     yield {"_meta": True, "sha256": hasher.hexdigest(), "bytes_streamed": n, "parse_mode": "streamed"}
 
 def _memory_items(path):
-    raw, rss = Path(path).read_bytes(), peak_rss()
+    raw = Path(path).read_bytes()
+    document = json.loads(raw.decode("utf-8-sig"))
+    rss = peak_rss()
     if rss > RSS_CAP:
         raise MemoryError(f"parsed in memory RSS {rss} exceeded 400 MB")
-    document = json.loads(raw.decode("utf-8-sig"))
     if not isinstance(document, dict) or document.get("version") != "3.0.0":
         raise ValueError("expected a CMS hospital MRF v3.0.0 document")
     items = document.get("standard_charge_information")
@@ -108,14 +110,18 @@ def _memory_items(path):
     yield {"_meta": True, "sha256": hashlib.sha256(raw).hexdigest(), "bytes_streamed": len(raw),
            "parse_mode": "parsed in memory", "peak_rss": rss}
 
-def iter_mrf(path):
-    for _ in range(2):
-        try:
-            yield from _stream_items(path)
-            return
-        except (ValueError, json.JSONDecodeError, UnicodeError):
-            pass
-    yield from _memory_items(path)
+def iter_mrf(path, *, parse_mode="streamed"):
+    if parse_mode == "parsed in memory":
+        yield from _memory_items(path)
+        return
+    if parse_mode != "streamed":
+        print(f"ingest_parse_mode_invalid {parse_mode!r}", file=sys.stderr)
+        raise ValueError("parse_mode")
+    try:
+        yield from _stream_items(path)
+    except (ValueError, json.JSONDecodeError, UnicodeError) as exc:
+        print(f"ingest_stream_failed {type(exc).__name__}", file=sys.stderr)
+        raise
 
 def _jk(code, kind, billing_class=""):
     return f"{code}\0{kind}\0{billing_class}"
@@ -176,8 +182,8 @@ def _emit(item, joined, rate_key, rows, counts):
         if not emitted:
             rows.append(_row(code, kind, item, None, None, facts))
 
-def _walk(path, inject_error):
-    stream = iter_mrf(path)
+def _walk(path, inject_error, parse_mode="streamed"):
+    stream = iter_mrf(path, parse_mode=parse_mode)
     header, meta = next(stream), None
     def items():
         nonlocal meta
@@ -191,9 +197,9 @@ def _walk(path, inject_error):
                 yield item
     return header, items, lambda: meta
 
-def ingest_file(path, *, rate_key="standard_charge_dollar", inject_error=False):
+def ingest_file(path, *, rate_key="standard_charge_dollar", inject_error=False, parse_mode="streamed"):
     started = time.perf_counter()
-    header, items, meta_of = _walk(path, inject_error)
+    header, items, meta_of = _walk(path, inject_error, parse_mode)
     joined, excerpt, n_items, rate_present = {}, [], 0, False
     for item in items():
         n_items += 1
@@ -207,7 +213,7 @@ def ingest_file(path, *, rate_key="standard_charge_dollar", inject_error=False):
     meta = meta_of()
     if meta is None:
         raise ValueError("missing ingest meta")
-    _, items, meta_of = _walk(path, inject_error)
+    _, items, meta_of = _walk(path, inject_error, parse_mode)
     rows, counts = [], {"quarantined_row_count": 0, "skipped_no_dollar_count": 0, "nulls_repaired": 0, "code_types": {}}
     for item in items():
         _emit(item, joined, rate_key, rows, counts)

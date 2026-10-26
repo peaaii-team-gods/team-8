@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import HospitalPipelinePanel from "./HospitalPipelinePanel";
+import HospitalPipelinePanel, { GOLDEN_SOURCE_SHA256 } from "./HospitalPipelinePanel";
 import { scenarioById } from "../registry/scenarios";
 import { canLink } from "../registry/linkRules";
 import { useStore } from "../state/store";
@@ -15,8 +15,11 @@ const report = "Recorded SQL report: 5 eligible groups";
 // Captured from actual PipelineService.route POST /run then GET /runs/<id> on fresh-main 605e6f0e; public-network source fetch, inject_error=true, completed GET. No CMS contacts or downloaded source body are included.
 const realResult = JSON.parse(readFileSync("src/ui/fixtures/hospital-run.real.json", "utf8"));
 const result = { status: "completed", report_md: report, steps: [
-  { node: "source", status: "completed", counts: {}, telemetry: [{ type: "trace", label: "cached", trace: [] }] },
-  { node: "builder", status: "completed", counts: {}, telemetry: [{ type: "repair", label: "injected", checks: [] }] },
+  { node: "source", status: "completed", counts: {}, telemetry: [{ type: "trace", label: "cached", trace: [], sha256: "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd" }] },
+  { node: "builder", status: "completed", counts: {}, telemetry: [
+    { type: "checks", checks: [{ name: "source_sha256", pass: true, expected: "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd", actual: "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd" }] },
+    { type: "repair", label: "injected", checks: [] },
+  ] },
   { node: "store", status: "completed", counts: { row_count: 42 }, telemetry: [{ type: "artifact", label: "local SQLite" }] },
   { node: "analyst", status: "completed", counts: {}, telemetry: [{ type: "top10", rows: [{ billing_code: "12345", rate: 120 }], baseline_label: "Medicare Advantage rates in this hospital's file" }] },
 ] };
@@ -99,13 +102,13 @@ describe("hospital canvas deterministic record", () => {
     render(<HospitalPipelinePanel adapter={null} budget={0} />);
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
     await screen.findByText(/183335 rows - local SQLite/);
-    const sourceSummary = screen.getByText(/Scout fetch/);
+    const sourceSummary = screen.getByText(/Scout (fetch cached|files fetched)/);
     const sourceDetails = sourceSummary.parentElement?.querySelector("details");
     expect(sourceDetails?.open).toBe(false);
     expect(sourceDetails?.querySelector("pre")?.textContent).toContain("https://www.southshorehealth.org/cms-hpt.txt");
     expect(sourceDetails?.querySelector("pre")?.textContent).toContain("https://zencloud-southshorehealth.s3.us-east-1.amazonaws.com/www.southshorehealth.org/assets/2026-03/042769210_south-shore-hospital_standardcharges.json");
     expect(sourceDetails?.querySelector("pre")?.textContent).toContain("0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd");
-    expect(screen.getByText(/Golden repair: 183335\/183335 rows restored/)).toBeTruthy();
+    expect(screen.getByText(/Golden repair: 127887\/127887 dollar rates restored/)).toBeTruthy();
     expect(screen.getByText("Golden SQL report")).toBeTruthy();
     expect(screen.getByText("Commercial vs Medicare Managed Care Plan median, this hospital's file")).toBeTruthy();
     expect(screen.getByText("6938 comparison groups")).toBeTruthy();
@@ -122,7 +125,20 @@ describe("hospital canvas deterministic record", () => {
     const furnace = useStore.getState().nodes.find(node => node.data.presetId === "mrf-hospital-maintainer")!;
     const furnaceTelemetry = JSON.parse(furnace.data.output!).telemetry;
     expect(furnaceTelemetry.find((event: { type: string }) => event.type === "checks").checks.find((check: { name: string }) => check.name === "fields.rate")).toMatchObject({ pass: false, expected: "standard_charge_dollar", actual: "missing" });
-    expect(furnaceTelemetry.find((event: { type: string }) => event.type === "repair").checks.find((check: { name: string }) => check.name === "inserted_row_count")).toMatchObject({ pass: true, expected: 183335, actual: 183335 });
+    expect(furnaceTelemetry.find((event: { type: string }) => event.type === "repair").checks.find((check: { name: string }) => check.name === "rows_repaired")).toMatchObject({ pass: true, expected: 127887, actual: 127887 });
+  });
+
+  it("labels a sha mismatch as no golden without storing a new field", async () => {
+    const snapshot = structuredClone(result);
+    snapshot.steps[0].telemetry = [{ type: "trace", label: "cached", trace: [], sha256: "def" }];
+    snapshot.steps[1].telemetry = [{ type: "checks", checks: [{ name: "source_sha256", pass: false, expected: "abc", actual: "def" }] }];
+    snapshot.steps[3].telemetry = [{ type: "top10", rows: [{ billing_code: "12345" }], row_count: 2, baseline_label: "Medicare Advantage rates in this hospital's file" }];
+    setup(undefined, snapshot);
+    render(<HospitalPipelinePanel adapter={null} budget={0} />);
+    fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
+    await screen.findByRole("heading", { name: "No golden for this file" });
+    expect(screen.queryByText("Golden SQL report")).toBeNull();
+    expect(JSON.stringify(snapshot)).not.toMatch(/no_golden|no-golden|golden_label/);
   });
 
   it("exports only on click and shows the returned folder", async () => {

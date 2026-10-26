@@ -4,7 +4,7 @@ Storage: local SQLite. Parse mode: streamed.
 
 Medicare Advantage baseline: Medicare Advantage rates in this hospital's file.
 
-Medicare Managed Care Plan is a single-plan baseline: no code has MA n>=2 in this file.
+Medicare Managed Care Plan is not a single-plan baseline here: 12 comparison groups have MA n>=2 (max n_MA=5).
 
 ## Codes with commercial and MA medians
 
@@ -6952,7 +6952,7 @@ Commercial plans exclude names matching: medicare|medicaid|masshealth|self.?pay|
 | J3399 | HCPCS | facility | Inj onase abepar-xioi treat | $2303803.82 | $2455110.6 | $-151306.78 | 0.94 | 7 | 1 | n/a | n/a | $2146250.0 | $2455110.6 |
 | J3391 | HCPCS | facility | Inj, atidarsagene autotemcel | $4335000.0 | $4505000.0 | $-170000.0 | 0.96 | 3 | 1 | n/a | n/a | $4335000.0 | $4505000.0 |
 
-Medicare Managed Care Plan is a single-plan baseline: no code has MA n>=2 in this file.
+Medicare Managed Care Plan is not a single-plan baseline here: 12 comparison groups have MA n>=2 (max n_MA=5).
 
 ## Per-payer spread (dollar rates)
 
@@ -6987,9 +6987,9 @@ Medicare Managed Care Plan is a single-plan baseline: no code has MA n>=2 in thi
 | Wellsense | Medicaid Managed Care Plan | $1.46 | $81.09 | $4036.04 | 18 |
 | Wellsense | Medicare Managed Care Plan | $1928.66 | $14619.86 | $378659.44 | 770 |
 
-Medicare Managed Care Plan is a single-plan baseline: no code has MA n>=2 in this file.
+Medicare Managed Care Plan is not a single-plan baseline here: 12 comparison groups have MA n>=2 (max n_MA=5).
 
 Small-n medians (some groups contain one plan) are indicative only.
 Percent/algorithm prices are stored as percent_rate/algorithm and never converted into dollar rates.
-Excluded non-dollar payer entries: 29340.
+Non-dollar payer entries stored with a null rate (excluded from medians): 29340.
 Quarantined source items: 0.

@@ -119,8 +119,8 @@ def test_real_pipeline_offline_with_injected_repair(tmp_path):
     from ingest import ingest_file
     from resources import digest
     restored = ingest_file(source, inject_error=True, rate_key='standard_charge_amount')
-    assert digest(result['_rows']) == digest(restored['rows'])
-    assert len(result['_rows']) == restored['counts']['inserted_row_count'] > 42
+    assert '_rows' not in result
+    assert result['_row_count'] == restored['counts']['inserted_row_count'] > 42
     assert any(event[3]['type'] == 'repair' for event in events)
     assert any(event[3].get('label') == 'cached' for event in events)
     assert (tmp_path / 'runs' / 'offline' / 'mrf.sqlite').exists()
@@ -130,6 +130,10 @@ def test_real_pipeline_offline_with_injected_repair(tmp_path):
     assert len(json.dumps(evidence)) < 8192
     assert any(check['name'] == 'fields.rate' and not check['pass'] for event in events
                for check in event[3].get('checks', []))
+    repair = next(event[3] for event in events if event[3].get('type') == 'repair')
+    repaired = next(check for check in repair['checks'] if check['name'] == 'rows_repaired')
+    assert repaired['pass'] and repaired['actual'] == repaired['expected'] > 0
+    assert repaired['actual'] != restored['counts']['inserted_row_count']
 
 
 def test_source_path_repair_rejects_invalid_mapping(tmp_path, capsys):
@@ -138,11 +142,25 @@ def test_source_path_repair_rejects_invalid_mapping(tmp_path, capsys):
     source.write_bytes((ROOT / 'fixtures' / 'hospital-v3-slice.json').read_bytes())
     run_id = 'run_' + 'ab' * 16
     service.runs[run_id] = {'status': 'completed', 'steps': [], 'report_md': '',
-                            '_source_path': str(source), '_inject_error': False, '_rows': [], '_top_rows': []}
-    status, result = route(service, 'POST', '/api/pipeline/runs/' + run_id + '/proposals', {'repair': {}})
+                            '_source_path': str(source), '_inject_error': False, '_row_count': 0, '_top_rows': []}
+    status, result = route(service, 'POST', '/api/pipeline/runs/' + run_id + '/proposals',
+                           {'repair': {'fields': {'rate': 'SECRET must never escape'}}})
     assert status == 200 and result['repair'] == {'valid': False, 'fixed_rows': 0, 'remaining_errors': ['invalid_mapping']}
     err = capsys.readouterr().err
     assert 'proposal_repair_invalid' in err and 'SECRET' not in err
+
+
+def test_completed_runs_are_bounded(tmp_path):
+    service = PipelineService(data_dir=tmp_path, pipeline=fake_pipeline)
+    ids = []
+    for _ in range(3):
+        status, value, _ = service.route('POST', '/api/pipeline/run', b'{"source":"south-shore","inject_error":false}')
+        assert status == 202
+        service.threads[value['run_id']].join(5)
+        ids.append(value['run_id'])
+    assert route(service, 'GET', '/api/pipeline/runs/' + ids[0])[0] == 404
+    assert route(service, 'GET', '/api/pipeline/runs/' + ids[1])[0] == 200
+    assert route(service, 'GET', '/api/pipeline/runs/' + ids[2])[0] == 200
 
 
 def test_timeout_retries_then_cached_pipeline_run(tmp_path, monkeypatch):
@@ -217,6 +235,28 @@ def test_http_handler_rejects_oversize_before_reading_body():
     assert codes == [413] and handler.rfile.tell() == 0
     assert not any(name.lower().startswith('access-control') for name, _ in headers)
     assert json.loads(handler.wfile.getvalue()) == {'error': 'body_too_large'}
+
+
+def test_mismatched_fingerprint_completes_without_golden_checks(tmp_path):
+    fixture = load_json('hospital-v3-slice.json')
+    source = tmp_path / 'source.json'
+    source.write_text(json.dumps(fixture), encoding='utf-8')
+    def discover(domain, location_hint, **kwargs):
+        return {'path': str(source), 'trace': [], 'label': 'cached', 'sha256': 'not-the-golden'}
+    events = []
+    result = run_pipeline('no-golden', lambda *args: events.append(args), tmp_path, discoverer=discover)
+    assert result['_row_count'] > 42
+    names = [check['name'] for event in events for check in event[3].get('checks', [])]
+    assert 'digest' not in names
+    assert any(event[3].get('type') == 'trace' and event[3].get('sha256') == 'not-the-golden' for event in events)
+
+
+def test_get_run_omits_private_fields(tmp_path):
+    service, run_id = ready(tmp_path)
+    status, result = route(service, 'GET', '/api/pipeline/runs/' + run_id)
+    payload = json.dumps(result)
+    assert status == 200 and '_rows' not in result and '_top_rows' not in result and '_source_path' not in result
+    assert 'SECRET' not in payload and len(payload) < 200_000
 
 
 def test_export_failure_is_safe_and_first_result_is_retained(tmp_path):

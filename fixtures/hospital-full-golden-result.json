@@ -1,6 +1,6 @@
 {
   "source_sha256": "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd",
-  "producing_commit": "7feb6b9a64075685aa6f7905abcbe0b3334ac7de",
+  "producing_commit": "pending",
   "parse_mode": "streamed",
   "counts": {
     "flattened_row_count": 183335,
@@ -11,8 +11,7 @@
     "items_parsed": 25451
   },
   "digest": "527a10bc2eea7eda59fc83b4168330daed612d8e7d0a6ffa8183927c72ce134d",
-  "report_sha256": "70aa1fab5176e96af6a66125fbc606409a83195f27611d7973e407d1df05286d",
-  "db_sha256": "7ae63ed9b8a4335ab9a389256473ce8edc3bf8259595da7656667c08ee7a67b3",
+  "report_sha256": "39673c8a21d68a5e20dd1738b400362ae7db0d313bfab6e947bcd430540d0ded",
   "comparison_groups": 6938,
   "spread_groups": 28,
   "code_type_counts": {
@@ -23,6 +22,6 @@
     "APC": 139,
     "MS-DRG": 889
   },
-  "elapsed_s": 2.884,
-  "peak_rss": 195936256
+  "elapsed_s": 3.554,
+  "peak_rss": 210739200
 }

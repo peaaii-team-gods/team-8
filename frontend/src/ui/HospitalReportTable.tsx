@@ -7,7 +7,14 @@ const REPORT = [["billing_code", "Code"], ["code_type", "Type"], ["billing_class
   ["min_charge", "Min"], ["max_charge", "Max"]] as const;
 const SPREAD = [["payer_name", "Payer"], ["plan_name", "Plan"], ["min_rate", "Min"], ["median_rate", "Median"],
   ["max_rate", "Max"], ["n", "n"]] as const;
-const CAVEAT = "Medicare Managed Care Plan is a single-plan baseline: no code has MA n>=2 in this file.";
+export function maCaveat(rows: unknown[]) {
+  const counts = rows.map(row => Number((row as Record<string, unknown> | null)?.n_MA) || 0);
+  const multi = counts.filter(value => value >= 2);
+  if (!multi.length) {
+    return "Medicare Managed Care Plan is a single-plan baseline: no comparison group has MA n>=2 in this file.";
+  }
+  return `Medicare Managed Care Plan is not a single-plan baseline here: ${multi.length} comparison groups have MA n>=2 (max n_MA=${Math.max(...multi)}).`;
+}
 
 export function openHospitalReportDialog() {
   const dialog = document.getElementById("hospital-report-modal") as HTMLDialogElement | null;
@@ -30,12 +37,12 @@ function PagedTable({ rows, columns, className, testid }: { rows: unknown[]; col
   </div>;
 }
 
-export default function HospitalReportTable({ rows, spread = [], className = "" }: { rows: unknown[]; spread?: unknown[]; className?: string }) {
-  const caveat = <p className="mb-2 text-xs text-white/60">{CAVEAT}</p>;
+export default function HospitalReportTable({ rows, spread = [], className = "", caveat }: { rows: unknown[]; spread?: unknown[]; className?: string; caveat?: string }) {
+  const note = <p className="mb-2 text-xs text-white/60">{caveat ?? maCaveat(rows)}</p>;
   return <div className="space-y-4">
-    <section><h3 className="mb-2 font-semibold">Codes with commercial and MA medians</h3>{caveat}
+    <section><h3 className="mb-2 font-semibold">Codes with commercial and MA medians</h3>{note}
       <PagedTable rows={rows} columns={REPORT} className={className} testid="hospital-report-table" /></section>
-    {spread.length > 0 && <section><h3 className="mb-2 font-semibold">Per-payer spread (dollar rates)</h3>{caveat}
+    {spread.length > 0 && <section><h3 className="mb-2 font-semibold">Per-payer spread (dollar rates)</h3>{note}
       <PagedTable rows={spread} columns={SPREAD} className={className} testid="hospital-spread-table" /></section>}
   </div>;
 }
