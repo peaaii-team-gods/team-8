@@ -59,7 +59,7 @@ export async function hospitalModels(adapter: RhmAdapter, id: string, record: Pi
   if (!evidence || !top || adapter.mode !== "live") return { unavailable: true };
   const view: ModelView = {};
   const propose = async (preset: string, inputs: Record<string, string>) => {
-    if (signal.aborted || Object.values(inputs).some(value => value.length > 32_768)) throw new Error("model unavailable");
+    if (signal.aborted || Object.values(inputs).some(value => value.length > ANALYST_INPUT_CAP)) throw new Error("model unavailable");
     const graph = useStore.getState(), node = graph.nodes.find(n => n.data.presetId === preset);
     if (!node) throw new Error("model unavailable");
     const { model_preference: _model, ...workflow } = compileAgent(node, graph.edges, graph.nodes, id);

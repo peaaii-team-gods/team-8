@@ -8,7 +8,7 @@ import sqlite3
 from statistics import median
 
 from ingest import LEDGER_FIELDS
-from store import store_ledger, store_rows, validated_rows
+from store import store_ledger
 
 BASELINE_LABEL = "Medicare Advantage rates in this hospital's file"
 MONEY = re.compile(r'[-+]?\$\s*[-+]?(?:[\d,]+(?:\.\d+)?|\.\d+)(?:[eE][-+]?\d+|_\d+)*')
@@ -37,21 +37,6 @@ def summary_guard(text, rows):
 
 COMMERCIAL_EXCLUSION_PATTERN = r'medicare|medicaid|masshealth|self.?pay|cash|gross'
 MA_PLAN = 'Medicare Managed Care Plan'
-FIXED_QUERY = '''
-WITH grouped AS (
-    SELECT billing_code, billing_class, min(description) AS description,
-           median(CASE WHEN commercial(plan_name) THEN negotiated_rate END) AS commercial_median,
-           median(CASE WHEN plan_name = ? THEN negotiated_rate END) AS ma_median,
-           median(gross_charge) AS gross_charge, median(discounted_cash) AS discounted_cash,
-           sum(commercial(plan_name)) AS n_commercial,
-           sum(CASE WHEN plan_name = ? THEN 1 ELSE 0 END) AS n_MA
-    FROM hospital_rates GROUP BY billing_code, billing_class
-)
-SELECT *, round(commercial_median - ma_median, 6) AS difference,
-       round(commercial_median / nullif(ma_median, 0), 2) AS ratio
-FROM grouped WHERE commercial_median IS NOT NULL AND ma_median IS NOT NULL
-ORDER BY difference DESC, billing_code ASC, billing_class ASC LIMIT ?
-'''
 
 
 class _Median:
@@ -75,78 +60,12 @@ def _connect(db_path):
     return connection
 
 
-def analyze(db_path, top_n=10):
-    """Run the fixed ranked median query against an existing local SQLite store."""
-    if type(top_n) is not int or not 1 <= top_n <= 10:
-        raise ValueError('top_n must be an integer from 1 to 10')
-    with closing(_connect(db_path)) as connection:
-        return [dict(row) for row in connection.execute(FIXED_QUERY, (MA_PLAN, MA_PLAN, top_n))]
-
-
 def _money(value):
     return 'n/a' if value is None else '$' + format(Decimal(str(value)), 'f')
 
 
 def _cell(value):
     return str(value).replace('|', '\\|').replace('\r', ' ').replace('\n', ' ')
-
-
-def render_report(rows, *, excluded_counts=None):
-    counts = excluded_counts or {}
-    lines = ['# Hospital rate comparison', '', 'Storage: local SQLite.', '',
-             'Medicare Advantage baseline: ' + BASELINE_LABEL + '.', '',
-             'Ranked by commercial median minus the Medicare Advantage baseline, descending.',
-             'Commercial plans exclude names matching: ' + COMMERCIAL_EXCLUSION_PATTERN + '.', '',
-             '| Code | Class | Description | Commercial median | MA median | Difference | Ratio | n_commercial | n_MA | Gross | Cash |',
-             '| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |']
-    for row in rows:
-        cells = [row['billing_code'], row['billing_class'], row['description'],
-                 _money(row['commercial_median']), _money(row['ma_median']), _money(row['difference']),
-                 'n/a' if row['ratio'] is None else f"{row['ratio']:.2f}", row['n_commercial'], row['n_MA'],
-                 _money(row['gross_charge']), _money(row['discounted_cash'])]
-        lines.append('| ' + ' | '.join(_cell(value) for value in cells) + ' |')
-    if not rows:
-        lines.extend(['', 'No groups have both eligible commercial and Medicare Advantage baseline rates.'])
-    lines.extend(['', 'Small-n medians (some groups contain one plan) are indicative only.',
-                  'Percent/algorithm prices are never converted into dollar rates.',
-                  f"Non-dollar payer entries stored with a null rate (excluded from medians): {counts.get('skipped_no_dollar_count', 0)}.",
-                  f"Quarantined source items: {counts.get('quarantined_row_count', 0)}.", ''])
-    text = '\n'.join(lines)
-    violations = summary_violations(text, rows)
-    if violations:
-        raise ValueError('report contains unsupported dollar figures')
-    return text
-
-
-def write_run_artifacts(rows, run_id, *, data_dir=Path('data'), mapping=None, excluded_counts=None):
-    """Write data/runs/<run_id>/{rows.csv,mrf.sqlite,report.md}; never invoke a model.
-
-    excluded_counts accepts skipped_no_dollar_count and quarantined_row_count
-    from apply_mapping; quarantined items are distinct from eligible non-dollar payers.
-    """
-    if not isinstance(run_id, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,127}', run_id):
-        raise ValueError('invalid run_id')
-    counts = dict(excluded_counts or {})
-    if set(counts) - {'skipped_no_dollar_count', 'quarantined_row_count'} or any(
-            type(value) is not int or value < 0 for value in counts.values()):
-        raise ValueError('invalid excluded_counts')
-    validated = validated_rows(rows, mapping)
-    directory = Path(data_dir) / 'runs' / run_id
-    directory.mkdir(parents=True, exist_ok=False)
-    stored = store_rows(validated, directory / 'mrf.sqlite', mapping=mapping)
-    top_rows = analyze(stored['path'])
-    report = render_report(top_rows, excluded_counts=counts)
-    csv_path, report_path = directory / 'rows.csv', directory / 'report.md'
-    with csv_path.open('w', newline='', encoding='utf-8') as stream:
-        writer = csv.DictWriter(stream, fieldnames=list(validated[0]) if validated else [
-            'billing_code', 'description', 'payer_name', 'plan_name', 'billing_class',
-            'negotiated_rate', 'gross_charge', 'discounted_cash'])
-        writer.writeheader()
-        writer.writerows(validated)
-    with report_path.open('w', encoding='utf-8', newline='\n') as stream:
-        stream.write(report)
-    return {**stored, 'db_path': stored['path'], 'rows_csv': str(csv_path), 'report_path': str(report_path),
-            'top_rows': top_rows, 'baseline_label': BASELINE_LABEL, 'excluded_counts': counts}
 
 
 FULL_QUERY = (

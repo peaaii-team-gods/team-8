@@ -14,7 +14,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const reportMd = "# Hospital rate comparison\n\nMedicare Managed Care Plan is a single-plan baseline: no comparison group has MA n>=2 in this file.\n";
 const report = "Recorded SQL report: 5 eligible groups";
 const reportResponse = () => new Response(reportMd, { headers: { "Content-Type": "text/markdown; charset=utf-8" } });
-// Captured from actual PipelineService.route POST /run then GET /runs/<id> on fresh-main 605e6f0e; public-network source fetch, inject_error=true, completed GET. No CMS contacts or downloaded source body are included.
+// Captured from an actual injected full-file run; producing commit and method are in the T14-r6 handoff. No CMS contacts or downloaded source body are included.
 const realResult = JSON.parse(readFileSync("src/ui/fixtures/hospital-run.real.json", "utf8"));
 const result = { status: "completed", report_md: report, steps: [
   { node: "source", status: "completed", counts: {}, telemetry: [{ type: "trace", label: "cached", trace: [], sha256: "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd", golden_source_sha256: "0ba485a4805fae35fd4f1ed425750cf655aaa05c09df0c2939fce07e5b6881bd" }] },
@@ -260,6 +260,24 @@ describe("hospital canvas deterministic record", () => {
     await screen.findByRole("heading", { name: "Golden SQL report" });
     fireEvent.click(screen.getByRole("link", { name: "rows.csv" }));
     expect((await screen.findByRole("alert")).textContent).toBe("Artifact unavailable (401)");
+  });
+
+  it.each([401, 503, 'connection'])('shows a visible error when the report artifact fails: %s', async failure => {
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url === '/api/pipeline/run') return response({ run_id: 'run-test' });
+      if (url === '/api/pipeline/runs/run-test') return response(result);
+      if (url.endsWith('/artifacts/report.md')) {
+        if (failure === 'connection') throw new TypeError('Failed to fetch');
+        return new Response('unavailable', { status: failure });
+      }
+      throw new Error('Unexpected request');
+    });
+    render(<HospitalPipelinePanel adapter={null} budget={0} mode='live' accessToken='live-token' />);
+    fireEvent.click(screen.getByRole('button', { name: 'Run hospital pipeline' }));
+    expect((await screen.findByRole('alert')).textContent).toBe(failure === 'connection'
+      ? 'Report artifact unavailable: connection failed' : `Report artifact unavailable (${failure})`);
+    expect((screen.getByRole('button', { name: 'Open full report' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(useStore.getState().pipelineStage).toBe('complete');
   });
 
   it("surfaces a connection failure when a live artifact download cannot reach the pipeline", async () => {

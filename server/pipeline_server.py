@@ -16,8 +16,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-import sqlite3
-from analyze import analyze, analyze_full, summary_violations, write_ledger_artifacts
+from analyze import analyze_full, summary_violations, write_ledger_artifacts
 from discovery import discover
 from ingest import ingest_file
 from mrf_apply import load_json
@@ -248,12 +247,8 @@ def _summary_rows(data_dir, run_id):
     db_path = Path(data_dir) / 'runs' / run_id / 'mrf.sqlite'
     if not db_path.is_file():
         return []
-    try:
-        groups, spread = analyze_full(db_path)
-        return groups + spread
-    except sqlite3.OperationalError as exc:
-        print(f'summary_rows_fallback {type(exc).__name__}', file=sys.stderr)
-        return analyze(db_path)
+    groups, spread = analyze_full(db_path)
+    return groups + spread
 
 
 class PipelineService:
@@ -294,10 +289,20 @@ class PipelineService:
         self.export_results.pop(rid, None)
         folder = self.data_dir / 'runs' / rid
         if folder.is_dir():
-            shutil.rmtree(folder, ignore_errors=True)
+            try:
+                if folder.resolve().parent != (self.data_dir / 'runs').resolve():
+                    raise OSError('run folder outside runs directory')
+                shutil.rmtree(folder)
+            except OSError as exc:
+                print(f'run_delete_failed run_id={folder.name} {type(exc).__name__}', file=sys.stderr)
 
     def _retain(self, reserved=None):
         now = time.monotonic()
+        directory = self.data_dir / 'runs'
+        if directory.is_dir():
+            for folder in directory.iterdir():
+                if folder.is_dir() and folder.name != reserved and folder.name not in self.runs:
+                    self._forget(folder.name)
         for rid, rec in list(self.runs.items()):
             if rid == reserved or rec.get('status') in ('queued', 'running'):
                 continue

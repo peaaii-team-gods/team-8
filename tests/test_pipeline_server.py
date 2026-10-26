@@ -7,15 +7,15 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from mrf_apply import apply_mapping, load_json
+from mrf_apply import load_json
 from server.pipeline_server import Handler, PipelineService, ROOT, run_pipeline
 
 
 def fake_pipeline(run_id, emit, data_dir):
-    from analyze import write_run_artifacts
-    fixture, mapping = load_json('hospital-v3-slice.json'), load_json('hospital-golden-mapping.json')
-    rows = apply_mapping(fixture, mapping)['rows']
-    result = write_run_artifacts(rows, run_id, data_dir=data_dir)
+    from analyze import write_ledger_artifacts
+    from ingest import ingest_file
+    parsed = ingest_file(ROOT / 'fixtures' / 'hospital-v3-slice.json')
+    result = write_ledger_artifacts(parsed['rows'], run_id, data_dir=data_dir)
     emit('analyst', 'completed', {'row_count': len(result['top_rows'])},
          {'type': 'top10', 'rows': result['top_rows'][:10], 'row_count': len(result['top_rows'])})
     return {}
@@ -163,6 +163,7 @@ def test_running_run_is_not_evicted(tmp_path, monkeypatch):
     state = {'hold': True}
     def pipeline(run_id, emit, data_dir):
         if state['hold']:
+            (data_dir / 'runs' / run_id).mkdir(parents=True)
             entered.set()
             release.wait(5)
             return {}
@@ -178,6 +179,7 @@ def test_running_run_is_not_evicted(tmp_path, monkeypatch):
         assert status == 202
         service.threads[value['run_id']].join(5)
     assert route(service, 'GET', '/api/pipeline/runs/' + running['run_id'])[0] == 200
+    assert (tmp_path / 'runs' / running['run_id']).is_dir()
     release.set()
     service.threads[running['run_id']].join(5)
 
@@ -205,6 +207,36 @@ def test_polled_finished_run_survives_retention(tmp_path):
         service._retain()
     assert run_id in service.runs
     assert (tmp_path / 'runs' / run_id).is_dir()
+
+
+def test_retention_deletes_finished_folder_from_previous_process(tmp_path):
+    previous, old_id = ready(tmp_path)
+    old_folder = tmp_path / 'runs' / old_id
+    assert old_folder.is_dir() and previous.runs[old_id]['status'] == 'completed'
+    restarted, new_id = ready(tmp_path)
+    assert old_id not in restarted.runs and not old_folder.exists()
+    assert (tmp_path / 'runs' / new_id).is_dir()
+
+
+def test_retention_logs_delete_failure_and_retries_orphan(tmp_path, monkeypatch, capsys):
+    from server import pipeline_server as mod
+    service, run_id = ready(tmp_path)
+    folder = tmp_path / 'runs' / run_id
+    service.runs[run_id]['_accessed'] = time.monotonic() - mod.RETAIN_IDLE_S - 1
+    real_rmtree = mod.shutil.rmtree
+    def locked(path):
+        raise PermissionError('SECRET path must never escape')
+    monkeypatch.setattr(mod.shutil, 'rmtree', locked)
+    with service.lock:
+        service._retain()
+    assert folder.is_dir()
+    err = capsys.readouterr().err
+    assert f'run_delete_failed run_id={run_id} PermissionError' in err
+    assert 'SECRET' not in err and str(tmp_path) not in err
+    monkeypatch.setattr(mod.shutil, 'rmtree', real_rmtree)
+    with service.lock:
+        service._retain()
+    assert not folder.exists()
 
 
 def test_timeout_retries_then_cached_pipeline_run(tmp_path, monkeypatch):
@@ -303,13 +335,6 @@ def test_get_run_omits_private_fields(tmp_path):
     top = result['steps'][-1]['telemetry'][0]
     assert top['type'] == 'top10' and len(top['rows']) <= 10
     assert 'SECRET' not in payload and len(payload) < 64_000
-
-
-def test_summary_guard_falls_back_when_ledger_columns_missing(tmp_path, capsys):
-    service, run_id = ready(tmp_path)
-    status, result = route(service, 'POST', '/api/pipeline/runs/' + run_id + '/summary', {'text': 'No invented figures.'})
-    assert status == 200 and result == {'ok': True, 'violations': []}
-    assert 'summary_rows_fallback' in capsys.readouterr().err
 
 
 def test_export_failure_is_safe_and_first_result_is_retained(tmp_path):

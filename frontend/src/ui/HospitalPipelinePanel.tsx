@@ -81,8 +81,13 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
         if (snapshot.status === "failed") { store.setPipelineStage("fail"); throw new Error("Recorded hospital pipeline failed"); }
         if (snapshot.status === "completed") {
           store.setPipelineStage("complete");
-          const reportResponse = await fetch(`${runPath(created.run_id)}/artifacts/report.md`, { headers: pipelineHeaders(accessToken), cache: "no-store", redirect: "error", signal });
-          if (reportResponse.ok && !signal.aborted) setReportMd(await reportResponse.text());
+          try {
+            const reportResponse = await fetch(`${runPath(created.run_id)}/artifacts/report.md`, { headers: pipelineHeaders(accessToken), cache: "no-store", redirect: "error", signal });
+            if (!signal.aborted) {
+              if (reportResponse.ok) setReportMd(await reportResponse.text());
+              else setArtifactError(`Report artifact unavailable (${reportResponse.status})`);
+            }
+          } catch { if (!signal.aborted) setArtifactError("Report artifact unavailable: connection failed"); }
           if (adapter) prepareLocalModel?.();
           const proposals = adapter ? await hospitalModels(adapter, created.run_id, snapshot, budget, signal, handle => handles.current.push(handle), accessToken) : { unavailable: true };
           if (!signal.aborted) setModel(proposals);
@@ -132,7 +137,7 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
       <p>Commercial vs Medicare Managed Care Plan median, this hospital's file</p>
       <p className="text-white/60">{String(top.baseline_label)}</p>
       <p className="text-white/60">{Number(top.row_count ?? (Array.isArray(top.rows) ? top.rows.length : 0))} comparison groups</p>
-      <button type="button" className="glass rounded-lg px-3 py-1 text-sm" onClick={openHospitalReportDialog}>Open full report</button>
+      <button type="button" className="glass rounded-lg px-3 py-1 text-sm disabled:opacity-50" disabled={!reportMd} onClick={openHospitalReportDialog}>Open full report</button>
     </section>}
     {model.summary && <p data-testid="hospital-report-summary">{model.summary}</p>}
     {model.rejected !== undefined && <p>Summary rejected by guard: {model.rejected} unsupported figures</p>}
