@@ -18,8 +18,8 @@ legacy helper removal require the displayed confirmation.
 
 Validation: final frontend suite 273 tests passed; docs check and production
 build passed. Existing build-size warning remains. Source and local checks do
-not establish deployment or live model acceptance. Owner Catalog setup,
-Identity grants, deployment and the batch live gate remain open. No deployment
+not establish deployment or live model acceptance. Deployment and the batch
+live gate remain open. No deployment
 or paid inference was performed by this batch.
 
 
@@ -33,3 +33,13 @@ creation.
 Validation: frontend suite 279 tests passed; docs check and production build
 passed. Deployment and live acceptance remain open. No deployment or paid
 inference was performed by this batch.
+
+## Inference fix 01: picker fixes (2026-10-26)
+
+Premium requires a configured provider. Configured live accounts can grant run
+consent from the inline checkbox or Settings. The local-provider option remains
+unavailable because account writes reject it.
+
+Validation: frontend suite 280 tests passed; docs check and production build
+passed. Existing build-size warning remains. Deployment and live acceptance
+remain open. No deployment or paid inference was performed by this batch.
