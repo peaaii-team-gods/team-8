@@ -4,7 +4,7 @@ import "@xyflow/react/dist/style.css";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Play, Settings, Square } from "lucide-react";
 import VoidBackground from "./ui/VoidBackground";
-import { liveRunBlocked, type InferenceStatus } from "./adapters/inference";
+import { clearPaidSpend, liveRunBlocked, readPaidSpend, writePaidSpend, type InferenceStatus } from "./adapters/inference";
 import SessionPanel from "./ui/SessionPanel";
 import MetricsPanel from "./ui/MetricsPanel";
 import ConversationPanel from "./ui/ConversationPanel";
@@ -93,8 +93,27 @@ export default function App() {
   const [inference, setInference] = useState<InferenceStatus | null>(null);
   const [modelReady, setModelReady] = useState(false);
   const [runModelLabel, setRunModelLabel] = useState("Auto - price unavailable");
-  const [paidConsent, setPaidConsent] = useState(false);
-  const [spendCap, setSpendCap] = useState("0");
+  const [paidConsent, setPaidConsentState] = useState(false);
+  const [spendCap, setSpendCapState] = useState(() => readPaidSpend().cap);
+  // Latest values, so same-tick consent+cap changes persist together. Consent is restored only by onStatus for the same provider revision.
+  const paidRef = useRef({ consent: false, cap: spendCap, revision: null as string | null });
+  const setPaidConsent = (value: boolean) => { paidRef.current.consent = value; setPaidConsentState(value); writePaidSpend(paidRef.current.revision, value, paidRef.current.cap); };
+  const setSpendCap = (value: string) => { paidRef.current.cap = value; setSpendCapState(value); writePaidSpend(paidRef.current.revision, paidRef.current.consent, value); };
+  const loadPaidStatus = (next: InferenceStatus | null) => {
+    const stored = readPaidSpend();
+    if (!next?.configured || !next.revision) {
+      // null is the panel's transient "loading" report: reset memory only, keep the store for the real status.
+      paidRef.current = { consent: false, cap: "0", revision: null };
+      setPaidConsentState(false); setSpendCapState("0"); setTier("free");
+      if (next) clearPaidSpend();
+    } else if (stored.revision === next.revision) {
+      paidRef.current = { consent: stored.consent, cap: stored.cap, revision: next.revision };
+      setPaidConsentState(stored.consent); setSpendCapState(stored.cap);
+    } else {
+      paidRef.current = { consent: false, cap: stored.cap, revision: next.revision };
+      setSpendCapState(stored.cap); setPaidConsentState(false); writePaidSpend(next.revision, false, stored.cap);
+    }
+  };
   const [tier, setTier] = useState<"free" | "premium">("free");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsButton = useRef<HTMLButtonElement>(null);
@@ -496,8 +515,10 @@ export default function App() {
     setIdentitySession(null);
     setInference(null);
     setTier("free");
-    setSpendCap("0");
-    setPaidConsent(false);
+    paidRef.current = { consent: false, cap: "0", revision: null };
+    setSpendCapState("0");
+    setPaidConsentState(false);
+    clearPaidSpend();
     setView("landing");
     try {
       await identitySession?.logout();
@@ -608,7 +629,7 @@ export default function App() {
     {shellMode === "live" && identitySession && <SettingsDialog open={settingsOpen}
       onModelReady={setModelReady} onModelLabel={setRunModelLabel} inference={inference} apiBase={apiBase} session={identitySession} tier={tier} setTier={setTier}
       paidConsent={paidConsent} setPaidConsent={setPaidConsent} spendCap={spendCap} setSpendCap={setSpendCap}
-      onStatus={next => { setInference(next); setPaidConsent(false); if (!next?.configured) { setTier("free"); setSpendCap("0"); } }}
+      onStatus={next => { setInference(next); loadPaidStatus(next); }}
       onClose={() => { setSettingsOpen(false); window.setTimeout(() => settingsButton.current?.focus(), 0); }} disabled={running}
     />}
     {nodes.length === 0 && uiState.kind !== "hub" && (

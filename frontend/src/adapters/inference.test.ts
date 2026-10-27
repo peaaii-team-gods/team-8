@@ -1,6 +1,6 @@
 import { IdentitySession } from "./identity";
 import { describe, expect, it, vi } from "vitest";
-import { InferenceSettings, liveProviderBlocked, liveRunBlocked, readOverride, runSelection, type InferenceStatus } from "./inference";
+import { InferenceSettings, PAID_SPEND_KEY, clearPaidSpend, liveProviderBlocked, liveRunBlocked, readOverride, readPaidSpend, runSelection, writePaidSpend, type InferenceStatus } from "./inference";
 
 const configured: InferenceStatus = {
   configured: true, revision: "r1", provider: "local", model_id: "m",
@@ -56,6 +56,19 @@ describe("liveRunBlocked", () => {
    localStorage.setItem("crucible.modelOverride.v1", JSON.stringify({v:1,tier:"cheap_fast",pin:{model_id:"m",is_free:false}}));
    expect(readOverride()).toEqual({v:1,tier:"cheap_fast",pin:{model_id:"m",is_free:false},helper:null});
    localStorage.clear();
+ });
+
+ it("strictly reads, writes and clears the paid spend store", () => {
+   const fallback = { v: 1, revision: null, consent: false, cap: "0" };
+   for (const raw of [null, "broken", "{}", '{"v":2,"revision":"r","consent":true,"cap":"1"}', '{"v":1,"revision":"r","consent":"true","cap":"1"}', '{"v":1,"revision":"r","consent":true,"cap":"-1"}', '{"v":1,"revision":"r","consent":true,"cap":"1.234"}', '{"v":1,"revision":"r","consent":true,"cap":"1","extra":1}']) {
+     localStorage.clear(); if (raw) localStorage.setItem(PAID_SPEND_KEY, raw);
+     expect(readPaidSpend()).toEqual(fallback);
+   }
+   writePaidSpend("r1", true, "0.50");
+   expect(readPaidSpend()).toEqual({ v: 1, revision: "r1", consent: true, cap: "0.50" });
+   clearPaidSpend();
+   expect(localStorage.getItem(PAID_SPEND_KEY)).toBeNull();
+   expect(readPaidSpend()).toEqual(fallback);
  });
 
 it("reads the catalog with account headers and rejects malformed responses", async () => {

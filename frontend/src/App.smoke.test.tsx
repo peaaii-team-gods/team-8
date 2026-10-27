@@ -616,6 +616,61 @@ describe("live provider gate (configured / host-authorized / neither)", () => {
     await waitFor(() => expect(runButton().disabled).toBe(false));
   });
 
+  const tickConsentWithCap = async () => {
+    const first = renderApp();
+    fireEvent.click((await screen.findAllByRole("button", { name: /Pilot storyboard/ }))[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Premium" }));
+    fireEvent.change(screen.getByLabelText("USD admission budget per agent run"), { target: { value: "0.50" } });
+    fireEvent.click(screen.getByLabelText(/I permit paid inference on this account/));
+    expect(JSON.parse(localStorage.getItem("crucible.paidSpend.v1")!)).toEqual({ v: 1, revision: "fixture", consent: true, cap: "0.50" });
+    first.unmount();
+  };
+  const reopenSettings = async () => {
+    renderApp();
+    fireEvent.click((await screen.findAllByRole("button", { name: /Pilot storyboard/ }))[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    return { consent: screen.getByLabelText(/I permit paid inference on this account/) as HTMLInputElement, cap: screen.getByLabelText("USD admission budget per agent run") as HTMLInputElement };
+  };
+
+  it("restores consent and cap on refresh for the same provider revision", async () => {
+    liveInference(configuredStatus);
+    await tickConsentWithCap();
+    const { consent, cap } = await reopenSettings();
+    await waitFor(() => expect(consent.checked).toBe(true));
+    expect(cap.value).toBe("0.50");
+  });
+
+  it("drops consent but keeps the cap when the provider revision differs", async () => {
+    liveInference(configuredStatus);
+    await tickConsentWithCap();
+    vi.mocked(InferenceSettings.prototype.request).mockResolvedValue({ ...configuredStatus, revision: "other" });
+    const { consent, cap } = await reopenSettings();
+    await waitFor(() => expect(JSON.parse(localStorage.getItem("crucible.paidSpend.v1")!)).toEqual({ v: 1, revision: "other", consent: false, cap: "0.50" }));
+    expect(consent.checked).toBe(false);
+    expect(cap.value).toBe("0.50");
+  });
+
+  it("clears the stored consent when the account has no provider", async () => {
+    liveInference(configuredStatus);
+    await tickConsentWithCap();
+    vi.mocked(InferenceSettings.prototype.request).mockResolvedValue(hostOnlyStatus);
+    renderApp();
+    await waitFor(() => expect(localStorage.getItem("crucible.paidSpend.v1")).toBeNull());
+  });
+
+  it("clears the stored consent on sign-out", async () => {
+    liveInference(configuredStatus);
+    renderApp();
+    fireEvent.click((await screen.findAllByRole("button", { name: /Pilot storyboard/ }))[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByLabelText(/I permit paid inference on this account/));
+    expect(localStorage.getItem("crucible.paidSpend.v1")).not.toBeNull();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: /Sign out/ }));
+    await waitFor(() => expect(localStorage.getItem("crucible.paidSpend.v1")).toBeNull());
+  });
+
   it("shows connected readiness in live hospital mode", async () => {
     liveInference(configuredStatus);
     renderApp();
@@ -667,6 +722,8 @@ describe("live provider gate (configured / host-authorized / neither)", () => {
   it("clears paid consent after a provider change before the next Free run", async () => {
     const actualRun = LiveAdapter.prototype.run;
     liveInference(configuredStatus);
+    // A saved provider gets a new revision, as the backend does.
+    vi.mocked(InferenceSettings.prototype.request).mockImplementation(async (method = "GET") => method === "PUT" ? { ...configuredStatus, revision: "changed" } : configuredStatus);
     vi.mocked(LiveAdapter.prototype.run).mockImplementation(function (this: LiveAdapter, nodeId, workflow) {
       return actualRun.call(this, nodeId, workflow);
     });

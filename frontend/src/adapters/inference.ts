@@ -83,6 +83,22 @@ export function readOverride(): ModelOverride {
     return { ...value, helper: validHelper ? helper : null };
   } catch { return fallback; }
 }
+export interface PaidSpend { v: 1; revision: string | null; consent: boolean; cap: string }
+export const PAID_SPEND_KEY = "crucible.paidSpend.v1";
+export function readPaidSpend(): PaidSpend {
+  const fallback: PaidSpend = { v: 1, revision: null, consent: false, cap: "0" };
+  try {
+    const value = JSON.parse(localStorage.getItem(PAID_SPEND_KEY) ?? "null");
+    if (!value || Object.keys(value).sort().join() !== "cap,consent,revision,v" || value.v !== 1 ||
+      !(value.revision === null || (typeof value.revision === "string" && value.revision)) ||
+      typeof value.consent !== "boolean" || typeof value.cap !== "string" || !/^\d{1,6}(\.\d{1,2})?$/.test(value.cap)) return fallback;
+    return value;
+  } catch { return fallback; }
+}
+export function writePaidSpend(revision: string | null, consent: boolean, cap: string) {
+  try { localStorage.setItem(PAID_SPEND_KEY, JSON.stringify({ v: 1, revision, consent, cap } satisfies PaidSpend)); } catch { /* storage unavailable */ }
+}
+export function clearPaidSpend() { try { localStorage.removeItem(PAID_SPEND_KEY); } catch { /* storage unavailable */ } }
 export async function runSelection(base: string, session: IdentitySession) {
   const { tier, pin, helper } = readOverride();
   const connections = await new InferenceSettings(base, session).listConnections();
