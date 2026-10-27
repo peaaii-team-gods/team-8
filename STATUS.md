@@ -1,5 +1,16 @@
 # STATUS — Crucible Cast
 
+## Helper routing 01 (2026-10-27)
+
+Run settings offer an optional helper model and connection, with Auto as the
+default. Saved main choices remain compatible. Auto helpers remain enabled with
+a pinned main model; only a helper pin overrides Auto. An unavailable helper
+blocks running until corrected or returned to Auto. Account-provider saves no
+longer send a legacy helper. Validation: fresh-checkout frontend suite 290 tests
+passed; docs check and production build passed. Existing build-size warning
+remains. Deployment and live acceptance remain open. No deployment or paid
+inference was performed by this batch.
+
 ## Inference batch 01 (2026-10-26)
 
 Source implements catalog model selection with Auto first, four saved routing
