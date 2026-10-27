@@ -19,6 +19,16 @@ export interface ProviderInput { provider: Provider; model_id: string; base_url?
 class InferenceSettingsError extends Error {}
 export class InferenceSettings {
   constructor(private base: string, private session: IdentitySession) {}
+  async listConnections(): Promise<InferenceConnection[]> {
+    const response = await fetch(`${this.base}/v1/account/inference-connections`, {
+      headers: { authorization: `Bearer ${this.session.token ?? ""}` }, cache: "no-store", redirect: "error", credentials: "omit",
+    });
+    if (!response.ok) throw new Error("Could not read inference connections. Refresh before running.");
+    const body = await response.json();
+    if (!Array.isArray(body?.connections)) throw new Error("Invalid inference connections response.");
+    if (body.connections.some((connection: InferenceConnection) => !connection || typeof connection.id !== "string" || !/^[a-f0-9]{32}$/.test(connection.id))) throw new Error("Invalid primary inference connection id.");
+    return body.connections;
+  }
   async listModels(): Promise<InferenceModel[]> {
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 15000);
     try {
@@ -54,33 +64,33 @@ export class InferenceSettings {
 }
 
 export type ModelTier = "free" | "cheaper_slow" | "cheap_fast" | "premium";
-export interface ModelOverride { v: 1; tier: ModelTier; pin: null | { model_id: string; is_free: boolean } }
+export interface InferenceConnection { id: string; label?: string | null }
+export interface ModelOverride { v: 1; tier: ModelTier; pin: null | { model_id: string; is_free: boolean }; helper: null | { connection_id: string; model_id: string; is_free: boolean } }
 export const MODEL_OVERRIDE_KEY = "crucible.modelOverride.v1";
 export function readOverride(): ModelOverride {
-  const fallback: ModelOverride = { v: 1, tier: "free", pin: null };
+  const fallback: ModelOverride = { v: 1, tier: "free", pin: null, helper: null };
   try {
     const value = JSON.parse(localStorage.getItem(MODEL_OVERRIDE_KEY) ?? "null");
-    if (!value || Object.keys(value).sort().join() !== "pin,tier,v" || value.v !== 1 ||
+    if (!value || !["pin,tier,v", "helper,pin,tier,v"].includes(Object.keys(value).sort().join()) || value.v !== 1 ||
       !["free", "cheaper_slow", "cheap_fast", "premium"].includes(value.tier)) return fallback;
     const pin = value.pin;
     if (pin !== null && (!pin || Object.keys(pin).sort().join() !== "is_free,model_id" ||
       typeof pin.model_id !== "string" || !pin.model_id.trim() || typeof pin.is_free !== "boolean")) return fallback;
-    return value;
+    const helper = value.helper;
+    const validHelper = helper && Object.keys(helper).sort().join() === "connection_id,is_free,model_id" &&
+      typeof helper.connection_id === "string" && /^[a-f0-9]{32}$/.test(helper.connection_id) &&
+      typeof helper.model_id === "string" && helper.model_id.length <= 200 && /^[A-Za-z0-9_./:+-]+$/.test(helper.model_id) && typeof helper.is_free === "boolean";
+    return { ...value, helper: validHelper ? helper : null };
   } catch { return fallback; }
 }
 export async function runSelection(base: string, session: IdentitySession) {
-  const { tier, pin } = readOverride();
-  const response = await fetch(`${base}/v1/account/inference-connections`, {
-    headers: { authorization: `Bearer ${session.token ?? ""}` }, cache: "no-store", redirect: "error", credentials: "omit",
-  });
-  if (!response.ok) throw new Error("Could not read inference connections. Refresh before running.");
-  const body = await response.json() as { connections?: { id?: unknown }[] };
-  if (!Array.isArray(body?.connections)) throw new Error("Invalid inference connections response.");
-  if (body.connections.length === 0) return undefined;
-  const primary = body.connections[0];
-  if (!primary || typeof primary.id !== "string" || !/^[a-f0-9]{32}$/.test(primary.id)) throw new Error("Invalid primary inference connection id.");
-  if (pin) return { mode: "manual", connection_id: primary.id, model_id: pin.model_id, allow_fallback: false };
-  return { mode: "auto", tier };
+  const { tier, pin, helper } = readOverride();
+  const connections = await new InferenceSettings(base, session).listConnections();
+  if (connections.length === 0) return undefined;
+  if (helper && !connections.some(connection => connection.id === helper.connection_id)) throw new Error("Saved helper unavailable. Use Auto before running.");
+  const helperSelection = helper ? { helper: { connection_id: helper.connection_id, model_id: helper.model_id } } : {};
+  if (pin) return { mode: "manual", connection_id: connections[0].id, model_id: pin.model_id, allow_fallback: false, ...helperSelection };
+  return { mode: "auto", tier, ...helperSelection };
 }
 
 export interface InferenceModel { id: string; label: string; provider: string; is_free: boolean; price_in_per_m: number | null; price_out_per_m: number | null; context: number | null; tool_capable: boolean; band: string | null }

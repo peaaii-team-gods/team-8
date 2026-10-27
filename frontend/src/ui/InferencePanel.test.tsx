@@ -18,7 +18,7 @@ describe("Account inference", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save account provider" }));
     expect((screen.getByLabelText("Primary API key") as HTMLInputElement).value).toBe("");
     const request = fetcher.mock.calls[1][1];
-    expect(JSON.parse(request.body)).toEqual({ provider: "openrouter", model_id: "auto", api_key: "secret-for-test", base_url: "", helper: null, expected_revision: null });
+    expect(JSON.parse(request.body)).toEqual({ provider: "openrouter", model_id: "auto", api_key: "secret-for-test", base_url: "", expected_revision: null });
     expect(request.cache).toBe("no-store");
     reject(new Response("secret-for-test", { status: 409 }));
     expect((await screen.findByRole("alert")).textContent).toContain("Settings changed");
@@ -72,6 +72,7 @@ it("preserves an existing shared account legacy model without showing a model co
  fireEvent.change(screen.getByLabelText("Primary API key"),{target:{value:"fixture-key"}});
  fireEvent.click(screen.getByLabelText(/I approve/));fireEvent.click(screen.getByRole("button",{name:"Save account provider"}));
  await waitFor(()=>expect(fetcher).toHaveBeenCalledTimes(2));
- expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toMatchObject({model_id:"legacy-model",helper:null});
+ expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toMatchObject({model_id:"legacy-model"});
+ expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).not.toHaveProperty("helper");
  expect(screen.queryByLabelText("Primary model")).toBeNull();
 });

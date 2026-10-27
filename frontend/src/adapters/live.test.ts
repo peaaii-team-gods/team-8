@@ -264,3 +264,29 @@ describe("LiveAdapter poll mapping", () => {
      expect(JSON.parse(String(mock.mock.calls.at(-1)?.[1]?.body))).not.toHaveProperty("inference_selection");
    });
  });
+
+describe("request-scoped helper selection", () => {
+ afterEach(()=>localStorage.clear());
+ it.each([null,{model_id:"main",is_free:false}])("omits the Auto helper with main pin %j",async pin=>{
+  localStorage.setItem("crucible.modelOverride.v1",JSON.stringify({v:1,tier:"premium",pin,helper:null}));
+  const mock=vi.fn(async(url:string,_init?:RequestInit)=>json(url.endsWith("inference-connections")?{connections:[{id:"a".repeat(32)}]}:{workflow_id:"w",run_id:"r"}));vi.stubGlobal("fetch",mock);
+  await adapter().run("n",{} as never);
+  const selection=JSON.parse(String(mock.mock.calls.at(-1)?.[1]?.body)).inference_selection;
+  expect(selection.mode).toBe(pin?"manual":"auto");expect(selection).not.toHaveProperty("helper");
+ });
+ it.each([null,{model_id:"main",is_free:false}])("sends the helper pin with main pin %j", async pin=>{
+  localStorage.setItem("crucible.modelOverride.v1",JSON.stringify({v:1,tier:"premium",pin,helper:{connection_id:"b".repeat(32),model_id:"repair/model",is_free:false}}));
+  const requests: Record<string,unknown>[]=[];
+  vi.stubGlobal("fetch",vi.fn(async (url:string,init?:RequestInit)=>{
+   if(url.endsWith("/runs")) requests.push(JSON.parse(String(init?.body)));
+   return json(url.endsWith("inference-connections")?{connections:[{id:"a".repeat(32)},{id:"b".repeat(32)}]}:url.endsWith("workflows")?{workflow_id:"w"}:{run_id:"r"});
+  }));
+  await adapter().run("n",{} as never);
+  expect(requests[0].inference_selection).toMatchObject({mode:pin?"manual":"auto",helper:{connection_id:"b".repeat(32),model_id:"repair/model"}});
+ });
+ it("omits selection for host users even with a helper pin",async()=>{
+  localStorage.setItem("crucible.modelOverride.v1",JSON.stringify({v:1,tier:"free",pin:null,helper:{connection_id:"b".repeat(32),model_id:"repair",is_free:true}}));
+  const mock=vi.fn(async(url:string,_init?:RequestInit)=>json(url.endsWith("inference-connections")?{connections:[]}:{workflow_id:"w",run_id:"r"}));vi.stubGlobal("fetch",mock);
+  await adapter().run("n",{} as never);expect(JSON.parse(String(mock.mock.calls.at(-1)?.[1]?.body))).not.toHaveProperty("inference_selection");
+ });
+});

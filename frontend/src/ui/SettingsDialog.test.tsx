@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
 import type { InferenceStatus } from "../adapters/inference";
@@ -104,12 +104,12 @@ describe("SettingsDialog", () => {
      respond([{...model,id:"free",label:"Free reasoning",is_free:true,price_in_per_m:0,price_out_per_m:0},model]);
      renderDialog(configured);
      const picker = await screen.findByRole("combobox", {name:"Run model"}) as HTMLSelectElement;
-     await screen.findByRole("option", {name:"Paid reasoning - Paid - $1 in / $2 out per M"});
+     await within(picker).findByRole("option", {name:"Paid reasoning - Paid - $1 in / $2 out per M"});
      expect(picker.options[0].text).toBe("Auto (recommended)");
-     expect(screen.getByRole("option", {name:"Free reasoning - Free - $0 in / $0 out per M"})).toBeTruthy();
+     expect(within(picker).getByRole("option", {name:"Free reasoning - Free - $0 in / $0 out per M"})).toBeTruthy();
      fireEvent.change(picker,{target:{value:model.id}});
      fireEvent.click(screen.getByRole("radio",{name:"Cheaper slow"}));
-     expect(JSON.parse(localStorage.getItem("crucible.modelOverride.v1")!)).toEqual({v:1,tier:"cheaper_slow",pin:{model_id:model.id,is_free:false}});
+     expect(JSON.parse(localStorage.getItem("crucible.modelOverride.v1")!)).toEqual({v:1,tier:"cheaper_slow",pin:{model_id:model.id,is_free:false},helper:null});
      expect(screen.getByText("This run may use a paid model (Paid reasoning - $1 in / $2 out per M).")).toBeTruthy();
      expect(document.querySelector('input[aria-label="Primary model"]')).toBeNull();
    });
@@ -137,11 +137,11 @@ it("restores a saved tier and pin across remounts with unknown prices explicit",
  vi.stubGlobal("fetch",vi.fn(async (url:string)=>new Response(JSON.stringify(url.endsWith("/models") ? {models:[model]} : configured))));
  localStorage.setItem("crucible.modelOverride.v1",JSON.stringify({v:1,tier:"cheap_fast",pin:{model_id:model.id,is_free:true}}));
  renderDialog(configured);
- await screen.findByRole("option",{name:"Saved model - Free - unknown in / unknown out per M"});
+ await within(screen.getByRole("combobox",{name:"Run model"})).findByRole("option",{name:"Saved model - Free - unknown in / unknown out per M"});
  expect((screen.getByRole("combobox",{name:"Run model"}) as HTMLSelectElement).value).toBe("saved");
  expect((screen.getByRole("radio",{name:"Cheap fast"}) as HTMLInputElement).checked).toBe(true);
  cleanup();renderDialog(configured);
- await screen.findByRole("option",{name:/Saved model - Free/});
+ await within(screen.getByRole("combobox",{name:"Run model"})).findByRole("option",{name:/Saved model - Free/});
  expect((screen.getByRole("combobox",{name:"Run model"}) as HTMLSelectElement).value).toBe("saved");
  vi.unstubAllGlobals();
 });
@@ -155,4 +155,29 @@ it("includes the collapsed provider summary in the focus trap and skips its fiel
  expect(document.activeElement).toBe(summary);
  fireEvent.keyDown(summary,{key:"Tab"});expect(document.activeElement).toBe(close);
  expect(document.activeElement).not.toBe(screen.getByLabelText("Primary API key"));
+});
+
+describe("helper model picker",()=>{
+ afterEach(()=>vi.unstubAllGlobals());
+ const helper={connection_id:"b".repeat(32),model_id:"repair",is_free:true};
+ const model={id:"repair",label:"Repair",provider:"openrouter",is_free:true,price_in_per_m:0,price_out_per_m:0,context:null,tool_capable:true,band:"free"};
+ const setup=(models:unknown[]=[model],connections:unknown[]=[{id:"a".repeat(32)},{id:"b".repeat(32)}])=>vi.stubGlobal("fetch",vi.fn(async(url:string)=>new Response(JSON.stringify(url.endsWith("models")?{models}:url.endsWith("inference-connections")?{connections}:configured))));
+ it("saves a helper on the second connection and resets it to Auto",async()=>{
+  setup();const setters=renderDialog(configured);
+  const picker=screen.getByRole("combobox",{name:"Helper model"});
+  await within(picker).findByRole("option",{name:/Repair - Free/});
+  fireEvent.change(picker,{target:{value:"repair"}});
+  fireEvent.change(screen.getByRole("combobox",{name:"Helper connection"}),{target:{value:helper.connection_id}});
+  expect(JSON.parse(localStorage.getItem("crucible.modelOverride.v1")!).helper).toEqual(helper);
+  expect(setters.setPaidConsent).toHaveBeenLastCalledWith(false);
+  fireEvent.change(picker,{target:{value:""}});expect(JSON.parse(localStorage.getItem("crucible.modelOverride.v1")!).helper).toBeNull();
+ });
+ it.each(["model","connection"])("blocks an unavailable saved helper %s until Auto",async missing=>{
+  setup(missing==="model"?[]:[model],missing==="connection"?[]:[{id:helper.connection_id}]);
+  localStorage.setItem("crucible.modelOverride.v1",JSON.stringify({v:1,tier:"free",pin:null,helper}));
+  const ready=vi.fn();
+  render(<SettingsDialog open inference={configured} apiBase="" session={new IdentitySession("")} tier="free" setTier={vi.fn()} paidConsent={false} setPaidConsent={vi.fn()} spendCap="0" setSpendCap={vi.fn()} onClose={vi.fn()} onStatus={vi.fn()} disabled={false} onModelReady={ready}/>);
+  await screen.findByText(/Saved helper unavailable/);await waitFor(()=>expect(ready).toHaveBeenLastCalledWith(false));
+  fireEvent.click(screen.getByRole("button",{name:"Use Auto"}));await waitFor(()=>expect(ready).toHaveBeenLastCalledWith(true));
+ });
 });

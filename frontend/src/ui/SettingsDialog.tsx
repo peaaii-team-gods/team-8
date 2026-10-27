@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { InferenceSettings, modelPrice, readOverride, writeOverride, type InferenceModel, type ModelOverride, type ModelTier, type InferenceStatus } from "../adapters/inference";
+import { InferenceSettings, modelPrice, readOverride, writeOverride, type InferenceConnection, type InferenceModel, type ModelOverride, type ModelTier, type InferenceStatus } from "../adapters/inference";
 import type { IdentitySession } from "../adapters/identity";
 import InferencePanel from "./InferencePanel";
 
@@ -36,17 +36,23 @@ export default function SettingsDialog(props: Props) {
   }, [props.open]);
 
   const [override, setOverride] = useState(readOverride);
+  const [connections, setConnections] = useState<InferenceConnection[]>([]);
   const [models, setModels] = useState<InferenceModel[]>([]);
   const [listState, setListState] = useState("loading");
   useEffect(() => {
-    let active = true; setModels([]); setListState("loading");
+    let active = true; setModels([]); setConnections([]); setListState("loading");
     if (!props.inference?.configured) { setListState("host"); return; }
+    void new InferenceSettings(props.apiBase, props.session).listConnections().then(rows => {
+      if (active) setConnections(rows);
+    }).catch(() => { if (active) setConnections([]); });
     void new InferenceSettings(props.apiBase, props.session).listModels().then(rows => {
       if (active) { setModels(rows); setListState(rows.length ? "ready" : "empty"); }
     }).catch(() => { if (active) setListState("error"); });
     return () => { active = false; };
   }, [props.apiBase, props.session.token, props.inference?.configured, props.inference?.revision]);
   const selected = props.inference?.configured ? models.find(model => model.id === override.pin?.model_id) : undefined;
+  const helperModel = props.inference?.configured ? models.find(model => model.id === override.helper?.model_id) : undefined;
+  const helperReady = !override.helper || (!!helperModel && connections.some(connection => connection.id === override.helper?.connection_id));
   const modelLabel = `${selected?.label ?? "Auto"} - ${modelPrice(selected)}`;
   useEffect(() => { props.onModelLabel?.(modelLabel); }, [modelLabel, props.onModelLabel]);
   const save = (next: ModelOverride) => {
@@ -57,7 +63,7 @@ export default function SettingsDialog(props: Props) {
     save({ ...override, tier }); props.setTier(tier === "free" ? "free" : "premium");
     if (tier === "free") props.setSpendCap("0");
   };
-  useEffect(() => { props.onModelReady?.(!props.inference?.configured || !override.pin || !!selected); }, [props.inference?.configured, override.pin, selected, props.onModelReady]);
+  useEffect(() => { props.onModelReady?.((!props.inference?.configured || !override.pin || !!selected) && helperReady); }, [props.inference?.configured, override.pin, selected, helperReady, props.onModelReady]);
   useEffect(() => {
     if (props.inference && !props.inference.configured && override.pin) save({ ...override, pin: null });
   }, [props.inference?.configured]);
@@ -82,6 +88,14 @@ export default function SettingsDialog(props: Props) {
         const model = models.find(row => row.id === event.target.value);
         save({ ...override, pin: model ? { model_id: model.id, is_free: model.is_free } : null });
       }}><option value="">Auto (recommended)</option>{props.inference?.configured && models.map(model => <option key={model.id} value={model.id}>{model.label} - {model.is_free ? "Free" : "Paid"} - {modelPrice(model)}</option>)}</select></label>
+      <label>Helper model<select aria-label="Helper model" disabled={props.disabled || !props.inference?.configured || !connections.length} value={helperModel?.id ?? ""} onChange={event => {
+        const model = models.find(row => row.id === event.target.value);
+        save({ ...override, helper: model ? { model_id: model.id, is_free: model.is_free, connection_id: override.helper?.connection_id ?? connections[0].id } : null });
+      }}><option value="">Auto</option>{props.inference?.configured && models.map(model => <option key={model.id} value={model.id}>{model.label} - {model.is_free ? "Free" : "Paid"} - {modelPrice(model)}</option>)}</select></label>
+      <label>Helper connection<select aria-label="Helper connection" disabled={props.disabled || !override.helper} value={override.helper?.connection_id ?? connections[0]?.id ?? ""} onChange={event => {
+        if (override.helper) save({ ...override, helper: { ...override.helper, connection_id: event.target.value } });
+      }}>{connections.map((connection, index) => <option key={connection.id} value={connection.id}>{connection.label || `Connection ${index + 1}`}</option>)}</select></label>
+      {!helperReady && <p>Saved helper unavailable. <button type="button" disabled={props.disabled} onClick={() => save({ ...override, helper: null })}>Use Auto</button> before running.</p>}
       {props.inference?.configured && override.pin && !selected && <p>Saved model unavailable. <button type="button" disabled={props.disabled} onClick={() => save({ ...override, pin: null })}>Use Auto</button> before running.</p>}
       {listState === "loading" && <p>Loading models…</p>}
       {listState === "error" && <p>Model list unavailable — Auto only</p>}

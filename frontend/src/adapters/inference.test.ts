@@ -51,10 +51,10 @@ describe("liveRunBlocked", () => {
  it("strictly reads the versioned override or defaults", () => {
    for (const raw of [null, "broken", '{}', '{"v":2,"tier":"free","pin":null}', '{"v":1,"tier":"free","pin":{"model_id":"m","is_free":"false"}}']) {
      localStorage.clear(); if (raw) localStorage.setItem("crucible.modelOverride.v1", raw);
-     expect(readOverride()).toEqual({ v: 1, tier: "free", pin: null });
+     expect(readOverride()).toEqual({ v: 1, tier: "free", pin: null, helper: null });
    }
    localStorage.setItem("crucible.modelOverride.v1", JSON.stringify({v:1,tier:"cheap_fast",pin:{model_id:"m",is_free:false}}));
-   expect(readOverride()).toEqual({v:1,tier:"cheap_fast",pin:{model_id:"m",is_free:false}});
+   expect(readOverride()).toEqual({v:1,tier:"cheap_fast",pin:{model_id:"m",is_free:false},helper:null});
    localStorage.clear();
  });
 
@@ -76,4 +76,14 @@ it.each([{}, {connections:[{}]}, {connections:[{id:"bad"}]}])("rejects malformed
  localStorage.clear();
  try { await expect(runSelection("https://api.example", new IdentitySession("https://id.example"))).rejects.toThrow(/Invalid/); }
  finally { vi.unstubAllGlobals(); }
+});
+
+it("round-trips a helper and drops only invalid helper metadata", () => {
+ const saved={v:1,tier:"premium",pin:{model_id:"main",is_free:false},helper:{connection_id:"b".repeat(32),model_id:"helper",is_free:true}};
+ try {
+  localStorage.setItem("crucible.modelOverride.v1",JSON.stringify(saved)); expect(readOverride()).toEqual(saved);
+  for(const helper of [{...saved.helper,connection_id:"bad"},{...saved.helper,model_id:"bad model"},{...saved.helper,is_free:"true"},{...saved.helper,extra:true}]) {
+   localStorage.setItem("crucible.modelOverride.v1",JSON.stringify({...saved,helper})); expect(readOverride()).toEqual({...saved,helper:null});
+  }
+ } finally {localStorage.clear();}
 });

@@ -759,10 +759,10 @@ describe("MRF drift + one repair (jsdom)", () => {
 });
 
 
-it("blocks a hidden stale pin until the user explicitly chooses Auto", async () => {
+it.each(["pin","helper"])("blocks a hidden stale %s until the user explicitly chooses Auto", async target => {
   const {run} = liveInference(configuredStatus);
   vi.spyOn(InferenceSettings.prototype,"listModels").mockRejectedValue(new Error("Unavailable"));
-  localStorage.setItem("crucible.modelOverride.v1",JSON.stringify({v:1,tier:"free",pin:{model_id:"old-model",is_free:false}}));
+  localStorage.setItem("crucible.modelOverride.v1",JSON.stringify({v:1,tier:"free",pin:target==="pin"?{model_id:"old-model",is_free:false}:null,...(target==="helper"?{helper:{connection_id:"a".repeat(32),model_id:"old-model",is_free:false}}:{})}));
   renderApp();fireEvent.click((await screen.findAllByRole("button",{name:/Pilot storyboard/}))[0]);
   fireEvent.click(screen.getByRole("button",{name:"Settings"}));
   await screen.findByText(/Model list unavailable/);
@@ -772,7 +772,7 @@ it("blocks a hidden stale pin until the user explicitly chooses Auto", async () 
   expect((screen.getByRole("button",{name:/run pipeline/i}) as HTMLButtonElement).disabled).toBe(true);
   expect(run).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button",{name:"Use Auto"}));
-  expect(JSON.parse(localStorage.getItem("crucible.modelOverride.v1")!).pin).toBeNull();
+  expect(JSON.parse(localStorage.getItem("crucible.modelOverride.v1")!)[target]).toBeNull();
   expect((screen.getByLabelText(/I permit paid inference on this account/) as HTMLInputElement).checked).toBe(false);
   fireEvent.click(screen.getByLabelText(/I permit paid inference on this account/));
   await waitFor(()=>expect((screen.getByRole("button",{name:/run pipeline/i}) as HTMLButtonElement).disabled).toBe(false));

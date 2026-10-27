@@ -24,7 +24,7 @@ export default function InferencePanel({ apiBase, session, onStatus, disabled }:
     const attempt = ++operation.current;
     const current = () => live.current && attempt === operation.current;
     setBusy(true); setError("");
-    const body = remove ? { expected_revision: status.revision } : { ...primary, model_id: status.model_id?.trim() ? status.model_id : "auto", helper: null, expected_revision: status.revision };
+    const body = remove ? { expected_revision: status.revision } : { ...primary, model_id: status.model_id?.trim() ? status.model_id : "auto", expected_revision: status.revision };
     // Clear write-only key fields before the request settles, including failed requests.
     setPrimary(value => ({ ...value, api_key: "" }));
     try { const next = await api.request(remove ? "DELETE" : "PUT", body); if (current()) apply(next); }
@@ -47,7 +47,7 @@ export default function InferencePanel({ apiBase, session, onStatus, disabled }:
     <p role="status">{status?.configured ? `Connected: ${status.provider}. Choose the run model above.` : status?.host_models_authorized ? "No account provider. This login may use the operator host model." : "No confirmed account provider. Live runs are blocked."}</p>
     <button type="button" disabled={busy || disabled} onClick={() => { const attempt = ++operation.current; setBusy(true); setError(""); onStatus(null); void api.request().then(next => { if (live.current && attempt === operation.current) apply(next); }).catch(() => { if (live.current && attempt === operation.current) setError("Refresh failed. Live runs remain blocked."); }).finally(() => { if (live.current && attempt === operation.current) setBusy(false); }); }}>Refresh settings</button>
     {fields(primary, setPrimary, "Primary")}
-    <p>Choose the run model above. Saving replaces this account's provider and removes its legacy helper.</p>
+    <p>Choose the run model above. Saving replaces this account's provider.</p>
     <label><input type="checkbox" checked={confirmed} disabled={busy || disabled} onChange={e => setConfirmed(e.target.checked)} />I approve changing this shared account for everyone.</label>
     <button type="button" disabled={!status || !confirmed || busy || disabled || !primary.model_id || !primary.api_key} onClick={() => void mutate(false)}>Save account provider</button>
     <button type="button" disabled={!status?.configured || !confirmed || busy || disabled} onClick={() => void mutate(true)}>Remove account provider</button>
