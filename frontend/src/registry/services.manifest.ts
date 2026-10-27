@@ -9,8 +9,8 @@ import type { ServiceFeature } from "./types";
 export const SERVICE_FEATURES: ServiceFeature[] = [
   { id: "run-agent", service: "rhm-backend-service", feature: "Run a bounded agent workflow", requiredCapability: "run_execution", liveToday: true },
   { id: "cancel-run", service: "rhm-backend-service", feature: "Cancel a run this session started", requiredCapability: "run_cancellation", liveToday: true },
-  { id: "execute-shell", service: "rhm-sandbox-service", feature: "Hosted shell execution in workflows", requiredCapability: "shell_execution", liveToday: true },
-  { id: "execute-check", service: "rhm-sandbox-service", feature: "Sandboxed project checks", requiredCapability: "tool_execution", liveToday: true },
+  { id: "execute-shell", service: "rhm-sandbox-service", feature: "Hosted shell execution in workflows (swarm workflows only)", requiredCapability: "shell_execution", liveToday: true },
+  { id: "execute-check", service: "rhm-sandbox-service", feature: "Sandboxed project checks (swarm workflows only)", requiredCapability: "tool_execution", liveToday: true },
   { id: "tier3-merge", service: "rhm-backend-service", feature: "Tier-3 merge to main", requiredCapability: "approval_tier3_elevation", liveToday: false },
 ];
 type CapsEnvelope = { capabilities?: Record<string, { status?: unknown } | unknown> } | null;

@@ -105,6 +105,16 @@ describe("B10 binding: emission requires available AND a real binding", () => {
     }
   });
 
+  it("non-swarm drops shell: a binding missing project_id or task_id emits no tools", () => {
+    for (const partial of [{ ...binding, task_id: "" }, { ...binding, project_id: "" }]) {
+      const wf = bound(caps(available), partial);
+      expect(wf.allowed_tools).toEqual([]);
+      expect(wf.project_id).toBeUndefined();
+      expect(wf.task_id).toBeUndefined();
+      expect(wf.workspace_id).toBe("canvas_test01_builder");
+    }
+  });
+
   it("binding without an available report emits [] and keeps the synthetic path", () => {
     const wf = bound(caps({ shell_execution: { status: "unknown" }, tool_execution: { status: "unknown" } }), binding);
     expect(wf.allowed_tools).toEqual([]);

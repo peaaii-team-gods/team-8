@@ -86,6 +86,8 @@ export function compileAgent(
   // Emission unchanged (B9) plus binding: tools only when the fetched
   // report says available AND a real binding exists; otherwise []
   // and the synthetic workspace path exactly as before.
+  // Swarm = project_id AND task_id both present (OA-AG5): execute_shell /
+  // execute_check never ride a workflow without both, so `bound` gates them.
   const bound = binding && binding.workspace_id && binding.project_id && binding.task_id ? binding : null;
   const allowed_tools = bound ? hostedAllowedTools(capabilities) : [];
   const active = allowed_tools.length && bound ? bound : null;

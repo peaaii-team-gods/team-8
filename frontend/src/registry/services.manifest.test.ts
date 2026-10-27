@@ -13,6 +13,11 @@ describe("services.manifest X2 flip", () => {
     expect(byId("tier3-merge").liveToday).toBe(false);
   });
 
+  it("hosted shell/check feature text is marked swarm-only", () => {
+    expect(byId("execute-shell").feature).toContain("(swarm workflows only)");
+    expect(byId("execute-check").feature).toContain("(swarm workflows only)");
+  });
+
   it("a fetched backend report wins over the flipped default", () => {
     const off = caps({ shell_execution: "unavailable", tool_execution: "unavailable" });
     expect(featureLive(byId("execute-shell"), off)).toBe(false);
