@@ -85,7 +85,18 @@ export class LiveAdapter implements RhmAdapter {
     const status = done && ["succeeded", "failed", "cancelled"].includes(state) ? (state as RunOutcome["status"]) : done ? "failed" : "unknown";
     const usage = usageFromUnknown(j, "live");
     const workspace = parseWorkspaceList(j.workspace ?? j.files, h.nodeId);
-    return { nodeId: h.nodeId, status, state, basis: String(j.completion_basis ?? "agent_reported"), output, usage, workspace };
+    const reason = status === "failed" ? await this.failureReason(h) : undefined;
+    return { nodeId: h.nodeId, status, state, basis: String(j.completion_basis ?? "agent_reported"), output, usage, workspace, ...(reason ? { reason } : {}) };
+  }
+  /** Code from the run_failed event's data.reason; anything not a short snake_case code is dropped. */
+  private async failureReason(h: RunHandle): Promise<string | undefined> {
+    try {
+      const r = await this.apiGet(`/v1/runs/${h.runId}/events?after_seq=0`);
+      if (!r.ok) return undefined;
+      const events = ((await r.json()) as { events?: { type?: unknown; data?: { reason?: unknown } }[] }).events ?? [];
+      const reason = events.find((e) => e?.type === "run_failed")?.data?.reason;
+      return typeof reason === "string" && /^[a-z0-9_]{1,64}$/.test(reason) ? reason : undefined;
+    } catch { return undefined; }
   }
   async events(h: RunHandle, afterSeq: number): Promise<ParsedTelemetry> {
     try {

@@ -4,7 +4,7 @@ import HospitalPipelinePanel from "./HospitalPipelinePanel";
 import { scenarioById } from "../registry/scenarios";
 import { canLink } from "../registry/linkRules";
 import { useStore } from "../state/store";
-import { hospitalModelAdapter } from "../run/hospitalPipeline";
+import { hospitalModelGate } from "../run/hospitalPipeline";
 import type { RhmAdapter, RunHandle } from "../adapters/RhmAdapter";
 import type { WorkflowV1 } from "../compile/toWorkflow";
 // @ts-ignore -- test-only Node builtins
@@ -249,7 +249,7 @@ describe("hospital canvas deterministic record", () => {
     const model = modelSetup("unused", true);
     render(<HospitalPipelinePanel adapter={model.adapter} budget={0} />);
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
-    await screen.findByText("model unavailable, recorded path used");
+    await screen.findByText("model unavailable (offline model), recorded path used");
     expect(screen.getByRole("button", { name: "Open full report" })).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(useStore.getState().pipelineStage).toBe("complete");
@@ -327,11 +327,11 @@ describe("hospital canvas deterministic record", () => {
 
   it("preserves recorded fallback when an own-key account has not consented", async () => {
     const model = modelSetup("unused");
-    const gated = hospitalModelAdapter(model.adapter, { configured: true, host_models_authorized: true, revision: "r", credential_lifetime: "backend_process", provider: "openrouter" }, "1", false);
-    expect(gated).toBeNull();
-    render(<HospitalPipelinePanel adapter={gated} budget={1} />);
+    const gate = hospitalModelGate(model.adapter, { configured: true, host_models_authorized: true, revision: "r", credential_lifetime: "backend_process", provider: "openrouter" }, "1", false);
+    expect(gate).toEqual({ reason: "model off: paid consent not ticked in Settings" });
+    render(<HospitalPipelinePanel adapter={null} modelReason={"reason" in gate ? gate.reason : undefined} budget={1} />);
     fireEvent.click(screen.getByRole("button", { name: "Run hospital pipeline" }));
-    await screen.findByText("model unavailable, recorded path used");
+    await screen.findByText("model unavailable (model off: paid consent not ticked in Settings), recorded path used");
     expect(model.workflows).toHaveLength(0);
     expect(model.requests.some(r => r.url.endsWith("/proposals") || r.url.endsWith("/summary"))).toBe(false);
   });

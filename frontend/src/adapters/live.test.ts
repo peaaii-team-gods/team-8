@@ -38,6 +38,13 @@ describe("LiveAdapter poll mapping", () => {
     expect(first.basis).toBe("agent_reported");
   });
 
+  it("fills reason from the run_failed event and drops non-code values", async () => {
+    installFetch({ polls: [{ status: "failed" }], events: { events: [{ seq: 1, type: "run_failed", data: { reason: "provider_unavailable" } }] } });
+    expect((await adapter().poll({ nodeId: "a1", runId: "r1" })).reason).toBe("provider_unavailable");
+    installFetch({ polls: [{ status: "failed" }], events: { events: [{ seq: 1, type: "run_failed", data: { reason: "Bad Reason: sk-secret" } }] } });
+    expect((await adapter().poll({ nodeId: "a1", runId: "r1" })).reason).toBeUndefined();
+  });
+
   it("running -> succeeded via run + pollUntilTerminal, basis passthrough", async () => {
     const fetchMock = installFetch({
       polls: [

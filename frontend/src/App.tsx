@@ -50,7 +50,7 @@ import { failingChecks } from "./mrf/checks";
 import { bootDemo, demoPath, exitDemoPath, isDemoScenarioId, type DemoScenarioId } from "./demo/boot";
 import DemoBanner from "./demo/DemoBanner";
 import HospitalPipelinePanel from "./ui/HospitalPipelinePanel";
-import { hospitalModelAdapter } from "./run/hospitalPipeline";
+import { hospitalModelGate } from "./run/hospitalPipeline";
 import SettingsDialog from "./ui/SettingsDialog";
 
 const nodeTypes: NodeTypes = { agent: AgentNode, dataLake: DataLakeNode };
@@ -556,6 +556,7 @@ export default function App() {
     );
   }
 
+  const hospitalGate = hospitalModelGate(liveAdapter, inference, spendCap, paidConsent, { shellMode, modelReady });
   return <div className="flex h-full flex-col" onClick={(e) => {
     if (uiState.kind !== "linking") return;
     const target = e.target as HTMLElement | null;
@@ -566,7 +567,7 @@ export default function App() {
     <UserBar
       mode={shellMode}
       publicSource={scenarioId === "hospital-pipeline"}
-      hospitalModelLive={!!hospitalModelAdapter(shellMode === "live" && modelReady ? liveAdapter : null, inference, spendCap, paidConsent)}
+      hospitalModelLive={"adapter" in hospitalGate}
       username={identitySession?.user?.username ?? null}
       signedIn={!!liveAdapter}
       busy={running}
@@ -707,7 +708,7 @@ export default function App() {
           <button type="button" disabled={running} className="mt-1 text-[10px] opacity-70 disabled:opacity-50" onClick={() => setView("landing")}>Back to landing</button>
         )}
       </div>
-      {scenarioId === "hospital-pipeline" && <HospitalPipelinePanel key={sessionId} adapter={hospitalModelAdapter(shellMode === "live" && modelReady ? liveAdapter : null, inference, spendCap, paidConsent)} budget={Number(spendCap)} prepareLocalModel={() => liveAdapter?.setPaidInferenceConsent(paidConsent)} mode={shellMode} accessToken={identitySession?.token ?? null} />}
+      {scenarioId === "hospital-pipeline" && <HospitalPipelinePanel key={sessionId} adapter={"adapter" in hospitalGate ? hospitalGate.adapter : null} modelReason={"reason" in hospitalGate ? hospitalGate.reason : undefined} budget={Number(spendCap)} prepareLocalModel={() => liveAdapter?.setPaidInferenceConsent(paidConsent)} mode={shellMode} accessToken={identitySession?.token ?? null} />}
       {scenarioId !== "hospital-pipeline" && <HistoryPanel mode={shellMode} client={shellMode === "live" ? liveAdapter : null} />}
       <ReadinessPanel
         mode={shellMode === "live" && liveAdapter ? "live" : "simulated"}

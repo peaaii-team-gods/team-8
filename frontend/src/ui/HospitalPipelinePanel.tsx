@@ -36,7 +36,8 @@ const humanSummary = (step: PipelineRecord["steps"][number], golden: boolean) =>
   if (step.node === "analyst") return `${String(step.counts.row_count ?? 0)} SQL report rows ready`;
   return `${step.node} ${step.status}`;
 };
-export default function HospitalPipelinePanel({ adapter, budget, prepareLocalModel, mode, accessToken }: { adapter: RhmAdapter | null; budget: number; prepareLocalModel?: () => void; mode?: string; accessToken?: string | null }) {
+const fallbackText = (model: ModelView) => model.reason ? `model unavailable (${model.reason}), recorded path used` : "model unavailable, recorded path used";
+export default function HospitalPipelinePanel({ adapter, modelReason, budget, prepareLocalModel, mode, accessToken }: { adapter: RhmAdapter | null; modelReason?: string; budget: number; prepareLocalModel?: () => void; mode?: string; accessToken?: string | null }) {
   const signedOut = mode === "live" && !accessToken;
   const [record, setRecord] = useState<PipelineRecord | null>(null), [id, setId] = useState("");
   const [inject, setInject] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(""), [artifactError, setArtifactError] = useState("");
@@ -48,13 +49,13 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
   useEffect(() => {
     if (!record || !id) return;
     const store = useStore.getState();
-    const repairNote = model.repair ? `Model repair: ${model.repair.valid ? "valid" : "invalid"}${golden ? ` / ${model.matchesRepair ? "matches golden" : "differs from golden"}` : ""}` : model.unavailable ? "model unavailable, recorded path used" : "";
+    const repairNote = model.repair ? `Model repair: ${model.repair.valid ? "valid" : "invalid"}${golden ? ` / ${model.matchesRepair ? "matches golden" : "differs from golden"}` : ""}` : model.unavailable ? fallbackText(model) : "";
     for (const node of store.nodes) {
       const step = record.steps.find(step => presets[step.node]?.includes(node.data.presetId));
       const telemetry = step?.telemetry.filter(event => event.type !== "evidence") ?? [];
       const view = node.data.presetId === "hospital-store" ? { counts: step?.counts, telemetry, hospitalRunId: id, hospitalComplete: record.status === "completed", exportNote, exporting }
         : node.data.presetId === "mrf-hospital-maintainer" ? { counts: step?.counts, telemetry, modelRepair: repairNote }
-        : node.data.presetId === "hospital-analyst" ? { counts: step?.counts, telemetry, analystText: reportMd, summaryNote: model.rejected !== undefined ? `Summary rejected by guard: ${model.rejected} unsupported figures` : model.summary ? "Model summary · guard passed" : model.unavailable ? "model unavailable, recorded path used" : "" } : null;
+        : node.data.presetId === "hospital-analyst" ? { counts: step?.counts, telemetry, analystText: reportMd, summaryNote: model.rejected !== undefined ? `Summary rejected by guard: ${model.rejected} unsupported figures` : model.summary ? "Model summary · guard passed" : model.unavailable ? fallbackText(model) : "" } : null;
       if (view) {
         store.setNodeStatus(node.id, node.data.status, JSON.stringify(view), node.data.verification);
       }
@@ -89,7 +90,7 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
             }
           } catch { if (!signal.aborted) setArtifactError("Report artifact unavailable: connection failed"); }
           if (adapter) prepareLocalModel?.();
-          const proposals = adapter ? await hospitalModels(adapter, created.run_id, snapshot, budget, signal, handle => handles.current.push(handle), accessToken) : { unavailable: true };
+          const proposals = adapter ? await hospitalModels(adapter, created.run_id, snapshot, budget, signal, handle => handles.current.push(handle), accessToken) : { unavailable: true, reason: modelReason };
           if (!signal.aborted) setModel(proposals);
           break;
         }
@@ -131,7 +132,7 @@ export default function HospitalPipelinePanel({ adapter, budget, prepareLocalMod
       {step.node === "builder" && model.repair && <p>Model repair: {model.repair.valid ? "valid" : "invalid"}{golden && <> / {model.matchesRepair ? "matches golden" : "differs from golden"}</>}</p>}
     </div>)}
     {model.mapping && <p>Model mapping: {model.mapping.valid ? "valid" : "invalid"}{golden && <> / {model.mapping.matches_golden ? "matches golden" : "differs from golden"}</>}</p>}
-    {model.unavailable && <p className="text-white/60">model unavailable, recorded path used</p>}
+    {model.unavailable && <p className="text-white/60">{fallbackText(model)}</p>}
     {top && <section aria-label={reportTitle} className="space-y-2">
       <h3 className="font-semibold">{reportTitle}</h3>
       {!golden && <p>No golden for this file</p>}

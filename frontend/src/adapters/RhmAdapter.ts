@@ -6,6 +6,8 @@ export interface RunOutcome {
   status: "succeeded" | "failed" | "cancelled" | "unknown";
   output?: string;
   basis?: string;
+  /** Failure code from the run_failed event (live only), e.g. provider_unavailable. */
+  reason?: string;
   state?: string;
   usage?: UsageMetrics;
   workspace?: WorkspaceChange[];

@@ -210,7 +210,7 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     const analystNode = within(analystElement);
     expect(analystElement.textContent).toContain("Analyst");
     expect(analystElement.textContent).toContain("Finds data patterns through plaintext queries.");
-    expect(analystNode.getByText("model unavailable, recorded path used")).toBeTruthy();
+    expect(analystNode.getByText("model unavailable (model off: Crucible is not in live mode), recorded path used")).toBeTruthy();
     const openReportButton = [...analystElement.querySelectorAll("button")].find(button => button.textContent?.includes("Open full report"))!;
     fireEvent.click(openReportButton);
     const dialog = analystElement.querySelector("dialog") as HTMLDialogElement;

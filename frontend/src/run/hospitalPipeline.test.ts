@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { hospitalModelAdapter, ANALYST_INPUT_CAP, analystSqlRows, hospitalModels, pipelineHeaders, pipelineRequest, type PipelineRecord } from "./hospitalPipeline";
+import { hospitalModelAdapter, hospitalModelGate, ANALYST_INPUT_CAP, analystSqlRows, hospitalModels, pipelineHeaders, pipelineRequest, type PipelineRecord } from "./hospitalPipeline";
 import { tablesFromReport } from "../ui/HospitalReportTable";
 import { useStore } from "../state/store";
 import type { RhmAdapter } from "../adapters/RhmAdapter";
@@ -67,6 +67,43 @@ describe("hospital pipeline client bearer", () => {
     expect(JSON.parse(dispatched[0]).row_count).toBe(6938);
     expect(view.summary).toBe('Full-file comparisons available.');
     expect(view.unavailable).toBeUndefined();
+  });
+});
+
+describe("hospitalModelGate reasons", () => {
+  const live = { mode: "live" } as RhmAdapter;
+  const own = { configured: true, host_models_authorized: false, revision: "r", credential_lifetime: "backend_process" } as const;
+  const none = { configured: false, host_models_authorized: false, revision: null, credential_lifetime: "backend_process" } as const;
+  const ctx = { shellMode: "live", modelReady: true };
+  it("names the first failing check", () => {
+    expect(hospitalModelGate(live, own, "1", true, { shellMode: "simulated", modelReady: true })).toEqual({ reason: "model off: Crucible is not in live mode" });
+    expect(hospitalModelGate(null, own, "1", true, ctx)).toEqual({ reason: "model off: not signed in" });
+    expect(hospitalModelGate(live, own, "1", true, { shellMode: "live", modelReady: false })).toEqual({ reason: "model off: selected model not loaded - open Settings" });
+    expect(hospitalModelGate(live, null, "1", true, ctx)).toEqual({ reason: "model off: provider status not loaded" });
+    expect(hospitalModelGate(live, none, "1", true, ctx)).toEqual({ reason: "model off: no provider configured - add your OpenRouter key in Settings" });
+    expect(hospitalModelGate(live, own, "1", false, ctx)).toEqual({ reason: "model off: paid consent not ticked in Settings" });
+    expect(hospitalModelGate(live, own, "0", true, ctx)).toEqual({ reason: "model off: spend cap is 0 - set a cap in Settings" });
+    expect(hospitalModelGate(live, { ...none, host_models_authorized: true }, "-1", false, ctx)).toEqual({ reason: "model off: spend cap is 0 - set a cap in Settings" });
+    expect(hospitalModelGate(live, own, "1", true, ctx)).toEqual({ adapter: live });
+  });
+  const record: PipelineRecord = { status: "completed", steps: [{ node: "analyst", status: "completed", counts: {}, telemetry: [
+    { type: "evidence", source_excerpt: {} }, { type: "top10", rows: [], row_count: 0, spread: [] }] }] };
+  const adapterWith = (run: RhmAdapter["run"], output = "{}"): RhmAdapter => ({ mode: "live", capabilities: async () => null, cancel: async () => undefined, run,
+    poll: async handle => ({ nodeId: handle.nodeId, status: "succeeded", output }) });
+  it("keeps the run start copy as the reason", async () => {
+    useStore.getState().loadScenario("hospital-pipeline");
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ ok: true, mapping: { valid: true } })));
+    const adapter = adapterWith(async () => { throw new Error("This run needs a spend cap. Choose Premium in Settings and set one."); });
+    const view = await hospitalModels(adapter, "t", record, 0, new AbortController().signal, () => undefined);
+    expect(view.reason).toBe("This run needs a spend cap. Choose Premium in Settings and set one.");
+  });
+  it("reports a parse failure and a failed run reason", async () => {
+    useStore.getState().loadScenario("hospital-pipeline");
+    const parse = await hospitalModels(adapterWith(async nodeId => ({ nodeId, runId: "1" }), "not json"), "t", record, 0, new AbortController().signal, () => undefined);
+    expect(parse.reason).toBe("model reply failed to parse");
+    const failed: RhmAdapter = { ...adapterWith(async nodeId => ({ nodeId, runId: "1" })), poll: async handle => ({ nodeId: handle.nodeId, status: "failed", reason: "provider_unavailable" }) };
+    const view = await hospitalModels(failed, "t", record, 0, new AbortController().signal, () => undefined);
+    expect(view.reason).toBe("model run failed: provider_unavailable");
   });
 });
 
