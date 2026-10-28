@@ -13,9 +13,10 @@ interface Props {
   onPilot: () => void;
   onExport: () => void;
   onImport: (file: File) => void;
+  onTour?: () => void;
 }
 
-export default function UserBar({ mode, username, signedIn, busy, publicSource, hospitalModelLive, onSignIn, onSignOut, onClear, onPilot, onExport, onImport }: Props) {
+export default function UserBar({ mode, username, signedIn, busy, publicSource, hospitalModelLive, onSignIn, onSignOut, onClear, onPilot, onExport, onImport, onTour }: Props) {
   return (
     <header
       className="flex h-12 shrink-0 items-center gap-3 overflow-x-auto border-b border-white/10 bg-[#070312]/90 px-3 text-sm"
@@ -26,6 +27,7 @@ export default function UserBar({ mode, username, signedIn, busy, publicSource, 
       {publicSource ? <span>Public hospital source</span> : <SyntheticBadge />}
       <span data-testid="mode-label">{publicSource ? `Pipeline: local server · Model: ${hospitalModelLive ? "live" : "recorded path"}` : `Mode: ${mode}${mode === "live" && !signedIn ? " — sign in required" : ""}`}</span>
       <span className="ml-auto flex items-center gap-2">
+        {onTour && <button type="button" className="glass px-2 py-1" onClick={onTour}>Tour</button>}
         {mode === "live" && signedIn && <span data-testid="user-name">{username ?? "Signed in"}</span>}
         {mode === "live" && !signedIn && (
           <button type="button" className="glass px-2 py-1" onClick={onSignIn}>Sign in</button>

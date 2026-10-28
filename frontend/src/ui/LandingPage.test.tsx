@@ -1,5 +1,5 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
 // @ts-ignore -- test-only Node builtin
 import { readFileSync } from "node:fs";
 // @ts-ignore -- test-only Node builtin
@@ -65,4 +65,14 @@ it("previews only rows from the recorded run fixture", () => {
   expect(preview.textContent).toContain("recorded run, commit 5e1d9fb");
   expect(screen.queryByTestId("demo-hint")?.textContent).not.toContain("requires sign-in");
   expect(screen.getByRole("button", { name: "Enter canvas" })).toBeTruthy();
+});
+
+it("offers the tour only when the shell passes it", () => {
+  const onTour = vi.fn();
+  const { unmount } = render(<LandingPage mode="simulated" onSignIn={() => undefined} onEnterCanvas={() => undefined} onLoadMrf={() => undefined} onTour={onTour} />);
+  fireEvent.click(screen.getByRole("button", { name: "Take the tour" }));
+  expect(onTour).toHaveBeenCalledOnce();
+  unmount();
+  render(<LandingPage mode="live" onSignIn={() => undefined} onEnterCanvas={() => undefined} onLoadMrf={() => undefined} />);
+  expect(screen.queryByRole("button", { name: "Take the tour" })).toBeNull();
 });

@@ -10,6 +10,7 @@ export function CheatSheet({ onClose }: { onClose: () => void }) {
           <li>Ctrl+K or ⌘K — command palette</li>
           <li>Ctrl+Enter — Run when a link exists</li>
           <li>? — this list</li>
+          <li>Tour button or palette — welcome tour</li>
           <li>Esc — close</li>
         </ul>
         <p className="mt-2 text-[10px] opacity-60">Shortcuts stay quiet while a text field is focused. They do not sign in or call the API.</p>

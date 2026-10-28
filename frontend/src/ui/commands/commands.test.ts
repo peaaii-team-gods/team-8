@@ -29,6 +29,13 @@ describe("registerCommands", () => {
     expect(commands.some((command) => command.id === COMMAND_IDS.readinessRefresh)).toBe(false);
   });
 
+  it("lists the welcome tour only when the shell can open it", () => {
+    expect(registerCommands(actions()).some((command) => command.id === COMMAND_IDS.tour)).toBe(false);
+    const openTour = vi.fn();
+    registerCommands(actions({ openTour })).find((command) => command.id === COMMAND_IDS.tour)?.run();
+    expect(openTour).toHaveBeenCalledOnce();
+  });
+
   it("matches a short query and ignores shortcuts while typing", () => {
     expect(fuzzyMatch("plt", "Load Pilot storyboard")).toBe(true);
     expect(fuzzyMatch("assay", "Load Assay QC")).toBe(true);
