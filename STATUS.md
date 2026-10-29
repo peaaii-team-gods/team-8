@@ -1,5 +1,17 @@
 # STATUS — Crucible Cast
 
+## Welcome tour 01 (2026-10-28)
+
+A canvas overlay tour spotlights each control (top bar, mode label, canvas,
+nodes, Create, Run, Contracts, Outputs, Settings, right-rail panels) with a
+What / How / Why card. Steps whose element is not on screen are skipped. It
+opens on the first canvas visit per page load (never in demo mode) and can be
+reopened from the top bar Tour button, the command palette, or the landing
+page link (simulated mode). Nothing is written to browser storage. On an empty
+canvas it offers to load the Pilot storyboard first. Validation: frontend suite
+307 tests passed; docs check and production build passed; walked in a local
+dev browser. Existing build-size warning remains. Not deployed.
+
 ## Helper routing 01 (2026-10-27)
 
 Run settings offer an optional helper model and connection, with Auto as the

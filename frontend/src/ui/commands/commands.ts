@@ -12,6 +12,7 @@ export const COMMAND_IDS = {
   exportSnapshot: "export-snapshot",
   importSnapshot: "import-snapshot",
   readinessRefresh: "readiness-refresh",
+  tour: "open-tour",
 } as const;
 
 export const OPEN_CONTRACTS_EVENT = "team8:open-contracts";
@@ -36,6 +37,7 @@ export interface CommandActions {
   canRun: boolean;
   running: boolean;
   canLeave: boolean;
+  openTour?: () => void;
 }
 
 export function fuzzyMatch(query: string, text: string): boolean {
@@ -74,5 +76,6 @@ export function registerCommands(actions: CommandActions): Command[] {
     command(COMMAND_IDS.contracts, "Open Contracts", true, undefined, actions.openContracts),
     command(COMMAND_IDS.exportSnapshot, "Export snapshot", true, undefined, actions.exportSnapshot),
     command(COMMAND_IDS.importSnapshot, "Import snapshot", !actions.running, actions.running ? "Stop the run first." : undefined, actions.importSnapshot),
+    ...(actions.openTour ? [command(COMMAND_IDS.tour, "Open welcome tour", true, undefined, actions.openTour)] : []),
   ];
 }

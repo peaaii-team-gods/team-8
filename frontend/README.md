@@ -24,6 +24,7 @@ npm run rehearse:mrf # offline rehearsal of the drift-and-repair story
 
 - `?demo=1` opens a guided storyboard. `&autorun=1` starts it.
 - `Ctrl+K` opens the command palette.
+- **Tour** (top bar, the palette, or "Take the tour" on the landing page) walks each canvas control with a What / How / Why card. It opens on its own once per page load, never in `?demo=1`, and writes no browser storage.
 - **Export snapshot** saves the graph to a local file. **Import** loads it back.
 
 ## Honest labels

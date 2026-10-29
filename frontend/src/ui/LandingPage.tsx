@@ -17,10 +17,11 @@ interface Props {
   onSignIn: () => void;
   onEnterCanvas: () => void;
   onLoadMrf: () => void;
+  onTour?: () => void;
   sessionError?: string | null;
 }
 
-export default function LandingPage({ mode, onSignIn, onEnterCanvas, onLoadMrf, sessionError }: Props) {
+export default function LandingPage({ mode, onSignIn, onEnterCanvas, onLoadMrf, onTour, sessionError }: Props) {
   return (
     <div className="relative min-h-full overflow-hidden" data-testid="landing-page">
       <a href="#main" className="skip-link">Skip to main content</a>
@@ -71,6 +72,11 @@ export default function LandingPage({ mode, onSignIn, onEnterCanvas, onLoadMrf, 
           <a href="#how-it-works" className="self-center px-2 py-2 text-base text-white/85 underline underline-offset-4">
             How it works
           </a>
+          {onTour && (
+            <button type="button" data-testid="cta-tour" className="self-center px-2 py-2 text-base text-white/85 underline underline-offset-4" onClick={onTour}>
+              Take the tour
+            </button>
+          )}
         </motion.div>
         <p data-testid="demo-hint" className="mt-3 max-w-xl text-base text-white/85">
           The MRF demo opens the hospital price pipeline on the canvas.{mode === "live" ? " Running it requires sign-in." : ""}

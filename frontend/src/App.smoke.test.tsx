@@ -15,6 +15,7 @@ import { LiveAdapter } from "./adapters/live";
 import type { RunOutcome } from "./adapters/RhmAdapter";
 import type { InferenceStatus } from "./adapters/inference";
 import { MRF_GOLDEN_MAPPING } from "./mrf/data";
+import { markTourSeen } from "./ui/tour/WelcomeTour";
 // @ts-ignore -- test-only Node builtin; fixture is the exact public GET captured from a real run.
 import { readFileSync } from "node:fs";
 
@@ -33,6 +34,7 @@ const renderApp = () => render(<ToastProvider><App /></ToastProvider>);
 
 beforeEach(() => {
   localStorage.clear();
+  markTourSeen();
   window.history.replaceState({}, "", "/");
   useStore.setState({
   nodes: [], edges: [], uiState: { kind: "void" },
@@ -296,6 +298,41 @@ describe("App simulated smoke (jsdom DOM-level, not a real browser)", () => {
     await waitFor(() => expect(useStore.getState().scenarioId).toBe("assay-qc"));
     expect(restore).not.toHaveBeenCalled();
     expect(screen.getByTestId("mode-label").textContent).toMatch(/simulated/);
+  });
+
+  it("opens the welcome tour on the first canvas visit, reopens it from the bar, and writes no storage", async () => {
+    markTourSeen(false);
+    renderApp();
+    fireEvent.click(screen.getByRole("button", { name: /Enter canvas/i }));
+    const tour = await screen.findByTestId("welcome-tour");
+    expect(within(tour).getByText("Welcome to Crucible Cast")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "?" });
+    expect(screen.queryByTestId("cheat-sheet")).toBeNull();
+    fireEvent.click(within(tour).getByRole("button", { name: "Skip" }));
+    expect(screen.queryByTestId("welcome-tour")).toBeNull();
+    fireEvent.click(within(screen.getByTestId("user-bar")).getByRole("button", { name: "Tour" }));
+    expect(await screen.findByTestId("welcome-tour")).toBeTruthy();
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it("opens the tour from the landing link and from the command palette", async () => {
+    renderApp();
+    fireEvent.click(screen.getByTestId("cta-tour"));
+    const tour = await screen.findByTestId("welcome-tour");
+    fireEvent.click(within(tour).getByRole("button", { name: "Skip" }));
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    fireEvent.change(await screen.findByLabelText("Find a command"), { target: { value: "tour" } });
+    fireEvent.keyDown(screen.getByLabelText("Find a command"), { key: "Enter" });
+    expect(await screen.findByTestId("welcome-tour")).toBeTruthy();
+  });
+
+  it("never opens the tour on its own in demo mode", async () => {
+    markTourSeen(false);
+    window.history.replaceState({}, "", "/?demo=1&scenario=assay-qc");
+    renderApp();
+    await waitFor(() => expect(useStore.getState().scenarioId).toBe("assay-qc"));
+    expect(screen.queryByTestId("welcome-tour")).toBeNull();
   });
 
   it("loads the pilot from the command palette and ignores the shortcut while typing", async () => {

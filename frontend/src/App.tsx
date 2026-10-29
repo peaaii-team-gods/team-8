@@ -52,6 +52,7 @@ import DemoBanner from "./demo/DemoBanner";
 import HospitalPipelinePanel from "./ui/HospitalPipelinePanel";
 import { hospitalModelAdapter } from "./run/hospitalPipeline";
 import SettingsDialog from "./ui/SettingsDialog";
+import WelcomeTour, { markTourSeen, tourSeen } from "./ui/tour/WelcomeTour";
 
 const nodeTypes: NodeTypes = { agent: AgentNode, dataLake: DataLakeNode };
 const edgeTypes = { packet: PacketEdge } as EdgeTypes;
@@ -88,6 +89,7 @@ export default function App() {
   const [snapshotNotice, setSnapshotNotice] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [cheatOpen, setCheatOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
   const [liveAdapter, setLiveAdapter] = useState<LiveAdapter | null>(null);
   const [identitySession, setIdentitySession] = useState<IdentitySession | null>(null);
   const [inference, setInference] = useState<InferenceStatus | null>(null);
@@ -447,6 +449,13 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [demo.enabled, demo.autorun, edges.length]);
 
+  // First canvas visit in this tab opens the tour; demo rehearsals are never interrupted.
+  useEffect(() => {
+    if (view !== "canvas" || demo.enabled || tourSeen()) return;
+    markTourSeen();
+    setTourOpen(true);
+  }, [view, demo.enabled]);
+
   const commands = registerCommands({
     loadScenario: (id) => { setView("canvas"); announceLoad(id); },
     openHub: () => { setView("canvas"); openHub(); },
@@ -468,6 +477,7 @@ export default function App() {
     canRun: view === "canvas" && edges.length > 0 && !!adapter,
     running,
     canLeave: shellMode === "simulated",
+    openTour: () => { setView("canvas"); setTourOpen(true); },
   });
 
   useEffect(() => {
@@ -548,6 +558,7 @@ export default function App() {
         sessionError={sessionError}
         onSignIn={() => setView("signin")}
         onEnterCanvas={() => setView("canvas")}
+        onTour={shellMode === "simulated" ? () => { setView("canvas"); setTourOpen(true); } : undefined}
         onLoadMrf={() => {
           setView("canvas");
           loadScenario("hospital-pipeline");
@@ -596,6 +607,7 @@ export default function App() {
       onClear={() => { setSnapshotNotice(null); clearSession(); useStore.getState().pushActivity({ kind: "clear", title: "Canvas cleared", level: "info" }); }}
       onPilot={() => announceLoad("pilot-storyboard")}
       onExport={() => { setSnapshotNotice(null); downloadCanvasSnapshot(buildCanvasSnapshot(nodes, edges)); }}
+      onTour={() => setTourOpen(true)}
       onImport={(file) => {
         const reader = new FileReader();
         reader.onload = () => {
@@ -623,9 +635,9 @@ export default function App() {
       />
     )}
     <div className="flex min-h-0 flex-1">
-    <main id="main" tabIndex={-1} className="relative h-full min-w-0 flex-1">
+    <main id="main" tabIndex={-1} data-tour="canvas" className="relative h-full min-w-0 flex-1">
     <VoidBackground />
-    {shellMode === "live" && identitySession && <button ref={settingsButton} type="button" aria-label="Settings" disabled={running} className="glass absolute bottom-6 left-4 z-20 flex items-center gap-2 p-2 text-xs disabled:opacity-50" onClick={() => setSettingsOpen(true)}><Settings size={16} /><span className="hidden sm:inline">Settings</span></button>}
+    {shellMode === "live" && identitySession && <button ref={settingsButton} type="button" aria-label="Settings" data-tour="settings" disabled={running} className="glass absolute bottom-6 left-4 z-20 flex items-center gap-2 p-2 text-xs disabled:opacity-50" onClick={() => setSettingsOpen(true)}><Settings size={16} /><span className="hidden sm:inline">Settings</span></button>}
     {shellMode === "live" && identitySession && <SettingsDialog open={settingsOpen}
       onModelReady={setModelReady} onModelLabel={setRunModelLabel} inference={inference} apiBase={apiBase} session={identitySession} tier={tier} setTier={setTier}
       paidConsent={paidConsent} setPaidConsent={setPaidConsent} spendCap={spendCap} setSpendCap={setSpendCap}
@@ -644,13 +656,13 @@ export default function App() {
         >
           Load Pilot storyboard
         </button>
-        <motion.button layoutId="hub" aria-label="Create" className="text-sm text-white/70 underline-offset-4 hover:underline" onClick={(e) => { e.stopPropagation(); openHub(); }}>
+        <motion.button layoutId="hub" aria-label="Create" data-tour="create" className="text-sm text-white/70 underline-offset-4 hover:underline" onClick={(e) => { e.stopPropagation(); openHub(); }}>
           Create
         </motion.button>
       </div>
     )}
     {nodes.length > 0 && uiState.kind !== "hub" && (
-      <button aria-label="Create" disabled={running} className="glass absolute bottom-6 right-6 z-10 p-3 text-fuchsia-300 disabled:opacity-50" onClick={(e) => { e.stopPropagation(); openHub(); }}><Plus size={20} /></button>
+      <button aria-label="Create" data-tour="create" disabled={running} className="glass absolute bottom-6 right-6 z-10 p-3 text-fuchsia-300 disabled:opacity-50" onClick={(e) => { e.stopPropagation(); openHub(); }}><Plus size={20} /></button>
     )}
     <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} fitView fitViewOptions={{ padding: scenarioId === "hospital-pipeline" ? 0.12 : 0.28 }} maxZoom={scenarioId === "hospital-pipeline" ? 1.15 : 1.05}
       deleteKeyCode={running ? null : ["Backspace", "Delete"]}
@@ -692,7 +704,7 @@ export default function App() {
     </div>}
     {scenarioId !== "hospital-pipeline" && shellMode === "live" && !inference?.configured && !inference?.host_models_authorized && <p className="glass absolute bottom-[4.5rem] left-2 z-20 max-w-sm p-2 text-xs">Open Settings and add a provider before running.</p>}
     {edges.length > 0 && scenarioId !== "hospital-pipeline" && (
-      <div className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2">
+      <div data-tour="run" className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2">
         <button aria-label={running ? "Stop run" : "Run pipeline"} disabled={!running && (!adapter || (shellMode === "live" && providerBlocked))} title={!running && !adapter ? "Sign in before Run." : undefined} className="glass flex items-center gap-2 px-5 py-2 disabled:opacity-50" onClick={(e) => { e.stopPropagation(); void toggleRun(); }}>{running ? <Square size={14} /> : <Play size={14} />}{running ? "Stop" : "Run Pipeline"}</button>
         {scenarioId === "mrf-pipeline" && (
           <button type="button" aria-label="Upstream schema drift" disabled={running || !mrfMapping || (shellMode === "live" && providerBlocked)} className="glass px-4 py-2 text-xs disabled:opacity-50" onClick={(e) => { e.stopPropagation(); injectDrift(); }}>
@@ -742,6 +754,7 @@ export default function App() {
       {scenarioId !== "hospital-pipeline" && <WorkspacePanel />}
     </div>
     {commandChrome}
+    <WelcomeTour open={tourOpen} onClose={() => setTourOpen(false)} canvasEmpty={nodes.length === 0} onLoadPilot={() => announceLoad("pilot-storyboard")} />
     </div>
   </div>;
 }
